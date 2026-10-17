@@ -37,8 +37,12 @@ pinned commit, and checks every file against its sha256 (see
 `${XDG_CACHE_HOME:-~/.cache}/vinospeak/` by default.
 
 ```bash
-vinospeak "Hello from vinoSpeak." --output hello.wav
+vinospeak "Hello from vinoSpeak."                     # plays it on your speakers
+vinospeak "Hello from vinoSpeak." --output hello.wav  # saves a WAV instead
 ```
+
+Playback goes through `pw-play` (PipeWire, what Wayland desktops run), falling
+back to `paplay` or `aplay`.
 
 The default inference device is the Intel NPU. Choose a different OpenVINO
 device, voice, language, speed, or model directory with the corresponding
@@ -54,8 +58,8 @@ vinospeak "A sample sentence." \
   --output speech.wav
 ```
 
-Use `vinospeak --help` to see all options. The generated WAV uses the sample
-rate reported by OpenVINO GenAI.
+Use `vinospeak --help` to see all options. The audio uses the sample rate
+reported by OpenVINO GenAI.
 
 ## Check this machine
 

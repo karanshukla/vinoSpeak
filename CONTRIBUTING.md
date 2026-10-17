@@ -17,7 +17,7 @@ uv pip install --group dev numpy
 For the real thing:
 
 ```bash
-uv sync
+uv sync          # .python-version picks 3.14: OpenVINO has no 3.15 wheel yet
 uv run vinospeak "Hello." --device CPU --output hello.wav
 ```
 
