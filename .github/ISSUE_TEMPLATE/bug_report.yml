@@ -1,0 +1,32 @@
+name: Bug report
+description: Speech is wrong, missing, or the command fails.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The command you ran, what you expected, what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: vinospeak-doctor --json
+      description: Paste the output. It lists the OpenVINO version, devices, the NPU driver range from ovfetch, and whether the model matches its pin.
+      render: json
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Device you ran on
+      placeholder: Intel Core Ultra NPU / Arc iGPU / CPU only
+
+  - type: input
+    id: distro
+    attributes:
+      label: Distro and version
+      placeholder: Fedora 43
