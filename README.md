@@ -80,7 +80,14 @@ from vino_speak import Synthesizer
 
 synth = Synthesizer("NPU")  # compiles the model once; reuse it
 audio = synth.synthesize("Hello.")  # audio.samples (float32), audio.sample_rate
+
+speech = synth.speak("A long passage.")  # returns at once, plays in the background
+speech.stop()  # cuts it off; speech.wait() blocks until it finishes instead
 ```
+
+`speak()` synthesizes the first sentence on its own and plays it while the
+rest is synthesized in chunks that at most double in size, so speech starts
+after about 1.5 s on the NPU however long the text is.
 
 ## Development
 

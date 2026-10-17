@@ -9,7 +9,10 @@ conventional commits, CI actions pinned to a commit SHA.
 
 ```
 vino_speak/
-  tts.py      Synthesizer (loaded pipeline, thread-safe) and the one-shot synthesize()
+  tts.py      Synthesizer (loaded pipeline, thread-safe; stream(), speak()) and the
+              one-shot synthesize() / speak()
+  text.py     chunks(): first sentence alone, then chunks that at most double
+  playback.py Speech: raw float32 into one pw-play/paplay/aplay process, stop()
   model.py    cache dir, pinned download, verify(); no OpenVINO import
   cli.py      argparse front end for vinospeak
   doctor.py   vinospeak-doctor: packages, devices, ovfetch notes, model pin check
