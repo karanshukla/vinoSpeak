@@ -22,6 +22,9 @@ LANGUAGES = ("en-us", "en-gb", "es", "fr-fr", "hi", "it", "pt-br")
 DEFAULT_VOICE = "af_heart"
 DEFAULT_DEVICE = "NPU"
 VOICE_PATTERN = re.compile(r"[a-z]{2}_[a-z0-9_]+\Z")
+# OpenVINO 2026.4 pins Kokoro's vocoder to the CPU for an NPU compiler bug
+# this driver doesn't have. Remove with #7.
+NPU_PROPERTIES = {"NPUW_SUBMODEL_DEVICE": ""}
 
 
 @dataclass(frozen=True)
@@ -91,7 +94,8 @@ class Synthesizer:
         self.device = device
         self.model_dir = model_dir
         self._ov = ov
-        self._pipeline = ov_genai.Text2SpeechPipeline(model_dir, device)
+        properties = NPU_PROPERTIES if device.startswith("NPU") else {}
+        self._pipeline = ov_genai.Text2SpeechPipeline(model_dir, device, **properties)
         self._voices: dict[str, Any] = {}
         self._lock = threading.Lock()
 
