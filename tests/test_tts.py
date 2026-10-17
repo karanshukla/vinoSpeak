@@ -64,9 +64,10 @@ def test_audio_data_rejects_empty_or_non_finite_waveforms(values):
 class FakePipeline:
     instances: list["FakePipeline"] = []
 
-    def __init__(self, model_dir, device):
+    def __init__(self, model_dir, device, **properties):
         self.model_dir = model_dir
         self.device = device
+        self.properties = properties
         self.calls = []
         FakePipeline.instances.append(self)
 
@@ -117,6 +118,15 @@ def test_synthesizer_returns_audio_and_reuses_the_pipeline(fake_runtime):
     pipeline = FakePipeline.instances[0]
     assert pipeline.device == "CPU"
     assert pipeline.calls == [("Hello", "en-us", 1.0), ("Again", "en-us", 1.5)]
+
+
+@pytest.mark.parametrize(
+    ("device", "properties"),
+    [("NPU", {"NPUW_SUBMODEL_DEVICE": ""}), ("CPU", {}), ("GPU", {})],
+)
+def test_synthesizer_unpins_the_vocoder_only_on_the_npu(fake_runtime, device, properties):
+    tts.Synthesizer(device, fake_runtime)
+    assert FakePipeline.instances[0].properties == properties
 
 
 def test_synthesizer_does_not_override_an_espeak_path_already_set(fake_runtime, monkeypatch):
