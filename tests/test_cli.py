@@ -27,17 +27,26 @@ def test_main_prints_where_the_speech_went(monkeypatch, capsys, tmp_path):
     assert str(tmp_path / "out.wav") in capsys.readouterr().out
 
 
-def test_main_plays_the_speech_when_there_is_no_output(monkeypatch, capsys):
-    played = []
-    monkeypatch.setattr(cli, "synthesize", lambda text, output, **kwargs: output)
-    monkeypatch.setattr(cli, "play", lambda wav: played.append(wav))
+def test_main_speaks_when_there_is_no_output(monkeypatch, capsys):
+    spoken = []
+    monkeypatch.setattr(cli, "speak", lambda text, **kwargs: spoken.append(text))
+    monkeypatch.setattr(cli, "synthesize", lambda *args, **kwargs: pytest.fail("wrote a file"))
     cli.main(["Hello"])
-    assert [wav.name for wav in played] == ["speech.wav"]
-    assert not played[0].exists()
+    assert spoken == ["Hello"]
     assert capsys.readouterr().out == ""
 
 
-def test_saving_to_a_file_does_not_play_it(monkeypatch, tmp_path):
+def test_saving_to_a_file_does_not_speak(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "synthesize", lambda *args, **kwargs: None)
-    monkeypatch.setattr(cli, "play", lambda wav: pytest.fail("played a saved file"))
+    monkeypatch.setattr(cli, "speak", lambda *args, **kwargs: pytest.fail("spoke a saved file"))
     cli.main(["Hello", "--output", str(tmp_path / "out.wav")])
+
+
+def test_ctrl_c_exits_quietly_with_130(monkeypatch):
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "speak", interrupted)
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["Hello"])
+    assert exit_info.value.code == 130

@@ -135,3 +135,29 @@ def test_synthesize_validates_before_loading_anything(tmp_path):
     with pytest.raises(ValueError, match="empty"):
         tts.synthesize(" ", tmp_path / "out.wav", model_dir=tmp_path / "never-created")
     assert not (tmp_path / "never-created").exists()
+
+
+def test_stream_synthesizes_a_chunk_at_a_time_as_it_is_consumed(fake_runtime):
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+    stream = synthesizer.stream("First one. Second one.\n\nThird.")
+    pipeline = FakePipeline.instances[0]
+    assert pipeline.calls == []
+    assert next(stream).sample_rate == 24000
+    assert [call[0] for call in pipeline.calls] == ["First one."]
+    list(stream)
+    assert [call[0] for call in pipeline.calls] == ["First one.", "Second one. Third."]
+
+
+def test_stream_validates_before_anything_is_consumed(fake_runtime):
+    with pytest.raises(ValueError, match="Speed"):
+        tts.Synthesizer("CPU", fake_runtime).stream("Hello", speed=9)
+
+
+def test_speak_checks_for_a_player_before_loading_the_model(monkeypatch, tmp_path):
+    def no_player():
+        raise RuntimeError("no player")
+
+    monkeypatch.setattr(tts, "require_player", no_player)
+    with pytest.raises(RuntimeError, match="no player"):
+        tts.speak("Hello", model_dir=tmp_path / "never-created")
+    assert not (tmp_path / "never-created").exists()

@@ -5,11 +5,14 @@ from __future__ import annotations
 import os
 import re
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .model import default_model_dir, ensure_model
+from .playback import Speech, require_player
+from .text import chunks
 
 if TYPE_CHECKING:
     import numpy as np
@@ -119,6 +122,28 @@ class Synthesizer:
             samples = get_audio_data(result.speeches[0], self._ov)
             return Audio(samples, int(result.output_sample_rate))
 
+    def stream(
+        self,
+        text: str,
+        voice: str = DEFAULT_VOICE,
+        language: str = "en-us",
+        speed: float = 1.0,
+    ) -> Iterator[Audio]:
+        """The text a chunk at a time, synthesized as it is consumed. The
+        lock is held per chunk, so other callers can interleave."""
+        validate_inputs(text, voice, speed, language)
+        return (self.synthesize(chunk, voice, language, speed) for chunk in chunks(text))
+
+    def speak(
+        self,
+        text: str,
+        voice: str = DEFAULT_VOICE,
+        language: str = "en-us",
+        speed: float = 1.0,
+    ) -> Speech:
+        """Start playing the text on the speakers and return at once."""
+        return Speech(self.stream(text, voice, language, speed))
+
 
 def synthesize(
     text: str,
@@ -141,3 +166,23 @@ def synthesize(
     output.parent.mkdir(parents=True, exist_ok=True)
     sf.write(output, audio.samples, audio.sample_rate)
     return output
+
+
+def speak(
+    text: str,
+    voice: str = DEFAULT_VOICE,
+    language: str = "en-us",
+    speed: float = 1.0,
+    device: str = DEFAULT_DEVICE,
+    model_dir: Path | None = None,
+) -> None:
+    """One-shot: speak text on the speakers and return when it has finished."""
+    # Before the model download and the pipeline compile, not after.
+    validate_inputs(text, voice, speed, language)
+    player = require_player()
+    synthesizer = Synthesizer(device, model_dir)
+    speech = Speech(synthesizer.stream(text, voice, language, speed), player)
+    try:
+        speech.wait()
+    finally:
+        speech.stop()
