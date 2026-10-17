@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
 from .model import default_model_dir
+from .playback import play
 from .tts import DEFAULT_DEVICE, DEFAULT_VOICE, LANGUAGES, synthesize
 
 
@@ -15,7 +17,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="Synthesize speech with Kokoro-82M INT8 on an OpenVINO device."
     )
     parser.add_argument("text", help="Text to synthesize.")
-    parser.add_argument("--output", type=Path, default=Path("speech.wav"))
+    parser.add_argument(
+        "--output", type=Path, help="Save a WAV here instead of playing it on the speakers."
+    )
     parser.add_argument("--voice", default=DEFAULT_VOICE, help="Kokoro voice identifier.")
     parser.add_argument("--language", choices=LANGUAGES, default="en-us")
     parser.add_argument("--speed", type=float, default=1.0)
@@ -36,16 +40,19 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     arguments = parser.parse_args(argv)
+    options = {
+        "voice": arguments.voice,
+        "language": arguments.language,
+        "speed": arguments.speed,
+        "device": arguments.device,
+        "model_dir": arguments.model_dir,
+    }
     try:
-        synthesize(
-            arguments.text,
-            arguments.output,
-            voice=arguments.voice,
-            language=arguments.language,
-            speed=arguments.speed,
-            device=arguments.device,
-            model_dir=arguments.model_dir,
-        )
+        if arguments.output is None:
+            with tempfile.TemporaryDirectory(prefix="vinospeak-") as scratch:
+                play(synthesize(arguments.text, Path(scratch) / "speech.wav", **options))
+            return
+        synthesize(arguments.text, arguments.output, **options)
     except (OSError, RuntimeError, ValueError) as error:
         parser.error(str(error))
     print(f"Speech saved to {arguments.output}")
