@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=78.1.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vinospeak"
+version = "0.1.0"
+description = "Intel NPU-powered Kokoro text-to-speech with OpenVINO"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "espeakng-loader>=0.2.4",
+    "huggingface-hub>=0.24.0",
+    "numpy>=1.24.0",
+    "openvino>=2026.4.0",
+    "openvino-genai>=2026.4.0",
+    "soundfile>=0.12.1",
+]
+
+[project.scripts]
+vino-speak = "vino_speak.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["vino_speak*"]
