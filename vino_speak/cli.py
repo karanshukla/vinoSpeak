@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
 from .model import default_model_dir
-from .playback import play
-from .tts import DEFAULT_DEVICE, DEFAULT_VOICE, LANGUAGES, synthesize
+from .tts import DEFAULT_DEVICE, DEFAULT_VOICE, LANGUAGES, speak, synthesize
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,12 +47,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     }
     try:
         if arguments.output is None:
-            with tempfile.TemporaryDirectory(prefix="vinospeak-") as scratch:
-                play(synthesize(arguments.text, Path(scratch) / "speech.wav", **options))
+            speak(arguments.text, **options)
             return
         synthesize(arguments.text, arguments.output, **options)
     except (OSError, RuntimeError, ValueError) as error:
         parser.error(str(error))
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None
     print(f"Speech saved to {arguments.output}")
 
 
