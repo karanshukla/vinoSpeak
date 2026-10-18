@@ -4,7 +4,9 @@
 
 Nothing leaves the machine. Text is synthesized by a model running on local
 hardware and written to a WAV file you name. There is no network call in the
-synthesis path, no telemetry, and no account. The only outbound traffic the
+synthesis path, no telemetry, and no account. OpenVINO ships Intel's usage
+telemetry (Google Analytics), on unless you opt out; vinoSpeak never loads it.
+Your `~/intel/openvino_telemetry` consent file is left alone. The only outbound traffic the
 project makes is package installation and the one-time model download from
 Hugging Face, both of which you trigger explicitly; the second is checked
 against pinned digests (below).
