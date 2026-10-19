@@ -28,3 +28,30 @@ def test_text_without_punctuation_is_one_chunk():
 
 def test_blank_text_has_no_chunks():
     assert chunks(" \n\n ") == []
+
+
+CLAUSE = "and then it went on past the last clause without stopping"
+
+
+def test_a_sentence_too_long_for_a_chunk_is_cut_after_its_clauses():
+    text = ", ".join([CLAUSE] * 20) + "."
+    out = chunks(text)
+    assert len(out) > 1
+    assert len(out[0]) < 2 * len(CLAUSE), "the first chunk should be about one clause"
+    assert all(len(c) <= MAX_CHUNK_CHARS for c in out)
+    assert " ".join(out) == text
+
+
+def test_a_long_run_without_punctuation_is_cut_between_words():
+    text = " ".join(["word"] * 500)
+    out = chunks(text)
+    assert len(out[0]) <= 100
+    assert all(len(c) <= MAX_CHUNK_CHARS for c in out)
+    assert " ".join(out) == text
+
+
+def test_a_word_longer_than_a_chunk_is_cut():
+    text = "x" * 1000
+    out = chunks(text)
+    assert all(len(c) <= MAX_CHUNK_CHARS for c in out)
+    assert "".join(out) == text
