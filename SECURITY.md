@@ -3,7 +3,8 @@
 ## What vinoSpeak does with your text
 
 Nothing leaves the machine. Text is synthesized by a model running on local
-hardware and written to a WAV file you name. There is no network call in the
+hardware and played on your speakers, or written to a WAV file if you ask for
+one (`--output`); nothing is written by default. There is no network call in the
 synthesis path, no telemetry, and no account. OpenVINO ships Intel's usage
 telemetry (Google Analytics), on unless you opt out; vinoSpeak never loads it.
 Your `~/intel/openvino_telemetry` consent file is left alone. The only outbound traffic the
@@ -11,7 +12,7 @@ project makes is package installation and the one-time model download from
 Hugging Face, both of which you trigger explicitly; the second is checked
 against pinned digests (below).
 
-The WAV is as sensitive as the text it was made from. It is written with your
+A WAV you ask for is as sensitive as the text it was made from. It is written with your
 default umask, and nothing deletes it.
 
 ## The model download is verified
@@ -19,9 +20,12 @@ default umask, and nothing deletes it.
 `vino_speak/model_pins.json` pins `OpenVINO/Kokoro-82M-int8-ov` to one commit
 and records the sha256 and size of every file the pipeline can read (66 files,
 ~160 MB). The download requests exactly that revision and those files, then
-hashes each one; anything missing, resized or different stops the run and the
-directory is not used. Later runs compare file sizes (cheap enough for every
-run), and `vinospeak-doctor` repeats the full hash check.
+hashes each one; anything missing, resized or different stops the run, the
+files that failed are deleted, and the next run downloads them again. Once
+every file has matched, a stamp in the directory records it; later runs compare
+file sizes (cheap enough for every run), a directory without the stamp (or with
+one from older pins) is hashed in full first, and `vinospeak-doctor` repeats
+the full hash check.
 
 What that does and does not give you:
 

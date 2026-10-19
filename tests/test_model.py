@@ -141,3 +141,47 @@ def test_a_directory_you_supply_is_used_as_given(fake_hub, tmp_path):
 def test_an_empty_directory_you_supply_still_gets_the_pinned_model(fake_hub, tmp_path):
     model.ensure_model(tmp_path / "mine", trusted=True)
     assert len(fake_hub.calls) == 1
+
+
+def test_a_failed_download_is_not_used_on_the_next_run(fake_hub, tmp_path):
+    # Right size, wrong bytes: the size check alone would pass it.
+    bad = b"X" * len(FILES["config.json"])
+    fake_hub.contents = {**FILES, "config.json": bad}
+    target = tmp_path / "kokoro"
+    with pytest.raises(model.ModelIntegrityError, match="removed"):
+        model.ensure_model(target)
+    assert not (target / "config.json").exists()
+
+    # Run again, as a user would: it downloads again instead of loading.
+    fake_hub.contents = FILES
+    assert model.ensure_model(target) == target
+    assert len(fake_hub.calls) == 2
+    assert (target / "config.json").read_bytes() == FILES["config.json"]
+
+
+def test_an_unstamped_model_is_hashed_in_full(fake_hub, tmp_path):
+    # Left by an older version, or a download interrupted before its check.
+    write(tmp_path, {**FILES, "config.json": b"X" * len(FILES["config.json"])})
+    with pytest.raises(model.ModelIntegrityError, match="not the pinned revision"):
+        model.ensure_model(tmp_path)
+    assert not (tmp_path / model.STAMP).exists()
+
+
+def test_a_verified_model_is_stamped_then_size_checked(fake_hub, tmp_path, monkeypatch):
+    write(tmp_path, FILES)
+    model.ensure_model(tmp_path)
+    assert (tmp_path / model.STAMP).is_file()
+
+    hashed = []
+    real = model.sha256_file
+    monkeypatch.setattr(model, "sha256_file", lambda p: hashed.append(p) or real(p))
+    model.ensure_model(tmp_path)
+    assert hashed == []
+
+
+def test_new_pins_invalidate_the_stamp(fake_hub, tmp_path):
+    write(tmp_path, FILES)
+    model.ensure_model(tmp_path)
+    pins = make_pins(tmp_path, FILES)
+    assert model._is_stamped(tmp_path, pins)
+    assert not model._is_stamped(tmp_path, model.Pins(pins.model_id, "b" * 40, pins.files))

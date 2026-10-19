@@ -56,8 +56,36 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+# Written once every file has matched its pinned sha256. Until then a run hashes
+# the whole model, so a download that failed verification is never used just
+# because its files have the right sizes.
+STAMP = ".vinospeak-verified"
+
+
+def _stamp_value(pins: Pins) -> str:
+    """Changes with the revision or any pin, so new pins re-hash the model."""
+    record = json.dumps([pins.model_id, pins.revision, pins.files], sort_keys=True)
+    return hashlib.sha256(record.encode()).hexdigest()
+
+
+def _is_stamped(model_dir: Path, pins: Pins) -> bool:
+    try:
+        return (model_dir / STAMP).read_text(encoding="utf-8").strip() == _stamp_value(pins)
+    except OSError:
+        return False
+
+
+def _stamp(model_dir: Path, pins: Pins) -> None:
+    (model_dir / STAMP).write_text(_stamp_value(pins) + "\n", encoding="utf-8")
+
+
 def model_is_ready(model_dir: Path) -> bool:
     return all((model_dir / filename).is_file() for filename in MODEL_FILES)
+
+
+def _mismatches(path: Path, pin: dict[str, int | str]) -> bool:
+    """True when the file at path is not what pin describes."""
+    return path.stat().st_size != pin["size"] or sha256_file(path) != pin["sha256"]
 
 
 def verify(model_dir: Path, pins: Pins | None = None, *, full: bool = True) -> list[str]:
@@ -90,12 +118,15 @@ def ensure_model(model_dir: Path, *, trusted: bool = False) -> Path:
 
     pins = load_pins()
     if not trusted and model_is_ready(model_dir):
-        problems = verify(model_dir, pins, full=False)
+        stamped = _is_stamped(model_dir, pins)
+        problems = verify(model_dir, pins, full=not stamped)
         if problems:
             raise ModelIntegrityError(
                 f"The model in {model_dir} is not the pinned revision ({problems[0]}). "
                 "Delete the directory to download it again."
             )
+        if not stamped:
+            _stamp(model_dir, pins)
         return model_dir
 
     try:
@@ -112,8 +143,15 @@ def ensure_model(model_dir: Path, *, trusted: bool = False) -> Path:
     )
     problems = verify(model_dir, pins)
     if problems:
+        # Remove what failed, so the next run downloads it again rather than
+        # finding a model of the right sizes.
+        for name in pins.files:
+            path = model_dir / name
+            if path.is_file() and _mismatches(path, pins.files[name]):
+                path.unlink()
         raise ModelIntegrityError(
             f"The download in {model_dir} failed verification: {'; '.join(problems[:3])}. "
-            "Delete the directory and try again."
+            "The files that failed were removed; run again to download them again."
         )
+    _stamp(model_dir, pins)
     return model_dir
