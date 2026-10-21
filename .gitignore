@@ -222,3 +222,4 @@ __marimo__/
 # vinoSpeak
 *.wav
 .ruff_cache/
+constraints.txt

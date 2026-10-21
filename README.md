@@ -16,18 +16,28 @@ sharing one NPU never run mismatched runtimes.
 
 ## Install
 
-With [uv](https://docs.astral.sh/uv/):
+With [uv](https://docs.astral.sh/uv/), from a checkout. `--locked` installs
+exactly what `uv.lock` pins, hashes included, and fails if the lock is out of
+date:
 
 ```bash
-uv tool install git+https://github.com/karanshukla/vinoSpeak   # puts vinospeak on your PATH
-```
-
-Or from a checkout, without installing anything globally:
-
-```bash
-uv sync
+git clone https://github.com/karanshukla/vinoSpeak && cd vinoSpeak
+uv sync --locked
 uv run vinospeak "Hello."
 ```
+
+To put `vinospeak` on your PATH, install the same checkout as a tool, with the
+lock's versions as constraints (`uv tool install` doesn't read `uv.lock` by
+itself):
+
+```bash
+uv export --locked --no-dev --no-emit-project --no-hashes -o constraints.txt
+uv tool install --constraints constraints.txt .
+```
+
+Avoid `uv tool install git+https://github.com/karanshukla/vinoSpeak`: it
+ignores `uv.lock`, so everything except OpenVINO resolves to whatever is newest
+on PyPI.
 
 ## Synthesize speech
 
