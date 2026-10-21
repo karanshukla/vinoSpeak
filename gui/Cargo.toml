@@ -1,0 +1,17 @@
+[package]
+name = "vinospeak-gui"
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+description = "Find a file with vinoSearch and listen to it with vinoSpeak (proof of concept)"
+repository = "https://github.com/karanshukla/vinoSpeak"
+publish = false
+
+# Searches through vinoSearch's runner on D-Bus and speaks through the
+# vinospeak CLI; never loads a model itself.
+[dependencies]
+anyhow = "1.0"
+eframe = { version = "0.33.3", default-features = false, features = ["default_fonts", "glow", "wayland"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+libc = "0.2"
+zbus = "5"
