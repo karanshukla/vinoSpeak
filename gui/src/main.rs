@@ -13,12 +13,23 @@ use eframe::egui;
 
 const APP_ID: &str = "dev.vinospeak.Listen";
 
+/// 960×640, or `VINOSPEAK_GUI_SIZE=WxH` for checking a layout at another size.
+fn size() -> [f32; 2] {
+    std::env::var("VINOSPEAK_GUI_SIZE")
+        .ok()
+        .and_then(|s| {
+            let (w, h) = s.split_once('x')?;
+            Some([w.parse().ok()?, h.parse().ok()?])
+        })
+        .unwrap_or([960.0, 640.0])
+}
+
 fn main() -> ExitCode {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("vinoSpeak")
             .with_app_id(APP_ID)
-            .with_inner_size([960.0, 640.0])
+            .with_inner_size(size())
             .with_min_inner_size([560.0, 360.0]),
         // As in vinoSearch's settings: with vsync, KWin can stall a hidden window.
         vsync: false,

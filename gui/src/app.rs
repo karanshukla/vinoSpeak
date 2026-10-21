@@ -17,6 +17,8 @@ use crate::theme;
 const MIN_QUERY_CHARS: usize = 3;
 /// Search once typing pauses this long, not on every key.
 const DEBOUNCE: Duration = Duration::from_millis(300);
+/// The reading column's widest: about 90 characters of body text.
+const MEASURE: f32 = 760.0;
 /// How many recent files fill the list before a search.
 const RECENT: u32 = 20;
 
@@ -197,7 +199,8 @@ impl App {
                 Reply::Results(_, Ok(hits)) => {
                     self.searching = false;
                     self.error = None;
-                    self.hits = hits;
+                    // An image has nothing to read aloud.
+                    self.hits = hits.into_iter().filter(|h| h.kind != Kind::Image).collect();
                     if self.showing_hits() {
                         self.select_first(ctx);
                     }
@@ -450,7 +453,22 @@ impl App {
             .on_hover_text("Where speech plays, from the next Read aloud");
     }
 
+    /// The chosen file in one centred column, however wide the window.
     fn reader(&mut self, ui: &mut egui::Ui) {
+        let width = ui.available_width().min(MEASURE);
+        let gap = ((ui.available_width() - width) / 2.0).floor();
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            ui.add_space(gap);
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                ui.set_width(width);
+                self.reader_column(ui);
+            });
+        });
+    }
+
+    fn reader_column(&mut self, ui: &mut egui::Ui) {
         let p = theme::palette(ui.ctx());
         let Some(hit) = self.selected.clone() else {
             ui.add_space(40.0);
@@ -533,8 +551,6 @@ impl App {
                 egui::ScrollArea::vertical()
                     .auto_shrink(false)
                     .show(ui, |ui| {
-                        // A readable measure, however wide the window.
-                        ui.set_max_width(ui.available_width().min(720.0));
                         ui.add_space(4.0);
                         for para in &preview.paragraphs {
                             let text = RichText::new(para).size(15.0);
