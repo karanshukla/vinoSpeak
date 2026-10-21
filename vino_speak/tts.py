@@ -185,9 +185,11 @@ class Synthesizer:
         voice: str = DEFAULT_VOICE,
         language: str = "en-us",
         speed: float = 1.0,
+        audio_device: str | None = None,
     ) -> Speech:
-        """Start playing the text on the speakers and return at once."""
-        return Speech(self.stream(text, voice, language, speed))
+        """Start playing the text on the speakers (or `audio_device`) and
+        return at once."""
+        return Speech(self.stream(text, voice, language, speed), audio_device=audio_device)
 
 
 def synthesize(
@@ -220,13 +222,15 @@ def speak(
     speed: float = 1.0,
     device: str = DEFAULT_DEVICE,
     model_dir: Path | None = None,
+    audio_device: str | None = None,
 ) -> None:
-    """One-shot: speak text on the speakers and return when it has finished."""
+    """One-shot: speak text on the speakers (or `audio_device`) and return
+    when it has finished."""
     # Before the model download and the pipeline compile, not after.
     validate_inputs(text, voice, speed, language)
     player = require_player()
     synthesizer = Synthesizer(device, model_dir)
-    speech = Speech(synthesizer.stream(text, voice, language, speed), player)
+    speech = Speech(synthesizer.stream(text, voice, language, speed), player, audio_device)
     try:
         speech.wait()
     finally:

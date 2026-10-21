@@ -33,15 +33,46 @@ def require_player() -> str:
     return player
 
 
-def raw_command(player: str, sample_rate: int) -> list[str]:
-    """Mono float32 samples on stdin."""
+def raw_command(player: str, sample_rate: int, audio_device: str | None = None) -> list[str]:
+    """Mono float32 samples on stdin, to `audio_device` (a PipeWire or
+    PulseAudio sink name, or an ALSA device) or else the default output."""
     name = Path(player).name
     if name == "pw-play":
-        return [player, "--raw", "--format=f32", "--channels=1", f"--rate={sample_rate}", "-"]
+        target = [f"--target={audio_device}"] if audio_device else []
+        return [
+            player,
+            "--raw",
+            "--format=f32",
+            "--channels=1",
+            f"--rate={sample_rate}",
+            *target,
+            "-",
+        ]
     if name == "paplay":
-        return [player, "--raw", "--format=float32le", "--channels=1", f"--rate={sample_rate}"]
+        target = [f"--device={audio_device}"] if audio_device else []
+        return [
+            player,
+            "--raw",
+            "--format=float32le",
+            "--channels=1",
+            f"--rate={sample_rate}",
+            *target,
+        ]
     if name == "aplay":
-        return [player, "-q", "-t", "raw", "-f", "FLOAT_LE", "-c", "1", "-r", str(sample_rate)]
+        target = ["-D", audio_device] if audio_device else []
+        return [
+            player,
+            "-q",
+            "-t",
+            "raw",
+            "-f",
+            "FLOAT_LE",
+            "-c",
+            "1",
+            "-r",
+            str(sample_rate),
+            *target,
+        ]
     raise ValueError(f"Don't know how to stream to {name}.")
 
 
@@ -53,8 +84,14 @@ class Speech:
     in the background, since the pipeline can't be interrupted, so the next
     call on the same Synthesizer waits for it."""
 
-    def __init__(self, audio: Iterable[Audio], player: str | None = None) -> None:
+    def __init__(
+        self,
+        audio: Iterable[Audio],
+        player: str | None = None,
+        audio_device: str | None = None,
+    ) -> None:
         self._player = player or require_player()
+        self._audio_device = audio_device
         self._stopped = threading.Event()
         # One chunk waiting while the next is synthesized: enough to keep
         # playback fed without spending energy far ahead of a stop()
@@ -137,7 +174,7 @@ class Speech:
             if self._stopped.is_set():
                 return None
             self._process = subprocess.Popen(
-                raw_command(self._player, sample_rate), stdin=subprocess.PIPE
+                raw_command(self._player, sample_rate, self._audio_device), stdin=subprocess.PIPE
             )
             return self._process.stdin
 

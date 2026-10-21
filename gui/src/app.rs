@@ -10,7 +10,7 @@ use eframe::egui::{self, Color32, CornerRadius, Margin, RichText, Sense, Stroke}
 
 use crate::logo::logo;
 use crate::search::{self, Hit, Kind};
-use crate::speech::{self, Reading, Source, State};
+use crate::speech::{self, Output, Reading, Source, State, Voice};
 use crate::theme;
 
 /// vinoSearch answers nothing under three characters, as KRunner does.
@@ -58,9 +58,13 @@ pub struct App {
     error: Option<String>,
     selected: Option<Hit>,
     preview: Option<Result<Preview, String>>,
-    voices: Vec<String>,
-    voice: String,
+    voices: Vec<Voice>,
+    voice: Voice,
     speed: f32,
+    outputs: Vec<Output>,
+    default_output: Option<String>,
+    /// None plays on the desktop's default output.
+    output: Option<String>,
     reading: Option<Reading>,
     status: String,
     tx: mpsc::Sender<Reply>,
@@ -72,11 +76,11 @@ impl App {
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel();
         let voices = speech::voices();
-        let voice = if voices.iter().any(|v| v == "af_heart") {
-            "af_heart".to_owned()
-        } else {
-            voices[0].clone()
-        };
+        let voice = voices
+            .iter()
+            .find(|v| v.id == "af_heart")
+            .unwrap_or(&voices[0])
+            .clone();
         let capture = std::env::var_os("VINOSPEAK_GUI_SCREENSHOT").map(|out| Capture {
             out: out.into(),
             pick: std::env::var("VINOSPEAK_GUI_PICK")
@@ -88,6 +92,7 @@ impl App {
             deadline: Instant::now() + Duration::from_secs(30),
         });
         let query = std::env::var("VINOSPEAK_GUI_QUERY").unwrap_or_default();
+        let (outputs, default_output) = speech::outputs();
         Self {
             edited: (!query.is_empty()).then(|| Instant::now() - DEBOUNCE),
             query,
@@ -103,6 +108,9 @@ impl App {
             voices,
             voice,
             speed: 1.0,
+            outputs,
+            default_output,
+            output: None,
             reading: None,
             status: String::new(),
             tx,
@@ -228,7 +236,8 @@ impl App {
             return;
         };
         self.reading = None; // dropping it stops the one before
-        match Reading::start(&hit.path, &preview.source, &self.voice, self.speed) {
+        let output = self.output.as_deref();
+        match Reading::start(&hit.path, &preview.source, &self.voice, self.speed, output) {
             Ok(reading) => {
                 self.status = format!("Speaking {}", hit.name);
                 self.reading = Some(reading);
@@ -388,6 +397,59 @@ impl App {
         }
     }
 
+    /// Voices by name, under a heading per accent.
+    fn voice_picker(&mut self, ui: &mut egui::Ui) {
+        let p = theme::palette(ui.ctx());
+        let v = self.voice.clone();
+        egui::ComboBox::from_id_salt("voice")
+            .width(150.0)
+            .selected_text(&v.name)
+            .show_ui(ui, |ui| {
+                ui.set_min_width(220.0);
+                let mut accent = "";
+                for voice in &self.voices {
+                    if voice.accent != accent {
+                        accent = voice.accent;
+                        ui.add_space(4.0);
+                        let heading = RichText::new(accent.to_uppercase()).small();
+                        ui.label(heading.family(theme::bold()).color(p.muted));
+                    }
+                    let label = format!("{}  ·  {}", voice.name, voice.gender);
+                    ui.selectable_value(&mut self.voice, voice.clone(), label);
+                }
+            })
+            .response
+            .on_hover_text(format!("{}, {} ({})", v.accent, v.gender, v.id));
+    }
+
+    /// Where speech plays. A change applies from the next Read aloud.
+    fn output_picker(&mut self, ui: &mut egui::Ui) {
+        let describe = |name: &str| {
+            self.outputs
+                .iter()
+                .find(|o| o.name == name)
+                .map_or_else(|| name.to_owned(), |o| o.description.clone())
+        };
+        let default = match &self.default_output {
+            Some(name) => format!("Default ({})", describe(name)),
+            None => "Default output".to_owned(),
+        };
+        let selected = self.output.as_deref().map_or(default.clone(), describe);
+        ui.label("🔊");
+        egui::ComboBox::from_id_salt("output")
+            .width(300.0)
+            .truncate()
+            .selected_text(selected)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut self.output, None, default);
+                for o in &self.outputs {
+                    ui.selectable_value(&mut self.output, Some(o.name.clone()), &o.description);
+                }
+            })
+            .response
+            .on_hover_text("Where speech plays, from the next Read aloud");
+    }
+
     fn reader(&mut self, ui: &mut egui::Ui) {
         let p = theme::palette(ui.ctx());
         let Some(hit) = self.selected.clone() else {
@@ -438,13 +500,8 @@ impl App {
                 }
             }
             ui.separator();
-            egui::ComboBox::from_id_salt("voice")
-                .selected_text(&self.voice)
-                .show_ui(ui, |ui| {
-                    for v in &self.voices {
-                        ui.selectable_value(&mut self.voice, v.clone(), v);
-                    }
-                });
+            self.voice_picker(ui);
+            ui.spacing_mut().slider_width = 100.0;
             ui.add(
                 egui::Slider::new(&mut self.speed, 0.5..=2.0)
                     .step_by(0.1)
@@ -452,6 +509,7 @@ impl App {
                     .suffix("×"),
             );
         });
+        ui.horizontal(|ui| self.output_picker(ui));
         ui.add_space(6.0);
         ui.separator();
 

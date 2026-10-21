@@ -89,3 +89,16 @@ def test_file_dash_reads_plain_text_from_stdin(monkeypatch, capsys):
     )
     cli.main(["--file", "-", "--print-text"])
     assert capsys.readouterr().out == "Page one, see x.dev.\n\n# not a heading\n"
+
+
+def test_audio_device_reaches_speak(monkeypatch):
+    devices = []
+    monkeypatch.setattr(cli, "speak", lambda text, **kwargs: devices.append(kwargs["audio_device"]))
+    cli.main(["Hello", "--audio-device", "hdmi_sink"])
+    assert devices == ["hdmi_sink"]
+
+
+def test_audio_device_and_output_dont_mix(tmp_path):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["Hello", "--audio-device", "x", "--output", str(tmp_path / "a.wav")])
+    assert exit_info.value.code == 2

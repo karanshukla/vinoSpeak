@@ -29,6 +29,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output", type=Path, help="Save a WAV here instead of playing it on the speakers."
     )
+    parser.add_argument(
+        "--audio-device",
+        help="Play on this output instead of the default: a PipeWire or PulseAudio sink "
+        "name (pactl list short sinks), or an ALSA device.",
+    )
     parser.add_argument("--voice", default=DEFAULT_VOICE, help="Kokoro voice identifier.")
     parser.add_argument("--language", choices=LANGUAGES, default="en-us")
     parser.add_argument("--speed", type=float, default=1.0)
@@ -55,6 +60,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         text = arguments.text if arguments.file is None else readable.read(arguments.file)
     except (OSError, ValueError) as error:
         parser.error(str(error))
+    if arguments.audio_device and arguments.output is not None:
+        parser.error("--audio-device is where speech plays; it can't go with --output")
     if arguments.print_text:
         print(text)
         return
@@ -67,7 +74,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     }
     try:
         if arguments.output is None:
-            speak(text, **options)
+            speak(text, audio_device=arguments.audio_device, **options)
             return
         synthesize(text, arguments.output, **options)
     except (OSError, RuntimeError, ValueError) as error:
