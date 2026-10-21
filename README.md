@@ -19,11 +19,12 @@ sharing one NPU never run mismatched runtimes.
 From PyPI, with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv tool install vinospeak
+uv tool install --python 3.14 vinospeak
 vinospeak "Hello."
 ```
 
-OpenVINO is pinned exactly; everything else resolves to the newest release
+`--python 3.14` because OpenVINO 2026.4.1 has no wheels for 3.15 yet, and uv
+otherwise uses your default Python. OpenVINO is pinned exactly; everything else resolves to the newest release
 that fits. To install exactly what `uv.lock` pins, hashes included, use a
 checkout. `--locked` fails if the lock is out of date:
 
