@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+import warnings
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,7 +24,9 @@ DEFAULT_VOICE = "af_heart"
 DEFAULT_DEVICE = "NPU"
 VOICE_PATTERN = re.compile(r"[a-z]{2}_[a-z0-9_]+\Z")
 # OpenVINO 2026.4 pins Kokoro's vocoder to the CPU for an NPU compiler bug
-# this driver doesn't have. Remove with #7.
+# that driver 1.32.0 on Wildcat Lake doesn't have (2026-10-17). Other drivers
+# may, so Synthesizer falls back to the pin if the override fails. Remove
+# with #7.
 NPU_PROPERTIES = {"NPUW_SUBMODEL_DEVICE": ""}
 
 
@@ -94,10 +97,54 @@ class Synthesizer:
         self.device = device
         self.model_dir = model_dir
         self._ov = ov
-        properties = NPU_PROPERTIES if device.startswith("NPU") else {}
-        self._pipeline = ov_genai.Text2SpeechPipeline(model_dir, device, **properties)
+        self._genai = ov_genai
+        # Until a generate() has succeeded with the override, a failure (an
+        # error, or non-finite samples) may be the compiler bug it exposes,
+        # so it is worth one retry with OpenVINO's pin.
+        self._unproven_override = False
+        self._pipeline = self._load()
         self._voices: dict[str, Any] = {}
         self._lock = threading.Lock()
+
+    def _load(self) -> Any:
+        if self.device.startswith("NPU"):
+            try:
+                pipeline = self._genai.Text2SpeechPipeline(
+                    self.model_dir, self.device, **NPU_PROPERTIES
+                )
+            except RuntimeError as error:
+                self._warn_pinned(error)
+            else:
+                self._unproven_override = True
+                return pipeline
+        return self._genai.Text2SpeechPipeline(self.model_dir, self.device)
+
+    def _warn_pinned(self, error: Exception) -> None:
+        warnings.warn(
+            f"The NPU couldn't run Kokoro's vocoder ({error}); falling back to "
+            "OpenVINO's default, which runs it on the CPU. Speech works but "
+            "saves no battery (vinoSpeak#12).",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+
+    def _generate(self, text: str, voice: str, language: str, speed: float) -> Audio:
+        try:
+            result = self._pipeline.generate(
+                text, self._voice(voice), language=language, speed=float(speed)
+            )
+            if not result.speeches:
+                raise RuntimeError("OpenVINO GenAI did not return any speech.")
+            samples = get_audio_data(result.speeches[0], self._ov)
+        except RuntimeError as error:
+            if not self._unproven_override:
+                raise
+            self._unproven_override = False
+            self._warn_pinned(error)
+            self._pipeline = self._genai.Text2SpeechPipeline(self.model_dir, self.device)
+            return self._generate(text, voice, language, speed)
+        self._unproven_override = False
+        return Audio(samples, int(result.output_sample_rate))
 
     def _voice(self, voice: str) -> Any:
         if voice not in self._voices:
@@ -118,13 +165,7 @@ class Synthesizer:
     ) -> Audio:
         validate_inputs(text, voice, speed, language)
         with self._lock:
-            result = self._pipeline.generate(
-                text, self._voice(voice), language=language, speed=float(speed)
-            )
-            if not result.speeches:
-                raise RuntimeError("OpenVINO GenAI did not return any speech.")
-            samples = get_audio_data(result.speeches[0], self._ov)
-            return Audio(samples, int(result.output_sample_rate))
+            return self._generate(text, voice, language, speed)
 
     def stream(
         self,
