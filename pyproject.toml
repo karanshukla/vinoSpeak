@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vinospeak"
-version = "0.1.0"
+version = "0.1.1"
 description = "Intel NPU-powered Kokoro text-to-speech with OpenVINO"
 readme = "README.md"
 license = "MIT"
@@ -25,7 +25,8 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio :: Speech",
     "Typing :: Typed",
 ]
-requires-python = ">=3.11"
+# openvino 2026.4.1 has no cp315 wheels; without the cap uv picks 3.15 and fails
+requires-python = ">=3.11,<3.15"
 # OpenVINO is pinned to the exact release the other vino apps use (vinoPop's
 # requirements-ai.txt, vinoWhisper's uv.lock): two programs on one NPU must not
 # run different OpenVINO releases. Bump it in step with them; `ovfetch detect`
@@ -72,7 +73,7 @@ dev = [
 # ── bump-my-version ───────────────────────────────────────────────────────────
 
 [tool.bumpversion]
-current_version = "0.1.0"
+current_version = "0.1.1"
 commit = true
 tag = true
 tag_name = "v{new_version}"

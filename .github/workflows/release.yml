@@ -70,7 +70,7 @@ jobs:
             echo '## Install'
             echo
             echo '```'
-            echo "uv tool install vinospeak==${VERSION}"
+            echo "uv tool install --python 3.14 vinospeak==${VERSION}"
             echo '```'
           } >> RELEASE_NOTES.md
 
