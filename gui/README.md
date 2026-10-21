@@ -8,6 +8,7 @@ through the `vinospeak` CLI, so it never loads a model itself.
 ```bash
 cargo run --release                                    # vinospeak from PATH or ~/.local/bin
 VINOSPEAK=../.venv/bin/vinospeak cargo run --release   # a checkout's vinospeak
+VINOSPEAK=../.venv/bin/vinospeak ./install.sh          # into the app menu; --uninstall removes it
 ```
 
 Text files only for now: PDFs and other documents show up but can't be read

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=vinoSpeak
+GenericName=Read Files Aloud
+Comment=Find a file with vinoSearch and listen to it, spoken on your NPU
+Exec=@EXEC@
+Icon=dev.vinospeak.Listen
+Terminal=false
+Categories=Utility;Accessibility;
+Keywords=speech;tts;read aloud;kokoro;vinosearch;
+StartupWMClass=dev.vinospeak.Listen
