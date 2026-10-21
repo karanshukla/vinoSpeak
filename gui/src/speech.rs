@@ -36,8 +36,8 @@ pub enum Source {
     Text(String),
 }
 
-fn command(source: &Source) -> Command {
-    let mut cmd = Command::new(binary());
+fn command(vinospeak: &Path, source: &Source) -> Command {
+    let mut cmd = Command::new(vinospeak);
     match source {
         Source::File(path) => cmd.arg("--file").arg(path),
         Source::Text(_) => cmd.args(["--file", "-"]),
@@ -60,8 +60,8 @@ fn feed(child: &mut Child, source: &Source) {
 }
 
 /// The text vinospeak would speak, with the model never loaded.
-pub fn preview(source: &Source) -> Result<String> {
-    let mut child = command(source)
+pub fn preview(vinospeak: &Path, source: &Source) -> Result<String> {
+    let mut child = command(vinospeak, source)
         .arg("--print-text")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -125,13 +125,14 @@ pub struct Reading {
 
 impl Reading {
     pub fn start(
+        vinospeak: &Path,
         file: &Path,
         source: &Source,
         voice: &Voice,
         speed: f32,
         output: Option<&str>,
     ) -> Result<Self> {
-        let mut cmd = command(source);
+        let mut cmd = command(vinospeak, source);
         cmd.args(["--voice", &voice.id, "--language", voice.language]);
         cmd.args(["--speed", &format!("{speed:.1}")]);
         if let Some(output) = output {

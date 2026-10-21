@@ -186,6 +186,12 @@ pub fn visible_scroll_handles(ctx: &egui::Context) {
 }
 
 pub fn install(ctx: &egui::Context) {
+    style(ctx);
+    follow_desktop(ctx);
+}
+
+/// Fonts, colours and spacing, without asking the desktop for light or dark.
+pub fn style(ctx: &egui::Context) {
     ctx.set_fonts(fonts());
     ctx.set_visuals_of(Theme::Dark, visuals(&DARK, Visuals::dark()));
     ctx.set_visuals_of(Theme::Light, visuals(&LIGHT, Visuals::light()));
@@ -209,7 +215,6 @@ pub fn install(ctx: &egui::Context) {
         style.spacing.button_padding = egui::vec2(10.0, 4.0);
         style.spacing.interact_size.y = 28.0;
     });
-    follow_desktop(ctx);
 }
 
 #[cfg(test)]

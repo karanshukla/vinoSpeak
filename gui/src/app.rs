@@ -3,13 +3,13 @@
 //! with Read aloud and Stop.
 
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, CornerRadius, Margin, RichText, Sense, Stroke};
 
 use crate::logo::logo;
-use crate::search::{self, Hit, Kind};
+use crate::search::{Hit, Index, Kind, VinoSearch};
 use crate::speech::{self, Output, Reading, Source, State, Voice};
 use crate::theme;
 
@@ -49,6 +49,8 @@ struct Preview {
 }
 
 pub struct App {
+    index: Arc<dyn Index>,
+    vinospeak: PathBuf,
     query: String,
     edited: Option<Instant>,
     searched: String,
@@ -76,14 +78,13 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
-        let (tx, rx) = mpsc::channel();
-        let voices = speech::voices();
-        let voice = voices
-            .iter()
-            .find(|v| v.id == "af_heart")
-            .unwrap_or(&voices[0])
-            .clone();
-        let capture = std::env::var_os("VINOSPEAK_GUI_SCREENSHOT").map(|out| Capture {
+        let mut app = Self::with(
+            Arc::new(VinoSearch),
+            speech::binary(),
+            speech::voices(),
+            speech::outputs(),
+        );
+        app.capture = std::env::var_os("VINOSPEAK_GUI_SCREENSHOT").map(|out| Capture {
             out: out.into(),
             pick: std::env::var("VINOSPEAK_GUI_PICK")
                 .ok()
@@ -93,11 +94,30 @@ impl App {
             requested: false,
             deadline: Instant::now() + Duration::from_secs(30),
         });
-        let query = std::env::var("VINOSPEAK_GUI_QUERY").unwrap_or_default();
-        let (outputs, default_output) = speech::outputs();
+        if let Ok(query) = std::env::var("VINOSPEAK_GUI_QUERY") {
+            app.type_query(&query);
+        }
+        app
+    }
+
+    /// The window with its outside world handed in, as the tests build it.
+    pub fn with(
+        index: Arc<dyn Index>,
+        vinospeak: PathBuf,
+        voices: Vec<Voice>,
+        (outputs, default_output): (Vec<Output>, Option<String>),
+    ) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let voice = voices
+            .iter()
+            .find(|v| v.id == "af_heart")
+            .unwrap_or(&voices[0])
+            .clone();
         Self {
-            edited: (!query.is_empty()).then(|| Instant::now() - DEBOUNCE),
-            query,
+            index,
+            vinospeak,
+            query: String::new(),
+            edited: None,
             searched: String::new(),
             generation: 0,
             searching: false,
@@ -117,8 +137,14 @@ impl App {
             status: String::new(),
             tx,
             rx,
-            capture,
+            capture: None,
         }
+    }
+
+    /// Set the search box as if typed, searching once the debounce is over.
+    fn type_query(&mut self, query: &str) {
+        self.query = query.to_owned();
+        self.edited = Some(Instant::now() - DEBOUNCE);
     }
 
     /// Search results once there's a query that found something, else the
@@ -145,17 +171,18 @@ impl App {
             self.generation,
             self.searched.clone(),
         );
+        let index = self.index.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(Reply::Results(generation, search::search(&query)));
+            let _ = tx.send(Reply::Results(generation, index.search(&query)));
             ctx.request_repaint();
         });
     }
 
     fn load_recent(&mut self, ctx: &egui::Context) {
         self.recent_asked = true;
-        let (tx, ctx) = (self.tx.clone(), ctx.clone());
+        let (tx, ctx, index) = (self.tx.clone(), ctx.clone(), self.index.clone());
         std::thread::spawn(move || {
-            let _ = tx.send(Reply::Recent(search::recent(RECENT)));
+            let _ = tx.send(Reply::Recent(index.recent(RECENT)));
             ctx.request_repaint();
         });
     }
@@ -167,12 +194,13 @@ impl App {
             return;
         }
         let (tx, ctx) = (self.tx.clone(), ctx.clone());
+        let (index, vinospeak) = (self.index.clone(), self.vinospeak.clone());
         std::thread::spawn(move || {
             let text = match hit.kind {
-                Kind::Document => search::file_text(&hit.path).map(Source::Text),
+                Kind::Document => index.file_text(&hit.path).map(Source::Text),
                 _ => Ok(Source::File(hit.path.clone())),
             }
-            .and_then(|source| Ok((source.clone(), speech::preview(&source)?)));
+            .and_then(|source| Ok((source.clone(), speech::preview(&vinospeak, &source)?)));
             let _ = tx.send(Reply::Preview(hit.path, text));
             ctx.request_repaint();
         });
@@ -240,7 +268,15 @@ impl App {
         };
         self.reading = None; // dropping it stops the one before
         let output = self.output.as_deref();
-        match Reading::start(&hit.path, &preview.source, &self.voice, self.speed, output) {
+        let started = Reading::start(
+            &self.vinospeak,
+            &hit.path,
+            &preview.source,
+            &self.voice,
+            self.speed,
+            output,
+        );
+        match started {
             Ok(reading) => {
                 self.status = format!("Speaking {}", hit.name);
                 self.reading = Some(reading);
@@ -569,6 +605,13 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.ui(ctx);
+    }
+}
+
+impl App {
+    /// One frame of the window; the tests drive this without eframe.
+    pub fn ui(&mut self, ctx: &egui::Context) {
         if !self.recent_asked {
             self.load_recent(ctx);
         }
@@ -599,7 +642,7 @@ impl eframe::App for App {
             .frame(pad.inner_margin(Margin::symmetric(16, 6)))
             .show(ctx, |ui| {
                 let status = if self.status.is_empty() {
-                    format!("Speech by {}", speech::binary().display())
+                    format!("Speech by {}", self.vinospeak.display())
                 } else {
                     self.status.clone()
                 };
@@ -624,3 +667,6 @@ impl eframe::App for App {
         self.capture(ctx);
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -18,6 +18,31 @@ const DOCUMENTS: &[&str] = &[
     "pdf", "docx", "odt", "pptx", "odp", "xlsx", "xls", "ods", "csv", "tsv",
 ];
 
+/// What the window asks vinoSearch. A trait so the tests can stand in for
+/// a running vinoSearch.
+pub trait Index: Send + Sync {
+    fn search(&self, query: &str) -> Result<Vec<Hit>>;
+    fn recent(&self, limit: u32) -> Result<Vec<Hit>>;
+    fn file_text(&self, path: &Path) -> Result<String>;
+}
+
+/// The vinoSearch runner on the session bus.
+pub struct VinoSearch;
+
+impl Index for VinoSearch {
+    fn search(&self, query: &str) -> Result<Vec<Hit>> {
+        search(query)
+    }
+
+    fn recent(&self, limit: u32) -> Result<Vec<Hit>> {
+        recent(limit)
+    }
+
+    fn file_text(&self, path: &Path) -> Result<String> {
+        file_text(path)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Text,
@@ -54,7 +79,7 @@ fn string(meta: &HashMap<String, OwnedValue>, key: &str) -> String {
         .unwrap_or_default()
 }
 
-pub fn search(query: &str) -> Result<Vec<Hit>> {
+fn search(query: &str) -> Result<Vec<Hit>> {
     let conn = zbus::blocking::Connection::session().context("connecting to the session bus")?;
     let ids: Vec<String> = conn
         .call_method(
@@ -96,7 +121,7 @@ pub fn search(query: &str) -> Result<Vec<Hit>> {
 
 /// The indexed text files and documents changed most recently, for a window
 /// that has nothing searched yet.
-pub fn recent(limit: u32) -> Result<Vec<Hit>> {
+fn recent(limit: u32) -> Result<Vec<Hit>> {
     let conn = zbus::blocking::Connection::session().context("connecting to the session bus")?;
     let files: Vec<(String, String, i64)> = conn
         .call_method(
@@ -137,7 +162,7 @@ pub fn recent(limit: u32) -> Result<Vec<Hit>> {
 }
 
 /// A document's text, extracted by vinoSearch as it does for indexing.
-pub fn file_text(path: &Path) -> Result<String> {
+fn file_text(path: &Path) -> Result<String> {
     let conn = zbus::blocking::Connection::session().context("connecting to the session bus")?;
     let text: String = conn
         .call_method(

@@ -11,8 +11,11 @@ publish = false
 # vinospeak CLI; never loads a model itself.
 [dependencies]
 anyhow = "1.0"
-eframe = { version = "0.33.3", default-features = false, features = ["default_fonts", "glow", "wayland"] }
+eframe = { version = "0.33.3", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 libc = "0.2"
 serde_json = "1"
 zbus = "5"
+
+[dev-dependencies]
+egui_kittest = "0.33.3"

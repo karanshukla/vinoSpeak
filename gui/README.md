@@ -17,3 +17,7 @@ aloud until vinoSpeak can get their text from vinoSearch.
 Checked without anyone at the screen: `VINOSPEAK_GUI_QUERY` searches,
 `VINOSPEAK_GUI_SCREENSHOT=out.png` saves the window once the first hit's text is
 in and exits, and `VINOSPEAK_GUI_SPEAK=1` starts reading first.
+
+`cargo test` drives the window headless with
+[egui_kittest](https://crates.io/crates/egui_kittest), finding widgets by their
+AccessKit labels, against a fake vinoSearch and a fake vinospeak script.
