@@ -65,7 +65,23 @@ vinospeak "Hello from vinoSpeak." --output hello.wav  # saves a WAV instead
 ```
 
 Playback goes through `pw-play` (PipeWire, what Wayland desktops run), falling
-back to `paplay` or `aplay`.
+back to `paplay` or `aplay`. `--audio-device` plays on another output: a sink
+name from `pactl list short sinks`, or an ALSA device for `aplay`.
+
+## Read a file aloud
+
+```bash
+vinospeak --file notes.md               # markdown is cleaned up for listening
+vinospeak --file notes.md --print-text  # what it would say, without loading the model
+some-command | vinospeak --file -       # plain text from stdin
+```
+
+Markdown headings, list items and table rows become sentences, links keep
+their text, a URL is said as its host, and code blocks are skipped. Other files
+are read as plain text with URLs shortened; anything that isn't UTF-8 text is
+refused. [vinoSearch](https://github.com/karanshukla/vinoSearch) uses `--file -`
+to read PDFs and Office documents aloud, and [`gui/`](gui/) is a proof-of-concept
+window for finding a file with vinoSearch and listening to it.
 
 The default inference device is the Intel NPU. Choose a different OpenVINO
 device, voice, language, speed, or model directory with the corresponding
