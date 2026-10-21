@@ -2,6 +2,7 @@
 //! A proof of concept; the vinospeak CLI does the speaking.
 
 mod app;
+mod logo;
 mod search;
 mod speech;
 mod theme;

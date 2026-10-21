@@ -1,3 +1,5 @@
+import io
+
 import pytest
 
 from vino_speak import cli
@@ -79,3 +81,11 @@ def test_a_binary_file_is_refused(capsys, tmp_path):
     with pytest.raises(SystemExit):
         cli.main(["--file", str(tmp_path / "a.bin")])
     assert "not a UTF-8 text file" in capsys.readouterr().err
+
+
+def test_file_dash_reads_plain_text_from_stdin(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "sys.stdin", io.StringIO("Page one, see https://x.dev/a.\n\n# not a heading")
+    )
+    cli.main(["--file", "-", "--print-text"])
+    assert capsys.readouterr().out == "Page one, see x.dev.\n\n# not a heading\n"

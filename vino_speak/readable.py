@@ -4,6 +4,7 @@ code blocks are skipped, and a URL is said as its host."""
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -122,7 +123,10 @@ def plain(text: str) -> str:
 
 def read(path: Path) -> str:
     """The file's text for speaking: markdown by its suffix, anything else
-    as plain text. A file that isn't UTF-8 text is refused."""
+    as plain text, and `-` plain text from stdin (how vinoSearch hands over
+    a document's text). A file that isn't UTF-8 text is refused."""
+    if str(path) == "-":
+        return plain(sys.stdin.read())
     try:
         text = path.read_bytes().decode("utf-8-sig")
     except UnicodeDecodeError:

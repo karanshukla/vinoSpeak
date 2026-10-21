@@ -19,7 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--file",
         type=Path,
-        help="Read a text file aloud instead; markdown loses its markup and code blocks.",
+        help="Read a text file aloud instead (- for stdin); markdown loses its markup and code blocks.",
     )
     parser.add_argument(
         "--print-text",

@@ -1,7 +1,7 @@
 //! The vinospeak CLI, run for a file: `--print-text` for the preview, then
 //! once more to speak it. One reading at a time.
 
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -28,15 +28,47 @@ pub fn binary() -> PathBuf {
     on_path.or_else(local).unwrap_or_else(|| "vinospeak".into())
 }
 
-/// The text vinospeak would speak for `path`, with the model never loaded.
-pub fn preview(path: &Path) -> Result<String> {
-    let out = Command::new(binary())
-        .arg("--file")
-        .arg(path)
+/// What vinospeak reads: a file it opens itself (markdown is cleaned up by
+/// its suffix), or a document's text from vinoSearch, piped in.
+#[derive(Clone)]
+pub enum Source {
+    File(PathBuf),
+    Text(String),
+}
+
+fn command(source: &Source) -> Command {
+    let mut cmd = Command::new(binary());
+    match source {
+        Source::File(path) => cmd.arg("--file").arg(path),
+        Source::Text(_) => cmd.args(["--file", "-"]),
+    };
+    cmd.stdin(match source {
+        Source::File(_) => Stdio::null(),
+        Source::Text(_) => Stdio::piped(),
+    });
+    cmd
+}
+
+/// Feed a piped source from a thread, so a long document can't stall the caller.
+fn feed(child: &mut Child, source: &Source) {
+    if let (Source::Text(text), Some(mut stdin)) = (source, child.stdin.take()) {
+        let text = text.clone();
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(text.as_bytes());
+        });
+    }
+}
+
+/// The text vinospeak would speak, with the model never loaded.
+pub fn preview(source: &Source) -> Result<String> {
+    let mut child = command(source)
         .arg("--print-text")
-        .stdin(Stdio::null())
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .context("running vinospeak (uv tool install vinospeak)")?;
+    feed(&mut child, source);
+    let out = child.wait_with_output()?;
     if !out.status.success() {
         bail!("{}", last_line(&String::from_utf8_lossy(&out.stderr)));
     }
@@ -92,16 +124,14 @@ pub struct Reading {
 }
 
 impl Reading {
-    pub fn start(file: &Path, voice: &str, speed: f32) -> Result<Self> {
-        let child = Command::new(binary())
-            .arg("--file")
-            .arg(file)
+    pub fn start(file: &Path, source: &Source, voice: &str, speed: f32) -> Result<Self> {
+        let mut child = command(source)
             .args(["--voice", voice, "--speed", &format!("{speed:.1}")])
-            .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
             .context("running vinospeak (uv tool install vinospeak)")?;
+        feed(&mut child, source);
         Ok(Self {
             child,
             file: file.to_owned(),
