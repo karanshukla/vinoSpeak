@@ -36,6 +36,20 @@ uv run poe check    # ruff, ruff format --check, mypy, pytest
 - Commits are conventional (`feat:`, `fix:`, `docs:`, ...); the changelog is
   generated from them with `git cliff`.
 
+## Releasing
+
+```bash
+uv run bump-my-version bump minor                       # writes the version, commits, tags vX.Y.Z
+git cliff -c cliff.toml --tag vX.Y.Z -o CHANGELOG.md    # then hand-edit, commit
+git push --follow-tags
+```
+
+The tag runs `release.yml`: it checks the tag matches `pyproject.toml`, builds
+the sdist and wheel, publishes to PyPI by Trusted Publishing (the `pypi`
+environment, no token), then creates the GitHub Release with notes from the
+`CHANGELOG.md` section of that version. A version can't be re-uploaded to PyPI,
+so the changelog section must exist before the tag is pushed.
+
 ## Changing the model
 
 ```bash

@@ -10,6 +10,21 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Karan Shukla" }]
+keywords = ["kokoro", "openvino", "npu", "text-to-speech", "tts", "linux"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Typing :: Typed",
+]
 requires-python = ">=3.11"
 # OpenVINO is pinned to the exact release the other vino apps use (vinoPop's
 # requirements-ai.txt, vinoWhisper's uv.lock): two programs on one NPU must not
@@ -23,6 +38,12 @@ dependencies = [
     "openvino-genai==2026.4.1.0",
     "soundfile>=0.12.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/karanshukla/vinoSpeak"
+Repository = "https://github.com/karanshukla/vinoSpeak"
+Issues = "https://github.com/karanshukla/vinoSpeak/issues"
+Changelog = "https://github.com/karanshukla/vinoSpeak/blob/main/CHANGELOG.md"
 
 [project.scripts]
 vinospeak = "vino_speak.cli:main"
@@ -45,7 +66,22 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
     "poethepoet>=0.27",
+    "bump-my-version>=0.24",
 ]
+
+# ── bump-my-version ───────────────────────────────────────────────────────────
+
+[tool.bumpversion]
+current_version = "0.1.0"
+commit = true
+tag = true
+tag_name = "v{new_version}"
+pre_commit_hooks = ["uv lock", "git add uv.lock"]
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
 
 # ── Tasks ─────────────────────────────────────────────────────────────────────
 
