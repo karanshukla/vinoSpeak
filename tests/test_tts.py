@@ -171,3 +171,72 @@ def test_speak_checks_for_a_player_before_loading_the_model(monkeypatch, tmp_pat
     with pytest.raises(RuntimeError, match="no player"):
         tts.speak("Hello", model_dir=tmp_path / "never-created")
     assert not (tmp_path / "never-created").exists()
+
+
+def fail_with_override(monkeypatch, method):
+    """Make FakePipeline's `method` raise while the vocoder pin is overridden."""
+    real = getattr(FakePipeline, method)
+
+    def failing(self, *args, **kwargs):
+        result = real(self, *args, **kwargs)
+        if self.properties:
+            raise RuntimeError("Failed to compile KokoroModelB_8")
+        return result
+
+    monkeypatch.setattr(FakePipeline, method, failing)
+
+
+def test_an_npu_that_cant_compile_the_vocoder_falls_back_to_the_pin(fake_runtime, monkeypatch):
+    fail_with_override(monkeypatch, "__init__")
+    with pytest.warns(RuntimeWarning, match="KokoroModelB_8"):
+        synthesizer = tts.Synthesizer("NPU", fake_runtime)
+    assert synthesizer.synthesize("Hello").sample_rate == 24000
+    assert [p.properties for p in FakePipeline.instances] == [{"NPUW_SUBMODEL_DEVICE": ""}, {}]
+
+
+def test_a_first_generate_that_fails_on_the_npu_retries_with_the_pin(fake_runtime, monkeypatch):
+    fail_with_override(monkeypatch, "generate")
+    synthesizer = tts.Synthesizer("NPU", fake_runtime)
+    with pytest.warns(RuntimeWarning, match="KokoroModelB_8"):
+        audio = synthesizer.synthesize("Hello")
+    np.testing.assert_allclose(audio.samples, [0.1, -0.1])
+    assert [p.properties for p in FakePipeline.instances] == [{"NPUW_SUBMODEL_DEVICE": ""}, {}]
+    assert FakePipeline.instances[1].calls == [("Hello", "en-us", 1.0)]
+
+
+def test_non_finite_audio_on_the_npu_retries_with_the_pin(fake_runtime, monkeypatch):
+    real = FakePipeline.generate
+
+    def nan_with_override(self, *args, **kwargs):
+        result = real(self, *args, **kwargs)
+        if self.properties:
+            result.speeches = [FakeTensor(np.asarray([float("nan")], dtype=np.float32))]
+        return result
+
+    monkeypatch.setattr(FakePipeline, "generate", nan_with_override)
+    synthesizer = tts.Synthesizer("NPU", fake_runtime)
+    with pytest.warns(RuntimeWarning, match="non-finite"):
+        np.testing.assert_allclose(synthesizer.synthesize("Hello").samples, [0.1, -0.1])
+
+
+def test_once_the_override_has_worked_errors_are_not_retried(fake_runtime, monkeypatch):
+    synthesizer = tts.Synthesizer("NPU", fake_runtime)
+    synthesizer.synthesize("Hello")
+
+    def broken(self, *args, **kwargs):
+        raise RuntimeError("NPU went away")
+
+    monkeypatch.setattr(FakePipeline, "generate", broken)
+    with pytest.raises(RuntimeError, match="NPU went away"):
+        synthesizer.synthesize("Again")
+    assert len(FakePipeline.instances) == 1
+
+
+def test_other_devices_never_retry(fake_runtime, monkeypatch):
+    def broken(self, *args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(FakePipeline, "generate", broken)
+    with pytest.raises(RuntimeError, match="boom"):
+        tts.Synthesizer("CPU", fake_runtime).synthesize("Hello")
+    assert len(FakePipeline.instances) == 1
