@@ -96,3 +96,17 @@ def test_a_failing_player_is_raised_from_wait(monkeypatch):
 def test_nothing_to_say_never_starts_a_player(monkeypatch):
     monkeypatch.setattr(playback, "raw_command", lambda *args: pytest.fail("player started"))
     assert playback.Speech([], player="fake").wait(timeout=5)
+
+
+def test_a_dead_player_releases_the_synthesis_thread(monkeypatch):
+    player_running(monkeypatch, "import sys; sys.exit(3)")
+
+    def endless_synthesis():
+        while True:
+            yield chunk(0.1)
+
+    speech = playback.Speech(endless_synthesis(), player="fake")
+    with pytest.raises(RuntimeError, match="exited with status 3"):
+        speech.wait(timeout=10)
+    speech._synthesis.join(timeout=5)
+    assert not speech._synthesis.is_alive()

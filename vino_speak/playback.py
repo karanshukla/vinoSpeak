@@ -128,6 +128,9 @@ class Speech:
             pass  # stop() killed the player
         finally:
             self._finish(stdin)
+            # Release the synthesis thread, which otherwise waits on a full
+            # queue for a stop() that a library caller may never send.
+            self._stopped.set()
 
     def _start(self, sample_rate: int) -> IO[bytes] | None:
         with self._process_lock:
