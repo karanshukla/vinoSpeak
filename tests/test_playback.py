@@ -33,6 +33,20 @@ def test_every_player_is_fed_mono_float32_at_the_models_rate(player):
     assert "24000" in " ".join(command)
 
 
+@pytest.mark.parametrize(
+    ("player", "flags"),
+    [
+        ("pw-play", ["--target=hdmi_sink"]),
+        ("paplay", ["--device=hdmi_sink"]),
+        ("aplay", ["-D", "hdmi_sink"]),
+    ],
+)
+def test_an_audio_device_is_passed_to_the_player(player, flags):
+    command = playback.raw_command(f"/usr/bin/{player}", 24000, "hdmi_sink")
+    assert all(flag in command for flag in flags)
+    assert "hdmi_sink" not in " ".join(playback.raw_command(f"/usr/bin/{player}", 24000))
+
+
 def test_an_unknown_player_is_refused():
     with pytest.raises(ValueError, match="mpv"):
         playback.raw_command("/usr/bin/mpv", 24000)
@@ -40,7 +54,7 @@ def test_an_unknown_player_is_refused():
 
 def player_running(monkeypatch, script):
     monkeypatch.setattr(
-        playback, "raw_command", lambda player, rate: [sys.executable, "-c", script]
+        playback, "raw_command", lambda player, rate, device=None: [sys.executable, "-c", script]
     )
 
 

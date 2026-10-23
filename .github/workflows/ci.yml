@@ -38,3 +38,24 @@ jobs:
       # numpy is imported by the tests; everything else is faked.
       - run: uv pip install numpy
       - run: .venv/bin/python -m pytest --cov=vino_speak --cov-report=term-missing
+
+  # The proof-of-concept window. Its tests drive it headless (egui_kittest)
+  # against a fake vinoSearch and a fake vinospeak, so no display or D-Bus.
+  gui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gui
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: gui
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
