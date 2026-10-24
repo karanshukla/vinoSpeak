@@ -7,10 +7,67 @@ import pytest
 from vino_speak import playback
 from vino_speak.tts import Audio
 
+# The real probe, before the fixture below stands in for it
+streams_raw = playback.streams_raw
+
+
+@pytest.fixture(autouse=True)
+def every_player_streams_raw(monkeypatch):
+    monkeypatch.setattr(playback, "streams_raw", lambda player: True)
+
 
 def test_pipewire_is_preferred_over_pulseaudio_and_alsa(monkeypatch):
     monkeypatch.setattr(playback.shutil, "which", lambda name: f"/usr/bin/{name}")
     assert playback.find_player() == "/usr/bin/pw-play"
+
+
+def test_an_old_pw_play_is_skipped_for_paplay(monkeypatch):
+    monkeypatch.setattr(playback.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(playback, "streams_raw", lambda player: not player.endswith("pw-play"))
+    assert playback.find_player() == "/usr/bin/paplay"
+
+
+def fake_help(monkeypatch, help_text=None, error=None):
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        if error is not None:
+            raise error
+        return playback.subprocess.CompletedProcess(command, 0, help_text, "")
+
+    monkeypatch.setattr(playback.subprocess, "run", run)
+    streams_raw.cache_clear()
+    return calls
+
+
+@pytest.mark.parametrize(
+    ("help_text", "expected"),
+    [
+        ("  -a, --raw                             RAW mode\n", True),
+        ("      --rate                            Sample rate\n", False),
+    ],
+)
+def test_pw_play_is_asked_whether_it_has_raw(monkeypatch, help_text, expected):
+    calls = fake_help(monkeypatch, help_text)
+    assert streams_raw("/usr/bin/pw-play") is expected
+    assert streams_raw("/usr/bin/pw-play") is expected
+    assert calls == [["/usr/bin/pw-play", "--help"]]
+    streams_raw.cache_clear()
+
+
+def test_a_pw_play_that_will_not_run_is_skipped(monkeypatch):
+    fake_help(monkeypatch, error=OSError("exec format error"))
+    assert streams_raw("/usr/bin/pw-play") is False
+    streams_raw.cache_clear()
+
+
+def test_only_pw_play_is_probed(monkeypatch):
+    calls = fake_help(monkeypatch, "")
+    assert streams_raw("/usr/bin/paplay")
+    assert streams_raw("/usr/bin/aplay")
+    assert calls == []
+    streams_raw.cache_clear()
 
 
 def test_falls_back_to_alsa(monkeypatch):

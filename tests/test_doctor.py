@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from vino_speak import doctor, ovfetch
+from vino_speak import doctor, ovfetch, playback
 from vino_speak.model import MODEL_FILES
 
 
@@ -13,6 +13,8 @@ def isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(
         doctor, "_devices", lambda: [doctor.Result(doctor.OK, "devices", "CPU, NPU")]
     )
+    monkeypatch.setattr(playback, "streams_raw", lambda player: True)
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: f"/usr/bin/{name}")
 
 
 def by_label(results, label):
@@ -34,6 +36,23 @@ def test_a_stale_model_fails(monkeypatch, tmp_path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"stale")
     assert by_label(doctor._model(), "model").status == doctor.FAIL
+
+
+def test_the_player_speech_will_use_is_reported():
+    assert by_label(doctor._playback(), "playback").detail == "/usr/bin/pw-play"
+
+
+def test_an_old_pw_play_is_reported_beside_the_player_used_instead(monkeypatch):
+    monkeypatch.setattr(playback, "streams_raw", lambda player: not player.endswith("pw-play"))
+    result = by_label(doctor._playback(), "playback")
+    assert result.status == doctor.OK
+    assert result.detail.startswith("/usr/bin/paplay")
+    assert "pw-play" in result.detail
+
+
+def test_no_player_is_a_warning_since_output_still_works(monkeypatch):
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    assert by_label(doctor._playback(), "playback").status == doctor.WARN
 
 
 def test_ovfetch_is_only_consulted_with_an_npu(monkeypatch):

@@ -9,11 +9,12 @@ from __future__ import annotations
 import argparse
 import importlib.metadata
 import json
+import shutil
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 
-from . import __version__, ovfetch
+from . import __version__, ovfetch, playback
 from .model import default_model_dir, model_is_ready, verify
 
 OK, WARN, FAIL, UNKNOWN = "ok", "warn", "FAIL", "??"
@@ -87,6 +88,23 @@ def _ovfetch(has_npu: bool) -> list[Result]:
     ]
 
 
+def _playback() -> list[Result]:
+    player = playback.find_player()
+    if player is None:
+        return [
+            Result(
+                WARN,
+                "playback",
+                f"no {', '.join(playback.PLAYERS)} that can stream; only --output works",
+            )
+        ]
+    detail = player
+    old = shutil.which("pw-play")
+    if old is not None and old != player:
+        detail += " (this pw-play is too old to stream raw audio)"
+    return [Result(OK, "playback", detail)]
+
+
 def _model() -> list[Result]:
     model_dir = default_model_dir()
     if not model_is_ready(model_dir):
@@ -114,6 +132,7 @@ def collect() -> list[Result]:
     results += devices
     has_npu = any(r.label == "devices" and "NPU" in r.detail for r in devices)
     results += _ovfetch(has_npu)
+    results += _playback()
     results += _model()
     return results
 

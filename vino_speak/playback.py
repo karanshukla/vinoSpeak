@@ -4,6 +4,7 @@ synthesized."""
 from __future__ import annotations
 
 import contextlib
+import functools
 import queue
 import shutil
 import subprocess
@@ -20,15 +21,33 @@ if TYPE_CHECKING:
 PLAYERS = ("pw-play", "paplay", "aplay")
 
 
+@functools.cache
+def streams_raw(player: str) -> bool:
+    """Whether this player can take headerless samples on stdin. pw-play only
+    learned --raw after PipeWire 1.0 (Ubuntu 24.04 ships 1.0.5, Debian 12 0.3.65)."""
+    if Path(player).name != "pw-play":
+        return True
+    try:
+        probe = subprocess.run(
+            [player, "--help"], capture_output=True, text=True, timeout=5, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "--raw" in probe.stdout + probe.stderr
+
+
 def find_player() -> str | None:
-    return next((path for name in PLAYERS if (path := shutil.which(name))), None)
+    return next(
+        (path for name in PLAYERS if (path := shutil.which(name)) and streams_raw(path)), None
+    )
 
 
 def require_player() -> str:
     player = find_player()
     if player is None:
         raise RuntimeError(
-            f"No audio player found ({', '.join(PLAYERS)}); pass --output to save a WAV instead."
+            f"No audio player found ({', '.join(PLAYERS)}; pw-play needs PipeWire newer than 1.0);"
+            " pass --output to save a WAV instead."
         )
     return player
 
