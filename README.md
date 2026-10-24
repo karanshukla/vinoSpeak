@@ -52,6 +52,26 @@ uv export --locked --no-dev --no-emit-project --no-hashes -o constraints.txt
 uv tool install --constraints constraints.txt .
 ```
 
+### Immutable distros
+
+Fedora Atomic (Silverblue, Kinoite, Bazzite) and openSUSE Aeon need nothing
+layered for vinoSpeak itself: `uv tool install` puts it in `~/.local/bin`, uv
+downloads its own Python 3.14, and the wheels carry espeak-ng and libsndfile.
+Get uv the same way, into your home directory:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Two things live outside your home directory and stay system packages:
+
+- **The NPU driver.** Its user-space half (Level Zero and the NPU compiler) has
+  to be on the host for `--device NPU`; layer it with `rpm-ostree install` or
+  `transactional-update pkg install` if your image doesn't ship it.
+  `vinospeak-doctor` shows whether OpenVINO sees the NPU. CPU works without it.
+- **A player**, if `vinospeak-doctor` finds none: layer one from the table
+  under [Synthesize speech](#synthesize-speech), or pass `--output`.
+
 ## Synthesize speech
 
 The first run downloads `OpenVINO/Kokoro-82M-int8-ov` from Hugging Face, at one

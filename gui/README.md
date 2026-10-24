@@ -11,6 +11,12 @@ VINOSPEAK=../.venv/bin/vinospeak cargo run --release   # a checkout's vinospeak
 VINOSPEAK=../.venv/bin/vinospeak ./install.sh          # into the app menu; --uninstall removes it
 ```
 
+On Fedora Atomic or openSUSE Aeon, run `install.sh` inside a toolbox or
+distrobox that has cargo: the binary goes to `~/.cargo/bin` and the menu entry
+to `~/.local/share`, both of which the host sees. Use a container of the host's
+own release (what `toolbox create` gives you), since a binary linked against a
+newer glibc than the host's won't start there.
+
 Text files only for now: PDFs and other documents show up but can't be read
 aloud until vinoSpeak can get their text from vinoSearch.
 
