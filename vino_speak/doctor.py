@@ -52,13 +52,18 @@ def _packages() -> list[Result]:
 
 
 def _devices() -> list[Result]:
+    results: list[Result] = []
     try:
         import openvino as ov
 
+        try:
+            ovfetch.preload()
+        except ovfetch.OvfetchError as exc:
+            results.append(Result(WARN, "ovfetch prefix", str(exc)))
         found = list(ov.Core().available_devices)
     except Exception as exc:  # noqa: BLE001 - reported, not raised
-        return [Result(FAIL, "devices", f"OpenVINO did not start: {exc}")]
-    results = [Result(OK, "devices", ", ".join(found) or "none")]
+        return [*results, Result(FAIL, "devices", f"OpenVINO did not start: {exc}")]
+    results.append(Result(OK, "devices", ", ".join(found) or "none"))
     if not any(d.startswith("NPU") for d in found):
         results.append(
             Result(WARN, "npu", "not enumerated by OpenVINO; pass --device CPU or --device GPU")

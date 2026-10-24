@@ -142,7 +142,12 @@ Reports the OpenVINO packages and devices, whether the cached model still
 matches its pins, and, if [ovfetch](https://github.com/karanshukla/ovfetch) is
 on your `PATH`, whether your OpenVINO version is inside the range recorded as
 working with your NPU driver. Install it with `cargo install ovfetch --locked`.
-ovfetch is advisory here: it never changes what gets installed or run.
+ovfetch is advisory here: it never changes what gets installed or run, with one
+exception. If your distro's NPU driver package has no compiler (Fedora's
+`intel-npu-driver` 1.32.0), the NPU enumerates and every compile fails;
+`ovfetch npu install` (0.6.0 or newer) fetches Intel's compiler into
+`~/.local/lib/ovfetch-npu`, no root, and vinoSpeak loads it from there before
+it opens the NPU. The doctor's `npu: ovfetch` line says when that applies.
 
 ## Use it from Python
 

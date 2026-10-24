@@ -6,21 +6,30 @@ reports that range: the bounds are pessimistic on purpose ("untested", not
 "known to fail"), so nothing here stops the NPU from being tried.
 
 vinoSpeak runs OpenVINO GenAI, not ONNX Runtime, so it never uses
-`ovfetch install`: pip provides OpenVINO (pinned in pyproject.toml).
+`ovfetch install`: pip provides OpenVINO (pinned in pyproject.toml). The one
+thing pip cannot provide is the NPU compiler a distro's driver package may
+lack (Fedora's 1.32.0 rpm): `ovfetch npu install` (0.6.0) puts it in
+~/.local/lib/ovfetch-npu, and preload() loads it from there.
 """
 
 from __future__ import annotations
 
+import ctypes
 import json
 import re
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 BINARY = "ovfetch"
 INSTALL_HINT = "cargo install ovfetch --locked"
 _TIMEOUT_S = 10
+# Where `ovfetch npu install` puts the compiler (or a whole driver), and the
+# list it writes there: the libraries to load, one per line, in order.
+NPU_PREFIX = Path.home() / ".local/lib/ovfetch-npu"
+PRELOAD_LIST = "ovfetch-preload.txt"
 
 
 @dataclass(frozen=True)
@@ -32,6 +41,51 @@ class Note:
 
 class OvfetchError(Exception):
     pass
+
+
+def npu_prefix() -> Path | None:
+    """The default prefix, once `ovfetch npu install` has written its list."""
+    try:
+        return NPU_PREFIX if (NPU_PREFIX / PRELOAD_LIST).is_file() else None
+    except OSError:
+        return None
+
+
+# What preload() loaded, once it has: a failed attempt is retried next time.
+_preloaded: list[str] | None = None
+
+
+def preload(prefix: Path | None = None) -> list[str]:
+    """Load the prefix's libraries so the NPU driver finds its compiler (or so
+    the prefix's driver is the one that runs). Each line of the list in its
+    order with RTLD_GLOBAL: the driver later asks for them by soname and gets
+    the copies already loaded. After `import openvino` (the compiler links
+    its TBB), before anything opens the NPU; a second call is a no-op. No
+    prefix, no list: nothing happens. Returns what was loaded."""
+    global _preloaded
+    if _preloaded is not None:
+        return list(_preloaded)
+    prefix = prefix if prefix is not None else npu_prefix()
+    if prefix is None:
+        _preloaded = []
+        return []
+    listing = prefix / PRELOAD_LIST
+    try:
+        names = [line.strip() for line in listing.read_text(encoding="utf-8").splitlines()]
+    except FileNotFoundError:
+        _preloaded = []
+        return []
+    except OSError as exc:
+        raise OvfetchError(f"{listing} is unreadable: {exc}") from exc
+    loaded: list[str] = []
+    for name in filter(None, names):
+        try:
+            ctypes.CDLL(name, mode=ctypes.RTLD_GLOBAL)
+        except OSError as exc:
+            raise OvfetchError(f"loading {name} (listed in {listing}): {exc}") from exc
+        loaded.append(name)
+    _preloaded = loaded
+    return list(loaded)
 
 
 def _minor(text: str | None) -> tuple[int, int] | None:
@@ -88,6 +142,15 @@ def notes(status: dict[str, Any], openvino_version: str | None) -> list[Note]:
         for p in status.get("platforms", [])
     ]
     result += [Note(False, "npu: ovfetch", str(w)) for w in status.get("warnings", [])]
+    if status.get("npu_prefix"):
+        result.append(
+            Note(
+                True,
+                "npu: ovfetch prefix",
+                f"{status['npu_prefix']} (ovfetch npu install); vinoSpeak loads its "
+                "libraries before OpenVINO opens the NPU",
+            )
+        )
 
     installed_v = _minor(openvino_version)
     if installed_v is None:

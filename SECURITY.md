@@ -58,6 +58,14 @@ your OpenVINO version with the range recorded for your NPU driver. It reads
 the output as data and changes nothing. vinoSpeak never runs `ovfetch install`:
 OpenVINO comes from pip, pinned in `pyproject.toml`.
 
+The one thing vinoSpeak loads from outside pip is the NPU compiler, when you
+have put one in `~/.local/lib/ovfetch-npu` with `ovfetch npu install` (ovfetch
+0.6.0): before opening the NPU it `dlopen`s each library that prefix's
+`ovfetch-preload.txt` lists, in that order. ovfetch checks the tarball they
+come from against its ledger, and the prefix is your own, so this is the same
+trust as a package in your virtualenv. vinoSpeak never writes to that prefix;
+with no prefix, nothing is loaded.
+
 ## Reporting a vulnerability
 
 Please use GitHub's private vulnerability reporting on this repository
