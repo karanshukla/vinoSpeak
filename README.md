@@ -65,8 +65,20 @@ vinospeak "Hello from vinoSpeak." --output hello.wav  # saves a WAV instead
 ```
 
 Playback goes through `pw-play` (PipeWire, what Wayland desktops run), falling
-back to `paplay` or `aplay`. `--audio-device` plays on another output: a sink
-name from `pactl list short sinks`, or an ALSA device for `aplay`.
+back to `paplay` or `aplay`. A `pw-play` too old to stream raw audio (PipeWire
+1.0 on Ubuntu 24.04, 0.3 on Debian 12) is skipped for `paplay`, which
+PipeWire's PulseAudio layer serves just as well. `vinospeak-doctor` says which
+player it picked. `--audio-device` plays on another output: a sink name from
+`pactl list short sinks`, or an ALSA device for `aplay`.
+
+If none of them is installed:
+
+| Distro | `pw-play` | `paplay` |
+|---|---|---|
+| Fedora | `pipewire-utils` | `pulseaudio-utils` |
+| Ubuntu / Debian | `pipewire-bin` | `pulseaudio-utils` |
+| Arch | `pipewire` | `libpulse` |
+| openSUSE | `pipewire-tools` | `pulseaudio-utils` |
 
 ## Read a file aloud
 
