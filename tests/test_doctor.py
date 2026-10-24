@@ -21,6 +21,28 @@ def by_label(results, label):
     return next(r for r in results if r.label == label)
 
 
+# Captured before the autouse fixture replaces it.
+_real_devices = doctor._devices
+
+
+def test_a_prefix_that_will_not_load_is_a_warning_and_devices_still_list(monkeypatch):
+    import sys
+    from types import ModuleType, SimpleNamespace
+
+    fake = ModuleType("openvino")
+    fake.Core = lambda: SimpleNamespace(available_devices=["CPU", "NPU"])  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "openvino", fake)
+
+    def broken():
+        raise ovfetch.OvfetchError("loading libnpu_driver_compiler.so: no such file")
+
+    monkeypatch.setattr(ovfetch, "preload", broken)
+    results = _real_devices()
+    assert by_label(results, "ovfetch prefix").status == doctor.WARN
+    assert "libnpu_driver_compiler.so" in by_label(results, "ovfetch prefix").detail
+    assert by_label(results, "devices").detail == "CPU, NPU"
+
+
 def test_a_missing_package_is_a_failure(monkeypatch):
     monkeypatch.setattr(doctor, "_distribution", lambda name: None)
     assert by_label(doctor._packages(), "openvino-genai").status == doctor.FAIL

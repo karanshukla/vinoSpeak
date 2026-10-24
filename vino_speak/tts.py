@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from . import ovfetch
 from .model import default_model_dir, ensure_model
 from .playback import Speech, require_player
 from .text import chunks
@@ -98,6 +99,13 @@ class Synthesizer:
         self.model_dir = model_dir
         self._ov = ov
         self._genai = ov_genai
+        # The compiler or driver from `ovfetch npu install`, before the NPU is
+        # opened. Only the NPU needs it; elsewhere a bad prefix is not fatal.
+        try:
+            ovfetch.preload()
+        except ovfetch.OvfetchError:
+            if device.startswith("NPU"):
+                raise
         # Until a generate() has succeeded with the override, a failure (an
         # error, or non-finite samples) may be the compiler bug it exposes,
         # so it is worth one retry with OpenVINO's pin.

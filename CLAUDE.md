@@ -41,6 +41,14 @@ uv run poe check                              # ruff, format --check, mypy (stri
   Runtime, so it never runs `ovfetch install`. The doctor runs `ovfetch detect`
   when it is on `PATH`, and its bounds are pessimistic on purpose: nothing it
   says is a FAIL. See vinoWhisper's `docs/architecture.md` for why.
+- **The NPU compiler is the exception** (ovfetch 0.6.0, 2026-10-24). Fedora's
+  1.32.0 driver rpm ships none; `ovfetch npu install` puts Intel's in
+  `~/.local/lib/ovfetch-npu`. `ovfetch.preload()` dlopens each line of that
+  prefix's `ovfetch-preload.txt` with `RTLD_GLOBAL` before the first
+  `Core()`/pipeline (`Synthesizer.__init__`, `doctor._devices`), in the file's
+  order (a driver before the Level Zero loader crashed, per ovfetch's README).
+  Fatal only on the NPU. `tests/conftest.py` disables the real preload for every
+  test, so nothing dlopens a developer's prefix. Same code as vinoWhisper's.
 - **`ensure_model(trusted=True)`** (what `--model-dir` sets) skips the pin check
   for a directory that already holds the model files; the default cache dir is
   always checked. An empty `--model-dir` still downloads the pinned model.
