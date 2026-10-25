@@ -55,3 +55,12 @@ def test_a_word_longer_than_a_chunk_is_cut():
     out = chunks(text)
     assert all(len(c) <= MAX_CHUNK_CHARS for c in out)
     assert "".join(out) == text
+
+
+def test_a_word_too_long_for_a_chunk_ends_the_piece_before_it():
+    long_word = "x" * (MAX_CHUNK_CHARS + 5)
+    assert chunks(f"short {long_word} tail") == [
+        "short",
+        "x" * MAX_CHUNK_CHARS,
+        "xxxxx tail",
+    ]

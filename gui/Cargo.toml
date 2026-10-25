@@ -2,6 +2,8 @@
 name = "vinospeak-gui"
 version = "0.0.1"
 edition = "2024"
+# What Cargo.lock needs (uuid 1.28.0, 2026-10-25); CI builds with it
+rust-version = "1.89"
 license = "MIT"
 description = "Find a file with vinoSearch and listen to it with vinoSpeak (proof of concept)"
 repository = "https://github.com/karanshukla/vinoSpeak"

@@ -23,6 +23,7 @@ def by_label(results, label):
 
 # Captured before the autouse fixture replaces it.
 _real_devices = doctor._devices
+_real_distribution = doctor._distribution
 
 
 def test_a_prefix_that_will_not_load_is_a_warning_and_devices_still_list(monkeypatch):
@@ -125,3 +126,39 @@ def test_exit_status_is_1_when_something_failed(capsys, monkeypatch):
     monkeypatch.setattr(doctor, "_distribution", lambda name: None)
     assert doctor.main([]) == 1
     assert "failed" in capsys.readouterr().out
+
+
+def fake_openvino(monkeypatch, core):
+    import sys
+    from types import ModuleType
+
+    fake = ModuleType("openvino")
+    fake.Core = core  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "openvino", fake)
+
+
+def test_openvino_that_will_not_start_is_a_failure(monkeypatch):
+    def broken_core():
+        raise RuntimeError("libtbb.so.12: cannot open shared object file")
+
+    fake_openvino(monkeypatch, broken_core)
+    [result] = _real_devices()
+    assert (result.status, result.label) == (doctor.FAIL, "devices")
+    assert "OpenVINO did not start: libtbb" in result.detail
+
+
+def test_no_npu_is_a_warning_that_names_the_other_devices(monkeypatch):
+    from types import SimpleNamespace
+
+    fake_openvino(monkeypatch, lambda: SimpleNamespace(available_devices=["CPU"]))
+    results = _real_devices()
+    assert by_label(results, "devices").detail == "CPU"
+    assert by_label(results, "npu").status == doctor.WARN
+    assert "--device CPU" in by_label(results, "npu").detail
+
+
+def test_installed_versions_come_from_package_metadata():
+    from importlib.metadata import version
+
+    assert _real_distribution("pytest") == version("pytest")
+    assert _real_distribution("vinospeak-no-such-package") is None

@@ -27,8 +27,8 @@ import time (vinoPop defers heavy imports). `tests/test_tts.py` fakes all three.
 ## Commands
 
 ```bash
-uv venv && uv pip install --group dev numpy   # what CI installs
-.venv/bin/python -m pytest
+uv sync --locked --only-group dev             # what CI installs
+.venv/bin/python -m pytest --cov              # CI's floor is --cov-fail-under in ci.yml
 uv run poe check                              # ruff, format --check, mypy (strict), pytest
 ```
 

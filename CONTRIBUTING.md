@@ -9,9 +9,8 @@ Attach `vinospeak-doctor --json` to any report.
 Nothing that avoids the model needs OpenVINO. This is what CI does:
 
 ```bash
-uv venv
-uv pip install --group dev numpy
-.venv/bin/python -m pytest
+uv sync --locked --only-group dev
+.venv/bin/python -m pytest --cov    # branch coverage; CI fails under 96%
 ```
 
 For the real thing:

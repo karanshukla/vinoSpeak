@@ -62,6 +62,8 @@ vino_speak = ["model_pins.json", "py.typed"]
 [dependency-groups]
 # Installable alone, so CI never downloads OpenVINO
 dev = [
+    # The tests build waveforms with it; everything else of the runtime is faked
+    "numpy>=1.24.0",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.6",
@@ -125,8 +127,14 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-q"
 
+[tool.coverage.run]
+branch = true
+source = ["vino_speak"]
+
 [tool.coverage.report]
 show_missing = true
+skip_covered = true
+exclude_also = ['if __name__ == "__main__":']
 
 # ── Bandit ────────────────────────────────────────────────────────────────────
 

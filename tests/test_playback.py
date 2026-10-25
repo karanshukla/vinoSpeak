@@ -195,3 +195,49 @@ def test_a_player_that_will_not_start_is_raised_from_wait(monkeypatch, player, e
         speech.wait(timeout=10)
     speech._synthesis.join(timeout=5)
     assert not speech._synthesis.is_alive()
+
+
+def test_stop_before_the_first_chunk_never_starts_a_player(monkeypatch):
+    monkeypatch.setattr(playback, "raw_command", lambda *args: pytest.fail("player started"))
+    release = threading.Event()
+
+    def waiting_synthesis():
+        release.wait(30)
+        yield chunk(0.1)
+
+    speech = playback.Speech(waiting_synthesis(), player="fake")
+    speech.stop()
+    try:
+        assert speech.wait(timeout=5)
+    finally:
+        release.set()
+    speech._synthesis.join(timeout=5)
+    assert not speech._synthesis.is_alive()
+
+
+def test_a_stop_while_the_first_chunk_is_handed_over_never_starts_a_player(monkeypatch):
+    # The race _start() guards: the chunk is out of the queue, then stop().
+    monkeypatch.setattr(playback, "raw_command", lambda *args: pytest.fail("player started"))
+    speech = playback.Speech.__new__(playback.Speech)
+    speech._stopped = threading.Event()
+    speech._process_lock = threading.Lock()
+    speech._process = None
+    speech.stop()
+    assert speech._start(24000) is None
+
+
+def test_wait_times_out_while_speech_is_still_coming(monkeypatch):
+    player_running(monkeypatch, "import sys; sys.stdin.buffer.read()")
+    release = threading.Event()
+
+    def slow_synthesis():
+        release.wait(30)
+        yield chunk(0.1)
+
+    speech = playback.Speech(slow_synthesis(), player="fake")
+    try:
+        assert speech.wait(timeout=0.05) is False
+        assert not speech.done
+    finally:
+        release.set()
+    assert speech.wait(timeout=10)

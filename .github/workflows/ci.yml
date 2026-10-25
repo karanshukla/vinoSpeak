@@ -4,24 +4,38 @@ on:
   push:
     branches: ["main"]
   pull_request:
+  # The release runs this before it publishes anything (release.yml)
+  workflow_call:
 
 permissions:
   contents: read
 
-# The dev group only: no job here has OpenVINO or an NPU, so the tests cover
-# everything that does not touch the model (CONTRIBUTING.md).
+# The dev group only: no job here but `wheel` has OpenVINO, and none has an
+# NPU, so the tests cover everything that does not touch the model
+# (CONTRIBUTING.md).
 
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-      - run: uv venv
-      - run: uv pip install --group dev
+      # --locked fails if uv.lock is out of step with pyproject.toml, and pins
+      # the tools, so a new ruff release can't turn CI red on its own
+      - run: uv sync --locked --only-group dev
       - run: .venv/bin/ruff check .
       - run: .venv/bin/ruff format --check .
       - run: .venv/bin/mypy
+      # Every shell script; shellcheck is on the runner image
+      - run: git ls-files -z "*.sh" | xargs -0 shellcheck
+      - name: Audit the runtime dependencies
+        # What `uv tool install vinospeak` installs, at the locked versions.
+        # Advisories only: Renovate keeps the dev group current.
+        run: |
+          uv export --frozen --no-dev --no-emit-project > requirements.txt
+          uvx pip-audit==2.10.1 -r requirements.txt --disable-pip --require-hashes
 
   test:
     needs: lint
@@ -32,12 +46,44 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-      - run: uv venv --python ${{ matrix.python-version }}
-      - run: uv pip install --group dev
-      # numpy is imported by the tests; everything else is faked.
-      - run: uv pip install numpy
-      - run: .venv/bin/python -m pytest --cov=vino_speak --cov-report=term-missing
+      - run: uv sync --locked --only-group dev --python ${{ matrix.python-version }}
+      # Branch coverage of vino_speak (pyproject.toml). The floor is a few
+      # points under what CI measured when it was set (99.2%, 2026-10-25), so
+      # a test deleted or a module added untested fails here.
+      - run: .venv/bin/python -m pytest --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=96
+      - name: Coverage summary
+        if: always() && matrix.python-version == '3.14'
+        run: .venv/bin/coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && matrix.python-version == '3.14'
+        with:
+          name: python-coverage
+          path: coverage.xml
+
+  # The wheel a release would publish, installed with its real dependencies
+  # (OpenVINO included) into a clean venv. Catches a module or package data
+  # left out of the wheel, and a dependency that will not import.
+  wheel:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - run: uv build
+      - name: Install the wheel and run it
+        run: |
+          uv venv --python 3.14 /tmp/wheel
+          uv pip install --python /tmp/wheel dist/*.whl
+          test "$(/tmp/wheel/bin/vinospeak --print-text 'Hello from the wheel.')" = 'Hello from the wheel.'
+          /tmp/wheel/bin/python -c 'import vino_speak.model as m; m.load_pins()'
+          # No NPU and no model on the runner: warnings and unknowns, but a
+          # FAIL (a missing package, OpenVINO that won't start) fails the job
+          /tmp/wheel/bin/vinospeak-doctor
 
   # The proof-of-concept window. Its tests drive it headless (egui_kittest)
   # against a fake vinoSearch and a fake vinospeak, so no display or D-Bus.
@@ -52,10 +98,48 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
-          components: clippy, rustfmt
+          components: clippy, rustfmt, llvm-tools-preview
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-llvm-cov,cargo-audit
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: gui
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
-      - run: cargo test --locked
+      # cargo test, instrumented: the same tests, one build. Line floor a few
+      # points under what CI measured when it was set (71.6%, 2026-10-25);
+      # main.rs and the real D-Bus/pactl/portal calls are not reachable here.
+      - run: cargo llvm-cov --locked --lcov --output-path lcov.info --fail-under-lines 68
+      - name: Coverage summary
+        run: |
+          cargo llvm-cov report --summary-only
+          {
+            echo '### GUI coverage'
+            echo '```'
+            cargo llvm-cov report --summary-only
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gui-coverage
+          path: gui/lcov.info
+      - run: cargo audit
+
+  # rust-version in gui/Cargo.toml, which is what Cargo.lock needs (uuid 1.28)
+  gui-msrv:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gui
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.89"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: gui
+      - run: cargo check --locked --all-targets

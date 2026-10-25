@@ -1330,6 +1330,8 @@ dependencies = [
 dev = [
     { name = "bump-my-version" },
     { name = "mypy" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "poethepoet" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -1350,6 +1352,7 @@ requires-dist = [
 dev = [
     { name = "bump-my-version", specifier = ">=0.24" },
     { name = "mypy", specifier = ">=1.10" },
+    { name = "numpy", specifier = ">=1.24.0" },
     { name = "poethepoet", specifier = ">=0.27" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-cov", specifier = ">=5.0" },
