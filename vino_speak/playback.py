@@ -182,6 +182,11 @@ class Speech:
                 stdin.flush()
         except BrokenPipeError:
             pass  # stop() killed the player
+        except BaseException as error:  # noqa: BLE001 - raised again from wait()
+            # A player that won't start (gone, not executable, or one
+            # raw_command can't drive) would otherwise end this thread
+            # silently, and wait() would report speech that never played.
+            self._error = self._error or error
         finally:
             self._finish(stdin)
             # Release the synthesis thread, which otherwise waits on a full
