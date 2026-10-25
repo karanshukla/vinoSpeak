@@ -181,3 +181,17 @@ def test_a_dead_player_releases_the_synthesis_thread(monkeypatch):
         speech.wait(timeout=10)
     speech._synthesis.join(timeout=5)
     assert not speech._synthesis.is_alive()
+
+
+@pytest.mark.parametrize(
+    ("player", "error"),
+    [("/usr/bin/mpv", ValueError), ("/nonexistent/pw-play", FileNotFoundError)],
+)
+def test_a_player_that_will_not_start_is_raised_from_wait(monkeypatch, player, error):
+    if error is FileNotFoundError:
+        monkeypatch.setattr(playback, "raw_command", lambda *args: [player, "--raw"])
+    speech = playback.Speech([chunk(0.1)], player=player)
+    with pytest.raises(error):
+        speech.wait(timeout=10)
+    speech._synthesis.join(timeout=5)
+    assert not speech._synthesis.is_alive()
