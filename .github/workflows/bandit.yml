@@ -36,3 +36,9 @@ jobs:
         with:
           sarif_file: bandit.sarif
           category: bandit
+
+      - name: Fail on any finding
+        # After the upload, so code scanning still gets this run's results.
+        # The scan was clean when this was added (2026-10-25); a finding that
+        # is wrong goes in [tool.bandit] skips or a `# nosec` with a reason.
+        run: uvx --from 'bandit[toml]==1.9.4' bandit -c pyproject.toml -r . -q

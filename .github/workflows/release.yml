@@ -10,6 +10,13 @@ on:
 permissions: {}
 
 jobs:
+  # The tag's commit passed CI on main, but the release runs at the same
+  # moment (bump-my-version pushes both), so it checks again before publishing.
+  ci:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
   build:
     runs-on: ubuntu-latest
     permissions:
@@ -47,6 +54,14 @@ jobs:
             fi
           done
 
+      - name: Install the wheel and run it
+        # The same smoke test as CI's wheel job, on the file that is uploaded
+        run: |
+          uv venv --python 3.14 /tmp/wheel
+          uv pip install --python /tmp/wheel dist/*.whl
+          test "$(/tmp/wheel/bin/vinospeak --print-text 'Hello from the wheel.')" = 'Hello from the wheel.'
+          /tmp/wheel/bin/vinospeak-doctor
+
       - name: Check the metadata renders on PyPI
         # A rejected upload cannot be retried under the same version
         run: uvx twine@7.0.0 check --strict dist/*
@@ -82,7 +97,7 @@ jobs:
             RELEASE_NOTES.md
 
   pypi:
-    needs: build
+    needs: [ci, build]
     # Belt and braces: only a pushed v* tag may publish, whatever triggers are added later.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
