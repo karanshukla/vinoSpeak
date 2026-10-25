@@ -10,7 +10,7 @@ Nothing that avoids the model needs OpenVINO. This is what CI does:
 
 ```bash
 uv sync --locked --only-group dev
-.venv/bin/python -m pytest --cov    # branch coverage; CI fails under 95%
+.venv/bin/python -m pytest --cov    # branch coverage; CI fails under 96%
 ```
 
 For the real thing:

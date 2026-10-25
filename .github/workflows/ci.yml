@@ -51,9 +51,9 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       - run: uv sync --locked --only-group dev --python ${{ matrix.python-version }}
       # Branch coverage of vino_speak (pyproject.toml). The floor is a few
-      # points under what CI measured when it was set, so a test deleted or a
-      # module added untested fails here instead of passing unnoticed.
-      - run: .venv/bin/python -m pytest --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=95
+      # points under what CI measured when it was set (99.2%, 2026-10-25), so
+      # a test deleted or a module added untested fails here.
+      - run: .venv/bin/python -m pytest --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=96
       - name: Coverage summary
         if: always() && matrix.python-version == '3.14'
         run: .venv/bin/coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
@@ -107,8 +107,10 @@ jobs:
           workspaces: gui
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
-      # cargo test, instrumented: the same tests, one build
-      - run: cargo llvm-cov --locked --lcov --output-path lcov.info
+      # cargo test, instrumented: the same tests, one build. Line floor a few
+      # points under what CI measured when it was set (71.6%, 2026-10-25);
+      # main.rs and the real D-Bus/pactl/portal calls are not reachable here.
+      - run: cargo llvm-cov --locked --lcov --output-path lcov.info --fail-under-lines 68
       - name: Coverage summary
         run: |
           cargo llvm-cov report --summary-only
