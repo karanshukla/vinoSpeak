@@ -27,18 +27,26 @@ LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?")
 TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
 TABLE_RULE = re.compile(r"^[\s|:-]*-[\s|:-]*$")
 
-IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
-LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
-REFERENCE_LINK = re.compile(r"\[([^\]]+)\]\[[^\]]*\]")
+# Inline patterns stop at the next opening delimiter, so an unclosed `[` or
+# `**` costs a scan to the next one instead of to the end of the line. With
+# `.+?`, a line of 5,000 unclosed `**a ` took 3.3 s, growing with the square
+# of its length (2026-10-25).
+# A link target may hold one level of parentheses, as Wikipedia URLs do.
+TARGET = r"\((?:[^()]|\([^()]*\))*\)"
+IMAGE = re.compile(r"!\[[^\[\]]*\]" + TARGET)
+LINK = re.compile(r"\[([^\[\]]*)\]" + TARGET)
+REFERENCE_LINK = re.compile(r"\[([^\[\]]+)\]\[[^\[\]]*\]")
 REFERENCE = re.compile(r"^ {0,3}\[[^\]]+\]:\s*\S.*$", re.M)
-FOOTNOTE = re.compile(r"\[\^[^\]]+\]")
-AUTOLINK = re.compile(r"<(https?://[^>\s]+)>")
+FOOTNOTE = re.compile(r"\[\^[^\[\]]+\]")
+AUTOLINK = re.compile(r"<(https?://[^<>\s]+)>")
 URL = re.compile(r"https?://[^\s<>()\[\]]*[^\s<>()\[\].,;:!?'\"]")
 HTML_TAG = re.compile(r"</?[A-Za-z][^>]*>")
 INLINE_CODE = re.compile(r"(`+)(.+?)\1")
-STRONG = re.compile(r"(\*\*|__)(?!\s)(.+?)(?<!\s)\1")
+STRONG = re.compile(
+    r"\*\*(?!\s)((?:[^*]|\*(?!\*))+?)(?<!\s)\*\*|__(?!\s)((?:[^_]|_(?!_))+?)(?<!\s)__"
+)
 EMPHASIS = re.compile(
-    r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])|(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)"
+    r"(?<![\w*])\*(?!\s)([^*]+?)(?<!\s)\*(?![\w*])|(?<!\w)_(?!\s)([^_]+?)(?<!\s)_(?!\w)"
 )
 STRIKE = re.compile(r"~~(.+?)~~")
 ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|<>~])")
@@ -50,6 +58,10 @@ ESCAPED = re.compile("[\ue000-\ue0ff]")
 def _host(match: re.Match[str]) -> str:
     host = urlsplit(match.group(1) if match.re is AUTOLINK else match.group(0)).hostname
     return host.removeprefix("www.") if host else ""
+
+
+def _inner(match: re.Match[str]) -> str:
+    return match.group(1) or match.group(2)
 
 
 def _sentence(line: str) -> str:
@@ -110,8 +122,8 @@ def markdown(text: str) -> str:
     text = plain(text)
     text = HTML_TAG.sub("", text)
     text = INLINE_CODE.sub(r"\2", text)
-    text = STRONG.sub(r"\2", text)
-    text = EMPHASIS.sub(lambda m: m.group(1) or m.group(2), text)
+    text = STRONG.sub(_inner, text)
+    text = EMPHASIS.sub(_inner, text)
     text = STRIKE.sub(r"\1", text)
     return ESCAPED.sub(lambda m: chr(ord(m.group(0)) - 0xE000), text)
 
