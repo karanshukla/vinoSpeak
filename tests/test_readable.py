@@ -1,3 +1,7 @@
+import time
+
+import pytest
+
 from vino_speak.readable import CODE_SKIPPED, markdown, plain
 
 
@@ -60,3 +64,22 @@ def test_html_front_matter_comments_and_rules_go():
 
 def test_quotes_and_escapes():
     assert spoken("> quoted \\*not emphasis\\*") == "quoted *not emphasis*"
+
+
+def test_nested_emphasis_and_parenthesised_link_targets():
+    assert spoken("**bold *and it* too** __x _y_ z__") == "bold and it too x y z"
+    assert spoken("See [Kokoro](https://en.wikipedia.org/wiki/Kokoro_(novel)).") == "See Kokoro."
+
+
+# Each of these is unclosed markup repeated along one line. Before the inline
+# patterns stopped at the next opening delimiter, 5,000 `**a ` took 3.3 s and
+# the time grew with the square of the length, so a large .md file could hang
+# the preview in the window (2026-10-25). Now 25,000 take about 20 ms.
+@pytest.mark.parametrize(
+    "unit", ["**a ", "__a ", "*a ", "_a ", "[", "![", "[a", "[^a", "[a](", "<http://a"]
+)
+def test_unclosed_inline_markup_is_linear(unit: str) -> None:
+    text = unit * 25_000
+    start = time.perf_counter()
+    markdown(text)
+    assert time.perf_counter() - start < 1.0
