@@ -209,3 +209,25 @@ def test_detect_reports_a_timeout(monkeypatch):
     monkeypatch.setattr(ovfetch.subprocess, "run", hang)
     with pytest.raises(ovfetch.OvfetchError, match="detect"):
         ovfetch.detect()
+
+
+def test_an_unreadable_list_is_an_error_and_retried(tmp_path, loader):
+    prefix = tmp_path / "ovfetch-npu"
+    (prefix / ovfetch.PRELOAD_LIST).mkdir(parents=True)  # read_text() raises IsADirectoryError
+    with pytest.raises(ovfetch.OvfetchError, match="unreadable"):
+        ovfetch.preload(prefix)
+    assert ovfetch._preloaded is None
+    assert loader == []
+
+
+def test_a_prefix_that_cannot_be_checked_counts_as_none(tmp_path, monkeypatch):
+    def denied(self):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(ovfetch.Path, "is_file", denied)
+    assert ovfetch.npu_prefix() is None
+
+
+def test_a_prefix_without_a_list_loads_nothing(tmp_path, loader):
+    assert ovfetch.preload(tmp_path) == []
+    assert loader == []

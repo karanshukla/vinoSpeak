@@ -240,3 +240,108 @@ def test_other_devices_never_retry(fake_runtime, monkeypatch):
     with pytest.raises(RuntimeError, match="boom"):
         tts.Synthesizer("CPU", fake_runtime).synthesize("Hello")
     assert len(FakePipeline.instances) == 1
+
+
+@pytest.mark.parametrize(("device", "fatal"), [("NPU", True), ("NPU.0", True), ("CPU", False)])
+def test_a_prefix_that_will_not_load_is_fatal_only_on_the_npu(
+    fake_runtime, monkeypatch, device, fatal
+):
+    def broken_preload():
+        raise tts.ovfetch.OvfetchError("loading libnpu_driver_compiler.so: bad ELF")
+
+    monkeypatch.setattr(tts.ovfetch, "preload", broken_preload)
+    if fatal:
+        with pytest.raises(tts.ovfetch.OvfetchError, match="bad ELF"):
+            tts.Synthesizer(device, fake_runtime)
+        assert FakePipeline.instances == []
+    else:
+        assert tts.Synthesizer(device, fake_runtime).synthesize("Hello").sample_rate == 24000
+
+
+def test_missing_runtime_dependencies_say_how_to_install_them(fake_runtime, monkeypatch):
+    monkeypatch.setitem(sys.modules, "openvino_genai", None)
+    with pytest.raises(RuntimeError, match="uv sync"):
+        tts.Synthesizer("CPU", fake_runtime)
+
+
+def test_no_speech_from_the_pipeline_is_an_error(fake_runtime, monkeypatch):
+    def silent(self, *args, **kwargs):
+        return type("Result", (), {"speeches": [], "output_sample_rate": 24000})()
+
+    monkeypatch.setattr(FakePipeline, "generate", silent)
+    with pytest.raises(RuntimeError, match="did not return any speech"):
+        tts.Synthesizer("CPU", fake_runtime).synthesize("Hello")
+
+
+@pytest.fixture
+def fake_soundfile(monkeypatch):
+    writes = []
+    soundfile = ModuleType("soundfile")
+    soundfile.write = lambda path, samples, rate: writes.append((path, samples.copy(), rate))
+    monkeypatch.setitem(sys.modules, "soundfile", soundfile)
+    return writes
+
+
+def test_synthesize_writes_a_wav_at_the_models_rate(fake_runtime, fake_soundfile, tmp_path):
+    output = tmp_path / "new" / "dir" / "out.wav"
+
+    assert tts.synthesize("Hello", output, device="CPU", model_dir=fake_runtime) == output
+
+    assert output.parent.is_dir()
+    [(path, samples, rate)] = fake_soundfile
+    assert path == output
+    assert rate == 24000
+    np.testing.assert_allclose(samples, [0.1, -0.1])
+
+
+def test_synthesize_without_soundfile_says_how_to_install_it(monkeypatch, tmp_path):
+    monkeypatch.setitem(sys.modules, "soundfile", None)
+    with pytest.raises(RuntimeError, match="uv sync"):
+        tts.synthesize("Hello", tmp_path / "out.wav", model_dir=tmp_path / "never-created")
+    assert not (tmp_path / "never-created").exists()
+
+
+class FakeSpeech:
+    instances: list["FakeSpeech"] = []
+
+    def __init__(self, audio, player=None, audio_device=None, interrupt=False):
+        self.chunks = list(audio)
+        self.player = player
+        self.audio_device = audio_device
+        self.interrupt = interrupt
+        self.stopped = False
+        FakeSpeech.instances.append(self)
+
+    def wait(self):
+        if self.interrupt:
+            raise KeyboardInterrupt
+
+    def stop(self):
+        self.stopped = True
+
+
+@pytest.mark.parametrize("interrupt", [False, True])
+def test_speak_plays_on_the_chosen_device_and_always_stops(fake_runtime, monkeypatch, interrupt):
+    FakeSpeech.instances.clear()
+    monkeypatch.setattr(tts, "require_player", lambda: "/usr/bin/pw-play")
+    monkeypatch.setattr(tts, "Speech", lambda *args: FakeSpeech(*args, interrupt=interrupt))
+
+    if interrupt:
+        with pytest.raises(KeyboardInterrupt):
+            tts.speak("Hello there.", device="CPU", model_dir=fake_runtime, audio_device="sink")
+    else:
+        tts.speak("Hello there.", device="CPU", model_dir=fake_runtime, audio_device="sink")
+
+    [speech] = FakeSpeech.instances
+    assert speech.stopped
+    assert (speech.player, speech.audio_device) == ("/usr/bin/pw-play", "sink")
+    assert [chunk.sample_rate for chunk in speech.chunks] == [24000]
+
+
+def test_synthesizer_speak_plays_on_the_given_device(fake_runtime, monkeypatch):
+    FakeSpeech.instances.clear()
+    monkeypatch.setattr(tts, "Speech", FakeSpeech)
+    speech = tts.Synthesizer("CPU", fake_runtime).speak("Hi.", audio_device="sink")
+    assert speech is FakeSpeech.instances[0]
+    assert speech.audio_device == "sink"
+    assert len(speech.chunks) == 1
