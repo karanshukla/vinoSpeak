@@ -17,7 +17,7 @@ use egui_kittest::kittest::Queryable;
 use super::App;
 use crate::search::{Hit, Index, Kind};
 use crate::speech::{self, Output};
-use crate::theme;
+use vino_ui::theme;
 
 const FAKE_VINOSPEAK: &str = r#"#!/bin/sh
 # argv: --file PATH|- [--print-text | --voice V --language L --speed S [--audio-device D]]
@@ -148,14 +148,15 @@ fn window(scratch: &Scratch, index: FakeIndex) -> Harness<'static, App> {
     let mut styled = false;
     Harness::builder()
         .with_size(egui::vec2(1100.0, 700.0))
-        .build_state(
-            move |ctx, app: &mut App| {
+        .build_ui_state(
+            move |ui, app: &mut App| {
                 if !styled {
-                    theme::style(ctx);
+                    theme::apply(ui.ctx());
                     styled = true;
+                    ui.ctx().request_repaint();
                     return;
                 }
-                app.ui(ctx);
+                app.show(ui);
             },
             app,
         )
@@ -195,7 +196,7 @@ fn before_a_search_the_recent_files_show_and_the_first_is_previewed() {
     };
     let mut h = window(&scratch, index);
     wait_for(&mut h, "Newest notes first.");
-    assert!(shows(&h, "RECENTLY CHANGED"));
+    assert!(shows(&h, "Recently changed"));
     assert!(shows(&h, "older.md"));
     assert!(
         !shows(&h, "Older text."),
@@ -221,7 +222,7 @@ fn typing_searches_and_lists_hits_without_images() {
     h.get_by_role(Role::TextInput).type_text("mascot");
     wait_for(&mut h, "The mascot agreement.");
     assert!(!shows(&h, "mascot.png"), "images have nothing to read");
-    assert!(!shows(&h, "RECENTLY CHANGED"));
+    assert!(!shows(&h, "Recently changed"));
 }
 
 #[test]
@@ -234,7 +235,7 @@ fn a_search_that_finds_nothing_says_so_and_keeps_the_recent_files() {
     let mut h = window(&scratch, index);
     h.state_mut().type_query("nothing like this");
     wait_for(&mut h, "Nothing close enough.");
-    assert!(shows(&h, "RECENTLY CHANGED"));
+    assert!(shows(&h, "Recently changed"));
     assert!(shows(&h, "notes.md"));
 }
 
@@ -268,8 +269,8 @@ fn a_document_is_previewed_and_read_from_vinosearchs_text() {
         .insert(pdf.path.clone(), "Extracted page one.".to_owned());
     let mut h = window(&scratch, index);
     wait_for(&mut h, "Extracted page one.");
-    assert!(shows(&h, "DOCUMENT"));
-    h.get_by_label_contains("Read aloud").click();
+    assert!(shows(&h, "Document"));
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_until(&mut h, "the text on stdin", |_| {
         scratch.read("stdin").contains("Extracted page one.")
     });
@@ -289,7 +290,7 @@ fn read_aloud_passes_the_voice_its_language_the_speed_and_the_output() {
     state.voice = speech::voice("bm_george").unwrap();
     state.speed = 1.5;
     state.output = Some("hdmi_sink".to_owned());
-    h.get_by_label_contains("Read aloud").click();
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Stop");
     let calls = scratch.read("calls");
     let reading = calls.lines().last().unwrap();
@@ -309,7 +310,7 @@ fn the_default_output_passes_no_audio_device() {
     };
     let mut h = window(&scratch, index);
     wait_for(&mut h, "Read me.");
-    h.get_by_label_contains("Read aloud").click();
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Stop");
     let calls = scratch.read("calls");
     assert!(
@@ -331,9 +332,9 @@ fn stop_interrupts_vinospeak_and_brings_read_aloud_back() {
     };
     let mut h = window(&scratch, index);
     wait_for(&mut h, "A long read.");
-    h.get_by_label_contains("Read aloud").click();
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Stop");
-    h.get_by_label_contains("Stop").click();
+    h.get_by_role_and_label(Role::Button, "Stop").click();
     wait_for(&mut h, "Read aloud");
     assert!(
         scratch.read("calls").contains("interrupted"),
@@ -352,7 +353,7 @@ fn a_reading_that_ends_says_so() {
     };
     let mut h = window(&scratch, index);
     wait_for(&mut h, "Short.");
-    h.get_by_label_contains("Read aloud").click();
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Finished notes.md");
 }
 
@@ -366,7 +367,7 @@ fn a_failing_reading_shows_vinospeaks_error() {
     };
     let mut h = window(&scratch, index);
     wait_for(&mut h, "Doomed.");
-    h.get_by_label_contains("Read aloud").click();
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Couldn't read notes.md: boom");
 }
 
@@ -380,7 +381,7 @@ fn a_file_vinospeak_refuses_says_why_and_cant_be_read_aloud() {
     };
     let mut h = window(&scratch, index);
     wait_for(&mut h, "Can't read this file: not a UTF-8 text file.");
-    h.get_by_label_contains("Read aloud").click();
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
     h.run_steps(5);
     assert!(
         !scratch.read("calls").contains("--voice"),

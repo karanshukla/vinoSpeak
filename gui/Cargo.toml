@@ -2,8 +2,8 @@
 name = "vinospeak-gui"
 version = "0.0.1"
 edition = "2024"
-# What Cargo.lock needs (uuid 1.28.0, 2026-10-25); CI builds with it
-rust-version = "1.89"
+# egui 0.37 (vino-ui's), as vinoWhisper's gui; CI builds with it
+rust-version = "1.95"
 license = "MIT"
 description = "Find a file with vinoSearch and listen to it with vinoSpeak (proof of concept)"
 repository = "https://github.com/karanshukla/vinoSpeak"
@@ -13,11 +13,12 @@ publish = false
 # vinospeak CLI; never loads a model itself.
 [dependencies]
 anyhow = "1.0"
-eframe = { version = "0.33.3", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland"] }
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 libc = "0.2"
 serde_json = "1"
 zbus = "5"
+vino-ui = { git = "https://github.com/karanshukla/vinoSearch", rev = "3cd124649cbd605b68d741bcda87bb2db197c1e8" }
 
 [dev-dependencies]
-egui_kittest = "0.33.3"
+egui_kittest = { version = "0.37", default-features = false }

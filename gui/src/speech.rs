@@ -134,7 +134,13 @@ impl Reading {
     ) -> Result<Self> {
         let mut cmd = command(vinospeak, source);
         cmd.args(["--voice", &voice.id, "--language", voice.language]);
-        cmd.args(["--speed", &format!("{speed:.1}")]);
+        // "1.0" and "1.25": one decimal would round a preset away.
+        let speed = if speed.fract() == 0.0 {
+            format!("{speed:.1}")
+        } else {
+            format!("{speed}")
+        };
+        cmd.args(["--speed", &speed]);
         if let Some(output) = output {
             cmd.args(["--audio-device", output]);
         }
