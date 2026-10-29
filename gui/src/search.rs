@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use zbus::zvariant::OwnedValue;
+use zbus::OwnedVariant;
 
 const SERVICE: &str = "dev.vinosearch.Runner";
 const PATH: &str = "/gnome";
@@ -73,109 +73,125 @@ pub fn kind_of(path: &Path, gicon: &str) -> Kind {
     }
 }
 
-fn string(meta: &HashMap<String, OwnedValue>, key: &str) -> String {
+fn string(meta: &HashMap<String, OwnedVariant>, key: &str) -> String {
     meta.get(key)
         .and_then(|v| String::try_from(v.clone()).ok())
         .unwrap_or_default()
 }
 
 fn search(query: &str) -> Result<Vec<Hit>> {
-    let conn = zbus::blocking::Connection::session().context("connecting to the session bus")?;
-    let ids: Vec<String> = conn
-        .call_method(
-            Some(SERVICE),
-            PATH,
-            Some(INTERFACE),
-            "GetInitialResultSet",
-            &(vec![query.to_owned()],),
-        )
-        .context("vinoSearch isn't running or isn't installed")?
-        .body()
-        .deserialize()?;
-    if ids.is_empty() {
-        return Ok(Vec::new());
-    }
-    let metas: Vec<HashMap<String, OwnedValue>> = conn
-        .call_method(
-            Some(SERVICE),
-            PATH,
-            Some(INTERFACE),
-            "GetResultMetas",
-            &(ids,),
-        )?
-        .body()
-        .deserialize()?;
-    Ok(metas
-        .iter()
-        .map(|meta| {
-            let path = PathBuf::from(string(meta, "id"));
-            Hit {
-                kind: kind_of(&path, &string(meta, "gicon")),
-                name: string(meta, "name"),
-                description: string(meta, "description"),
-                path,
-            }
-        })
-        .collect())
+    zbus::block_on(async {
+        let conn = zbus::Connection::session()
+            .await
+            .context("connecting to the session bus")?;
+        let ids: Vec<String> = conn
+            .call_method(
+                Some(SERVICE),
+                PATH,
+                Some(INTERFACE),
+                "GetInitialResultSet",
+                &(vec![query.to_owned()],),
+            )
+            .await
+            .context("vinoSearch isn't running or isn't installed")?
+            .body()
+            .deserialize()?;
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let metas: Vec<HashMap<String, OwnedVariant>> = conn
+            .call_method(
+                Some(SERVICE),
+                PATH,
+                Some(INTERFACE),
+                "GetResultMetas",
+                &(ids,),
+            )
+            .await?
+            .body()
+            .deserialize()?;
+        Ok(metas
+            .iter()
+            .map(|meta| {
+                let path = PathBuf::from(string(meta, "id"));
+                Hit {
+                    kind: kind_of(&path, &string(meta, "gicon")),
+                    name: string(meta, "name"),
+                    description: string(meta, "description"),
+                    path,
+                }
+            })
+            .collect())
+    })
 }
 
 /// The indexed text files and documents changed most recently, for a window
 /// that has nothing searched yet.
 fn recent(limit: u32) -> Result<Vec<Hit>> {
-    let conn = zbus::blocking::Connection::session().context("connecting to the session bus")?;
-    let files: Vec<(String, String, i64)> = conn
-        .call_method(
-            Some(SERVICE),
-            CONTROL_PATH,
-            Some(CONTROL),
-            "RecentFiles",
-            &(limit,),
-        )
-        .context("this vinoSearch can't list recent files")?
-        .body()
-        .deserialize()?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64);
-    Ok(files
-        .into_iter()
-        .map(|(path, kind, mtime)| {
-            let path = PathBuf::from(path);
-            let dir = path
-                .parent()
-                .map(|d| d.display().to_string())
-                .unwrap_or_default();
-            Hit {
-                name: path
-                    .file_name()
-                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
-                description: format!("{dir}  Changed {}", ago(now - mtime)),
-                kind: if kind == "document" {
-                    Kind::Document
-                } else {
-                    Kind::Text
-                },
-                path,
-            }
-        })
-        .collect())
+    zbus::block_on(async {
+        let conn = zbus::Connection::session()
+            .await
+            .context("connecting to the session bus")?;
+        let files: Vec<(String, String, i64)> = conn
+            .call_method(
+                Some(SERVICE),
+                CONTROL_PATH,
+                Some(CONTROL),
+                "RecentFiles",
+                &(limit,),
+            )
+            .await
+            .context("this vinoSearch can't list recent files")?
+            .body()
+            .deserialize()?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64);
+        Ok(files
+            .into_iter()
+            .map(|(path, kind, mtime)| {
+                let path = PathBuf::from(path);
+                let dir = path
+                    .parent()
+                    .map(|d| d.display().to_string())
+                    .unwrap_or_default();
+                Hit {
+                    name: path
+                        .file_name()
+                        .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+                    description: format!("{dir}  Changed {}", ago(now - mtime)),
+                    kind: if kind == "document" {
+                        Kind::Document
+                    } else {
+                        Kind::Text
+                    },
+                    path,
+                }
+            })
+            .collect())
+    })
 }
 
 /// A document's text, extracted by vinoSearch as it does for indexing.
 fn file_text(path: &Path) -> Result<String> {
-    let conn = zbus::blocking::Connection::session().context("connecting to the session bus")?;
-    let text: String = conn
-        .call_method(
-            Some(SERVICE),
-            CONTROL_PATH,
-            Some(CONTROL),
-            "FileText",
-            &(path.to_string_lossy().as_ref(),),
-        )
-        .context("vinoSearch couldn't extract the text")?
-        .body()
-        .deserialize()?;
-    Ok(text)
+    zbus::block_on(async {
+        let conn = zbus::Connection::session()
+            .await
+            .context("connecting to the session bus")?;
+        let text: String = conn
+            .call_method(
+                Some(SERVICE),
+                CONTROL_PATH,
+                Some(CONTROL),
+                "FileText",
+                &(path.to_string_lossy().as_ref(),),
+            )
+            .await
+            .context("vinoSearch couldn't extract the text")?
+            .body()
+            .deserialize()?;
+        Ok(text)
+    })
 }
 
 fn ago(secs: i64) -> String {
