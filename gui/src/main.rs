@@ -11,7 +11,7 @@ use eframe::egui;
 
 const APP_ID: &str = "dev.vinospeak.Listen";
 
-/// 1040×736, or `VINOSPEAK_GUI_SIZE=WxH` for checking a layout at another size.
+/// 1040×680, or `VINOSPEAK_GUI_SIZE=WxH` for checking a layout at another size.
 fn size() -> [f32; 2] {
     std::env::var("VINOSPEAK_GUI_SIZE")
         .ok()
@@ -19,7 +19,7 @@ fn size() -> [f32; 2] {
             let (w, h) = s.split_once('x')?;
             Some([w.parse().ok()?, h.parse().ok()?])
         })
-        .unwrap_or([1040.0, 736.0])
+        .unwrap_or([1040.0, 680.0])
 }
 
 fn main() -> ExitCode {
