@@ -425,9 +425,6 @@ impl App {
             if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 self.edited = Some(Instant::now() - DEBOUNCE);
             }
-            if self.searching {
-                widgets::spinner(ui);
-            }
         });
     }
 
@@ -436,7 +433,7 @@ impl App {
         let typed = self.query.trim().chars().count() >= MIN_QUERY_CHARS;
         let note = if let Some(e) = &self.error {
             Some(format!("vinoSearch didn't answer: {e}"))
-        } else if typed && self.searching && self.hits.is_empty() {
+        } else if typed && self.searching {
             Some("Searching…".to_owned())
         } else if typed && self.hits.is_empty() && self.edited.is_none() {
             Some("Nothing close enough.".to_owned())
@@ -634,16 +631,12 @@ impl App {
                     .map_or(0, |r| r.started.elapsed().as_secs());
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 8.0;
-                        let shown = ui.label(RichText::new("Speaking").family(theme::semibold()));
-                        a11y::decorative(ui, shown.id);
-                        level_bars(ui, p.accent);
-                    });
+                    let shown = ui.label(RichText::new("Speaking").family(theme::semibold()));
+                    a11y::decorative(ui, shown.id);
                     let elapsed = ui.label(
                         RichText::new(format!("{}:{:02}", secs / 60, secs % 60))
                             .size(12.5)
-                            .color(p.accent),
+                            .color(p.muted),
                     );
                     a11y::decorative(ui, elapsed.id);
                 });
@@ -859,34 +852,6 @@ fn round_button(
         }
     }
     response.on_hover_text(name)
-}
-
-/// Four small bars that move while speech plays, still when motion is reduced.
-fn level_bars(ui: &mut egui::Ui, color: Color32) {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(18.0, 12.0), Sense::hover());
-    a11y::decorative(ui, response.id);
-    let still = theme::still(ui.ctx());
-    let t = if still { 0.0 } else { ui.input(|i| i.time) };
-    for (i, base) in [6.0_f32, 12.0, 8.0, 10.0].iter().enumerate() {
-        let wave = if still {
-            0.0
-        } else {
-            ((t * 5.0 + i as f64 * 1.3).sin() as f32) * 3.0
-        };
-        let h = (base + wave).clamp(3.0, 12.0);
-        let x = rect.left() + i as f32 * 5.0;
-        ui.painter().rect_filled(
-            egui::Rect::from_min_max(
-                egui::pos2(x, rect.bottom() - h),
-                egui::pos2(x + 3.0, rect.bottom()),
-            ),
-            1.0,
-            color,
-        );
-    }
-    if !still {
-        ui.ctx().request_repaint_after(Duration::from_millis(100));
-    }
 }
 
 impl eframe::App for App {
