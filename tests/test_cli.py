@@ -1,4 +1,5 @@
 import io
+from pathlib import Path
 
 import pytest
 
@@ -102,3 +103,27 @@ def test_audio_device_and_output_dont_mix(tmp_path):
     with pytest.raises(SystemExit) as exit_info:
         cli.main(["Hello", "--audio-device", "x", "--output", str(tmp_path / "a.wav")])
     assert exit_info.value.code == 2
+
+
+def test_kind_document_reads_stdin_line_by_line(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO("Results\nAlice\n90"))
+    cli.main(["--file", "-", "--kind", "document", "--print-text"])
+    assert capsys.readouterr().out == "Results.\nAlice.\n90.\n"
+
+
+def test_kind_needs_a_file():
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["Hello", "--kind", "document"])
+    assert exit_info.value.code == 2
+
+
+DOCUMENTS = Path(__file__).parent / "fixtures" / "documents"
+
+
+# Each .txt is what vinoSearch's FileText gave for the document beside it
+# (2026-10-29), so CI checks the GUI's path without vinoSearch.
+@pytest.mark.parametrize("name", ["report.pdf", "stations.docx", "meeting.pptx"])
+def test_extracted_documents_read_as_expected(monkeypatch, capsys, name):
+    monkeypatch.setattr("sys.stdin", io.StringIO((DOCUMENTS / f"{name}.txt").read_text()))
+    cli.main(["--file", "-", "--kind", "document", "--print-text"])
+    assert capsys.readouterr().out == (DOCUMENTS / f"{name}.expected").read_text()

@@ -1,0 +1,12 @@
+RESULTS BY STATION
+Each station logged its clear nights, i.e. nights with no fog.
+Station
+Clear nights
+North Point
+212
+Gull Rock
+187
+Next steps
+Repaint the north tower
+Order lamp oil vs. buying it locally
+Contact keeper@example.org

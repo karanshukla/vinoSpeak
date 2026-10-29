@@ -64,3 +64,21 @@ def test_a_word_too_long_for_a_chunk_ends_the_piece_before_it():
         "x" * MAX_CHUNK_CHARS,
         "xxxxx tail",
     ]
+
+
+def test_no_cut_after_an_abbreviation_or_an_initial():
+    text = "Cache it, e.g. here. Dr. Okafor and J. R. Smith came. The U.S. grew. See fig. 3 vs. 4."
+    assert chunks(text) == [
+        "Cache it, e.g. here.",
+        "Dr. Okafor and J. R. Smith came. The U.S. grew. See fig. 3 vs. 4.",
+    ]
+
+
+def test_a_word_that_ends_like_an_abbreviation_still_ends_its_sentence():
+    assert chunks("It was Prof. Stop.") == ["It was Prof.", "Stop."]
+    assert chunks("Ask the doctor. Dr. No.") == ["Ask the doctor.", "Dr. No."]
+    assert chunks("Do it first. Next step.") == ["Do it first.", "Next step."]
+
+
+def test_a_blank_line_after_an_abbreviation_still_splits():
+    assert chunks("Oil, lamps, etc.\n\nNext") == ["Oil, lamps, etc.", "Next"]

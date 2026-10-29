@@ -6,6 +6,11 @@ from __future__ import annotations
 import re
 
 SENTENCE_BREAK = re.compile(r"(?<=[.!?…])\s+|\n\s*\n")
+# A full stop that ends an abbreviation or an initial, not a sentence: a
+# chunk cut after `e.g.` falls in pitch mid-sentence.
+ABBREVIATION = re.compile(
+    r"(?<![^\s(\[\"'“‘])(?:[eE]\.g|[iI]\.e|etc|vs|Dr|Mr|Mrs|Ms|St|No|pp?|[fF]ig|(?:[A-Z]\.)*[A-Z])\.\Z"
+)
 # Where a sentence too long for one chunk is cut first: after a clause.
 CLAUSE_BREAK = re.compile(r"(?<=[,;:—–])\s+")
 MAX_CHUNK_CHARS = 400
@@ -44,6 +49,23 @@ def _pieces(sentence: str, max_chars: int) -> list[str]:
     return out
 
 
+def _sentences(text: str) -> list[str]:
+    """The text split after each sentence and at each blank line, but not
+    after an abbreviation."""
+    out: list[str] = []
+    start = 0
+    for match in SENTENCE_BREAK.finditer(text):
+        paragraph = match.group().count("\n") > 1
+        if not paragraph and ABBREVIATION.search(
+            text, max(start, match.start() - 16), match.start()
+        ):
+            continue
+        out.append(text[start : match.start()])
+        start = match.end()
+    out.append(text[start:])
+    return out
+
+
 def chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
     """The first sentence alone, so speech starts quickly, then chunks that
     at most double in length. Synthesis runs at roughly a third of real time
@@ -52,7 +74,7 @@ def chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
     allows."""
     out: list[str] = []
     budget = 0
-    sentences = (" ".join(piece.split()) for piece in SENTENCE_BREAK.split(text))
+    sentences = (" ".join(piece.split()) for piece in _sentences(text))
     for sentence in (p for s in sentences if s for p in _pieces(s, max_chars)):
         joined = len(out[-1]) + 1 + len(sentence) if out else 0
         if out and len(out[-1]) + len(sentence) <= budget and joined <= max_chars:

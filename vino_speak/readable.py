@@ -1,5 +1,6 @@
 """A text file as something worth listening to: markdown loses its markup,
-code blocks are skipped, and a URL is said as its host."""
+code blocks are skipped, a document's lines are its sentences, and a URL is
+said as its host."""
 
 from __future__ import annotations
 
@@ -54,6 +55,11 @@ ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|<>~])")
 # markup around it is stripped, so `\*` is never taken for emphasis.
 ESCAPED = re.compile("[\ue000-\ue0ff]")
 
+# A word broken over a line end: `infor-\nmation` loses the hyphen, but
+# `COVID-\n19` and `Jean-\nPaul` keep it, as only lowercase halves can be
+# typesetting.
+HYPHENATED = re.compile(r"([^\W\d_])-[ \t]*\n[ \t]*(\w)")
+
 
 def _host(match: re.Match[str]) -> str:
     host = urlsplit(match.group(1) if match.re is AUTOLINK else match.group(0)).hostname
@@ -62,6 +68,11 @@ def _host(match: re.Match[str]) -> str:
 
 def _inner(match: re.Match[str]) -> str:
     return match.group(1) or match.group(2)
+
+
+def _dehyphenate(match: re.Match[str]) -> str:
+    before, after = match.groups()
+    return before + after if before.islower() and after.islower() else f"{before}-{after}"
 
 
 def _sentence(line: str) -> str:
@@ -133,14 +144,39 @@ def plain(text: str) -> str:
     return URL.sub(_host, text)
 
 
-def read(path: Path) -> str:
-    """The file's text for speaking: markdown by its suffix, anything else
-    as plain text, and `-` plain text from stdin (how vinoSearch hands over
-    a document's text). A file that isn't UTF-8 text is refused."""
+def document(text: str, wrapped: bool = False) -> str:
+    """A document's text, as an extractor gives it, with each line its own
+    sentence: a heading, list item, table cell or slide line that ends
+    without punctuation gets a full stop, so it isn't run into the next.
+    `wrapped` is for a text file on disk, hard-wrapped at a width: there a
+    line followed by one starting in lowercase carries on the sentence."""
+    text = HYPHENATED.sub(_dehyphenate, text.replace("\r\n", "\n"))
+    lines = [line.strip() for line in plain(text).split("\n")]
+    return "\n".join(
+        line if wrapped and after[:1].islower() else _sentence(line)
+        for line, after in zip(lines, [*lines[1:], ""], strict=True)
+    )
+
+
+KINDS = ("plain", "markdown", "document")
+
+
+def read(path: Path, kind: str | None = None) -> str:
+    """The file's text for speaking, read as `kind`. Without one: markdown
+    by its suffix, any other file as a hard-wrapped document, and `-` (stdin)
+    as plain text. vinoSearch's extracted text comes in on stdin as
+    `document`. A file that isn't UTF-8 text is refused."""
     if str(path) == "-":
-        return plain(sys.stdin.read())
-    try:
-        text = path.read_bytes().decode("utf-8-sig")
-    except UnicodeDecodeError:
-        raise ValueError(f"{path} is not a UTF-8 text file.") from None
-    return markdown(text) if path.suffix.lower() in MARKDOWN_SUFFIXES else plain(text)
+        text = sys.stdin.read()
+    else:
+        try:
+            text = path.read_bytes().decode("utf-8-sig")
+        except UnicodeDecodeError:
+            raise ValueError(f"{path} is not a UTF-8 text file.") from None
+    if kind is None and str(path) != "-":
+        kind = "markdown" if path.suffix.lower() in MARKDOWN_SUFFIXES else "wrapped"
+    if kind == "markdown":
+        return markdown(text)
+    if kind in ("document", "wrapped"):
+        return document(text, wrapped=kind == "wrapped")
+    return plain(text)
