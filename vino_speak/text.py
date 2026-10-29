@@ -16,6 +16,9 @@ CLAUSE_BREAK = re.compile(r"(?<=[,;:—–])\s+")
 MAX_CHUNK_CHARS = 400
 # Every call pays a fixed cost, so a chunk is never cut smaller than this
 MIN_CHUNK_CHARS = 100
+# Except the first, which is all the listener waits for: a long first
+# sentence is cut at its first clause break past this many characters.
+FIRST_CHUNK_CHARS = 60
 
 
 def _pieces(sentence: str, max_chars: int) -> list[str]:
@@ -66,16 +69,26 @@ def _sentences(text: str) -> list[str]:
     return out
 
 
+def _first(sentence: str) -> list[str]:
+    """The first sentence cut after its first clause past FIRST_CHUNK_CHARS."""
+    cut = CLAUSE_BREAK.search(sentence, FIRST_CHUNK_CHARS)
+    if cut is None or cut.end() == len(sentence):
+        return [sentence]
+    return [sentence[: cut.start()], sentence[cut.end() :]]
+
+
 def chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
-    """The first sentence alone, so speech starts quickly, then chunks that
-    at most double in length. Synthesis runs at roughly a third of real time
+    """The first sentence alone, or its first clause if it is long, so
+    speech starts quickly, then chunks that at most double in length. Synthesis runs at roughly a third of real time
     (2026-10-17, NPU), so each chunk is ready before the one before it has
     finished playing, and the rest of the text goes in as few calls as that
     allows."""
     out: list[str] = []
     budget = 0
     sentences = (" ".join(piece.split()) for piece in _sentences(text))
-    for sentence in (p for s in sentences if s for p in _pieces(s, max_chars)):
+    pieces = [p for s in sentences if s for p in _pieces(s, max_chars)]
+    pieces[:1] = _first(pieces[0]) if pieces else []
+    for sentence in pieces:
         joined = len(out[-1]) + 1 + len(sentence) if out else 0
         if out and len(out[-1]) + len(sentence) <= budget and joined <= max_chars:
             out[-1] = f"{out[-1]} {sentence}"

@@ -6,9 +6,9 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-from . import readable, session
+from . import readable, serve, session
 from .model import default_model_dir
-from .tts import DEFAULT_DEVICE, DEFAULT_VOICE, LANGUAGES, speak, synthesize
+from .tts import DEFAULT_DEVICE, DEFAULT_VOICE, LANGUAGES, Synthesizer, speak, synthesize
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,6 +32,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=session.PARTS,
         help="Which part of a vinoWhisper session (.vwsession) to read "
         "(default: the summary, if it has one).",
+    )
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Keep the model loaded and take requests on stdin (vinoSpeak's window uses this; "
+        "the protocol is private).",
     )
     parser.add_argument(
         "--print-text",
@@ -66,6 +72,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     arguments = parser.parse_args(argv)
+    if arguments.serve:
+        others = (arguments.text, arguments.file, arguments.output, arguments.audio_device)
+        if any(o is not None for o in others) or arguments.print_text:
+            parser.error("--serve takes its text on stdin; give it only --device and --model-dir")
+        serve.main(lambda: Synthesizer(arguments.device, arguments.model_dir))
+        return
     if (arguments.text is None) == (arguments.file is None):
         parser.error("give the text to speak or --file, not both")
     if arguments.kind and arguments.file is None:

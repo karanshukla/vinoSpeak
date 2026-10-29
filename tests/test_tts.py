@@ -67,6 +67,7 @@ class FakePipeline:
     def __init__(self, model_dir, device, **properties):
         self.model_dir = model_dir
         self.device = device
+        self.cache_dir = properties.pop("CACHE_DIR", None)
         self.properties = properties
         self.calls = []
         FakePipeline.instances.append(self)
@@ -129,6 +130,12 @@ def test_synthesizer_unpins_the_vocoder_only_on_the_npu(fake_runtime, device, pr
     assert FakePipeline.instances[0].properties == properties
 
 
+def test_every_pipeline_shares_the_compile_cache(fake_runtime, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    tts.Synthesizer("NPU", fake_runtime)
+    assert FakePipeline.instances[0].cache_dir == str(tmp_path / "cache/vinospeak/ov-cache")
+
+
 def test_synthesizer_does_not_override_an_espeak_path_already_set(fake_runtime, monkeypatch):
     monkeypatch.delenv("ESPEAK_DATA_PATH", raising=False)
     tts.Synthesizer("CPU", fake_runtime)
@@ -179,7 +186,7 @@ def fail_with_override(monkeypatch, method):
 
     def failing(self, *args, **kwargs):
         result = real(self, *args, **kwargs)
-        if self.properties:
+        if "NPUW_SUBMODEL_DEVICE" in self.properties:
             raise RuntimeError("Failed to compile KokoroModelB_8")
         return result
 
@@ -209,7 +216,7 @@ def test_non_finite_audio_on_the_npu_retries_with_the_pin(fake_runtime, monkeypa
 
     def nan_with_override(self, *args, **kwargs):
         result = real(self, *args, **kwargs)
-        if self.properties:
+        if "NPUW_SUBMODEL_DEVICE" in self.properties:
             result.speeches = [FakeTensor(np.asarray([float("nan")], dtype=np.float32))]
         return result
 
@@ -304,10 +311,20 @@ def test_synthesize_without_soundfile_says_how_to_install_it(monkeypatch, tmp_pa
 class FakeSpeech:
     instances: list["FakeSpeech"] = []
 
-    def __init__(self, audio, player=None, audio_device=None, interrupt=False):
+    def __init__(
+        self,
+        audio,
+        player=None,
+        audio_device=None,
+        sample_rate=None,
+        on_first_audio=None,
+        *,
+        interrupt=False,
+    ):
         self.chunks = list(audio)
         self.player = player
         self.audio_device = audio_device
+        self.sample_rate = sample_rate
         self.interrupt = interrupt
         self.stopped = False
         FakeSpeech.instances.append(self)
@@ -335,6 +352,7 @@ def test_speak_plays_on_the_chosen_device_and_always_stops(fake_runtime, monkeyp
     [speech] = FakeSpeech.instances
     assert speech.stopped
     assert (speech.player, speech.audio_device) == ("/usr/bin/pw-play", "sink")
+    assert speech.sample_rate == 24000, "the player starts before the first chunk"
     assert [chunk.sample_rate for chunk in speech.chunks] == [24000]
 
 
@@ -344,4 +362,5 @@ def test_synthesizer_speak_plays_on_the_given_device(fake_runtime, monkeypatch):
     speech = tts.Synthesizer("CPU", fake_runtime).speak("Hi.", audio_device="sink")
     assert speech is FakeSpeech.instances[0]
     assert speech.audio_device == "sink"
+    assert speech.sample_rate == 24000
     assert len(speech.chunks) == 1

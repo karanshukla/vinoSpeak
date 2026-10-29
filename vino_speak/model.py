@@ -48,6 +48,11 @@ def default_model_dir() -> Path:
     return cache / "vinospeak" / "kokoro-82m-int8-ov"
 
 
+def compile_cache_dir() -> Path:
+    """Where OpenVINO keeps the compiled model between processes."""
+    return default_model_dir().parent / "ov-cache"
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:

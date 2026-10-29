@@ -6,13 +6,13 @@ import os
 import re
 import threading
 import warnings
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import ovfetch
-from .model import default_model_dir, ensure_model
+from .model import compile_cache_dir, default_model_dir, ensure_model
 from .playback import Speech, require_player
 from .text import chunks
 
@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 LANGUAGES = ("en-us", "en-gb", "es", "fr-fr", "hi", "it", "pt-br")
 DEFAULT_VOICE = "af_heart"
 DEFAULT_DEVICE = "NPU"
+# Kokoro's output rate, so a player can start before the first chunk exists.
+SAMPLE_RATE = 24000
 VOICE_PATTERN = re.compile(r"[a-z]{2}_[a-z0-9_]+\Z")
 # OpenVINO 2026.4 pins Kokoro's vocoder to the CPU for an NPU compiler bug
 # that driver 1.32.0 on Wildcat Lake doesn't have (2026-10-17). Other drivers
@@ -114,18 +116,24 @@ class Synthesizer:
         self._voices: dict[str, Any] = {}
         self._lock = threading.Lock()
 
+    def _pipeline_for(self, **properties: str) -> Any:
+        # Without a cache every process compiles again: 6.5 s on CPU in the
+        # VM, 1.35 s from the cache (2026-10-29).
+        cache = str(compile_cache_dir())
+        return self._genai.Text2SpeechPipeline(
+            self.model_dir, self.device, CACHE_DIR=cache, **properties
+        )
+
     def _load(self) -> Any:
         if self.device.startswith("NPU"):
             try:
-                pipeline = self._genai.Text2SpeechPipeline(
-                    self.model_dir, self.device, **NPU_PROPERTIES
-                )
+                pipeline = self._pipeline_for(**NPU_PROPERTIES)
             except RuntimeError as error:
                 self._warn_pinned(error)
             else:
                 self._unproven_override = True
                 return pipeline
-        return self._genai.Text2SpeechPipeline(self.model_dir, self.device)
+        return self._pipeline_for()
 
     def _warn_pinned(self, error: Exception) -> None:
         warnings.warn(
@@ -149,7 +157,7 @@ class Synthesizer:
                 raise
             self._unproven_override = False
             self._warn_pinned(error)
-            self._pipeline = self._genai.Text2SpeechPipeline(self.model_dir, self.device)
+            self._pipeline = self._pipeline_for()
             return self._generate(text, voice, language, speed)
         self._unproven_override = False
         return Audio(samples, int(result.output_sample_rate))
@@ -194,10 +202,17 @@ class Synthesizer:
         language: str = "en-us",
         speed: float = 1.0,
         audio_device: str | None = None,
+        on_first_audio: Callable[[], None] | None = None,
     ) -> Speech:
         """Start playing the text on the speakers (or `audio_device`) and
-        return at once."""
-        return Speech(self.stream(text, voice, language, speed), audio_device=audio_device)
+        return at once. `on_first_audio` is called once the first samples
+        are with the player."""
+        return Speech(
+            self.stream(text, voice, language, speed),
+            audio_device=audio_device,
+            sample_rate=SAMPLE_RATE,
+            on_first_audio=on_first_audio,
+        )
 
 
 def synthesize(
@@ -238,7 +253,9 @@ def speak(
     validate_inputs(text, voice, speed, language)
     player = require_player()
     synthesizer = Synthesizer(device, model_dir)
-    speech = Speech(synthesizer.stream(text, voice, language, speed), player, audio_device)
+    speech = Speech(
+        synthesizer.stream(text, voice, language, speed), player, audio_device, SAMPLE_RATE
+    )
     try:
         speech.wait()
     finally:

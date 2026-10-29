@@ -9,7 +9,7 @@ import queue
 import shutil
 import subprocess
 import threading
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import IO, TYPE_CHECKING
 
@@ -101,16 +101,24 @@ class Speech:
 
     A chunk already being synthesized when stop() is called still finishes
     in the background, since the pipeline can't be interrupted, so the next
-    call on the same Synthesizer waits for it."""
+    call on the same Synthesizer waits for it.
+
+    With `sample_rate` known, the player starts at once instead of after the
+    first chunk. `on_first_audio` is called when the first samples have been
+    written to it."""
 
     def __init__(
         self,
         audio: Iterable[Audio],
         player: str | None = None,
         audio_device: str | None = None,
+        sample_rate: int | None = None,
+        on_first_audio: Callable[[], None] | None = None,
     ) -> None:
         self._player = player or require_player()
         self._audio_device = audio_device
+        self._sample_rate = sample_rate
+        self._on_first_audio = on_first_audio
         self._stopped = threading.Event()
         # One chunk waiting while the next is synthesized: enough to keep
         # playback fed without spending energy far ahead of a stop()
@@ -172,14 +180,26 @@ class Speech:
 
     def _play(self) -> None:
         stdin: IO[bytes] | None = None
+        rate = self._sample_rate
         try:
+            if rate is not None and (stdin := self._start(rate)) is None:
+                return
+            first = True
             while (chunk := self._next()) is not None:
                 if stdin is None:
-                    stdin = self._start(chunk.sample_rate)
+                    rate = chunk.sample_rate
+                    stdin = self._start(rate)
                     if stdin is None:
                         return
+                if chunk.sample_rate != rate:
+                    raise RuntimeError(
+                        f"Speech came at {chunk.sample_rate} Hz to a player started at {rate} Hz."
+                    )
                 stdin.write(chunk.samples.astype("<f4", copy=False).tobytes())
                 stdin.flush()
+                if first and self._on_first_audio is not None:
+                    self._on_first_audio()
+                first = False
         except BrokenPipeError:
             pass  # stop() killed the player
         except BaseException as error:  # noqa: BLE001 - raised again from wait()

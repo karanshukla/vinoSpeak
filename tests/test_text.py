@@ -1,6 +1,6 @@
 from vino_speak.text import MAX_CHUNK_CHARS, chunks
 
-SENTENCE = "This sentence is here to be about one hundred characters long, so the chunk sizes are easy to read."
+SENTENCE = "This sentence is here to be about one hundred characters long so the chunk sizes are easy to read."
 
 
 def test_the_first_sentence_goes_alone_then_chunks_double():
@@ -82,3 +82,17 @@ def test_a_word_that_ends_like_an_abbreviation_still_ends_its_sentence():
 
 def test_a_blank_line_after_an_abbreviation_still_splits():
     assert chunks("Oil, lamps, etc.\n\nNext") == ["Oil, lamps, etc.", "Next"]
+
+
+def test_a_long_first_sentence_is_cut_after_its_first_clause_past_sixty_chars():
+    first = "Short, then a clause that runs on past sixty characters in all, and then the rest."
+    assert chunks(f"{first} Second sentence.") == [
+        "Short, then a clause that runs on past sixty characters in all,",
+        "and then the rest. Second sentence.",
+    ]
+
+
+def test_a_first_sentence_with_no_late_clause_break_goes_whole():
+    long = "A first sentence that runs well past sixty characters without any clause break."
+    assert chunks(f"{long} Next.") == [long, "Next."]
+    assert chunks("Short, and sweet.") == ["Short, and sweet."]
