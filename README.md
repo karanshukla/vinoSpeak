@@ -77,7 +77,9 @@ Two things live outside your home directory and stay system packages:
 The first run downloads `OpenVINO/Kokoro-82M-int8-ov` from Hugging Face, at one
 pinned commit, and checks every file against its sha256 (see
 [SECURITY.md](SECURITY.md)). The model is cached under
-`${XDG_CACHE_HOME:-~/.cache}/vinospeak/` by default.
+`${XDG_CACHE_HOME:-~/.cache}/vinospeak/` by default, and OpenVINO keeps the
+compiled model in `vinospeak/ov-cache/` beside it, so later runs skip the
+compile. That can be a few hundred MB; delete it whenever you like.
 
 ```bash
 vinospeak "Hello from vinoSpeak."                     # plays it on your speakers

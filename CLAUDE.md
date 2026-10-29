@@ -55,6 +55,9 @@ uv run poe check                              # ruff, format --check, mypy (stri
 - **The model is pinned to a revision plus per-file sha256.** Re-pin only with
   `scripts/update_pins.py` and read the diff.
 - The NPU compile takes seconds; `Synthesizer` exists so callers pay it once.
+  The GUI keeps one loaded in `vinospeak --serve` (`serve.py`, a private
+  JSON-lines protocol), and every pipeline gets `CACHE_DIR` (`ov-cache/` beside
+  the model) so a new process can skip the compile.
 
 ## Testing without an NPU
 

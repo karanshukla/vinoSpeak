@@ -14,7 +14,7 @@ use vino_ui::theme;
 use vino_ui::widgets::{self, Tone};
 
 use crate::search::{self, Hit, Index, Kind, VinoSearch};
-use crate::speech::{self, Output, Part, Reading, Source, State, Voice};
+use crate::speech::{self, Event, Output, Part, Reading, Source, Voice, Worker};
 
 /// vinoSearch answers nothing under three characters, as KRunner does.
 const MIN_QUERY_CHARS: usize = 3;
@@ -33,7 +33,7 @@ enum Reply {
     Results(u64, anyhow::Result<Vec<Hit>>),
     Recent(anyhow::Result<Vec<Hit>>),
     /// The preview for the `previewed` it was asked for.
-    Preview(u64, anyhow::Result<(Source, String)>),
+    Preview(u64, anyhow::Result<String>),
 }
 
 /// `VINOSPEAK_GUI_SCREENSHOT=out.png`, with `VINOSPEAK_GUI_QUERY=...` to
@@ -49,10 +49,10 @@ struct Capture {
     deadline: Instant,
 }
 
-/// The chosen file's text, as vinospeak gives it, and what to hand vinospeak
-/// to say it.
+/// The chosen file's text, as vinospeak gives it: what the worker is sent
+/// to say, and what the reader shows.
 struct Preview {
-    source: Source,
+    text: String,
     paragraphs: Vec<String>,
 }
 
@@ -81,6 +81,8 @@ pub struct App {
     default_output: Option<String>,
     /// None plays on the desktop's default output.
     output: Option<String>,
+    /// Started with the first preview, kept for the window's lifetime.
+    worker: Option<Worker>,
     reading: Option<Reading>,
     status: String,
     tx: mpsc::Sender<Reply>,
@@ -151,6 +153,7 @@ impl App {
             outputs,
             default_output,
             output: None,
+            worker: None,
             reading: None,
             status: String::new(),
             tx,
@@ -244,7 +247,7 @@ impl App {
                 Kind::Session { .. } => Ok(Source::Session(hit.path.clone(), part)),
                 _ => Ok(Source::File(hit.path.clone())),
             }
-            .and_then(|source| Ok((source.clone(), speech::preview(&vinospeak, &source)?)));
+            .and_then(|source| speech::preview(&vinospeak, &source));
             let _ = tx.send(Reply::Preview(previewed, text));
             ctx.request_repaint();
         });
@@ -294,60 +297,135 @@ impl App {
                 Reply::Preview(previewed, text) => {
                     if previewed == self.previewed {
                         self.preview = Some(
-                            text.map(|(source, text)| Preview {
-                                source,
+                            text.map(|text| Preview {
                                 paragraphs: speech::paragraphs(&text),
+                                text,
                             })
                             .map_err(|e| format!("{e:#}")),
                         );
+                        if matches!(self.preview, Some(Ok(_))) {
+                            self.start_worker(ctx);
+                        }
                     }
                 }
             }
         }
     }
 
-    fn read_aloud(&mut self) {
-        let (Some(hit), Some(Ok(preview))) = (&self.selected, &self.preview) else {
+    /// The worker, loading the model while the user looks at the preview.
+    fn start_worker(&mut self, ctx: &egui::Context) {
+        if self.worker.is_some() {
             return;
-        };
-        self.reading = None; // dropping it stops the one before
-        let output = self.output.as_deref();
-        let started = Reading::start(
-            &self.vinospeak,
-            &hit.path,
-            &preview.source,
-            &self.voice,
-            self.speed,
-            output,
-        );
-        match started {
-            Ok(reading) => {
-                self.status = format!("Speaking {}", hit.name);
-                self.reading = Some(reading);
-            }
+        }
+        let ctx = ctx.clone();
+        match Worker::start(&self.vinospeak, move || ctx.request_repaint()) {
+            Ok(worker) => self.worker = Some(worker),
             Err(e) => self.status = format!("{e:#}"),
         }
     }
 
-    fn poll_reading(&mut self, ctx: &egui::Context) {
-        let Some(reading) = &mut self.reading else {
+    fn read_aloud(&mut self, ctx: &egui::Context) {
+        self.start_worker(ctx);
+        let (Some(hit), Some(Ok(preview)), Some(worker)) =
+            (&self.selected, &self.preview, &mut self.worker)
+        else {
             return;
         };
-        let name = reading
+        // The worker stops the reading before this one itself.
+        match worker.speak(
+            &preview.text,
+            &self.voice,
+            self.speed,
+            self.output.as_deref(),
+        ) {
+            Ok(id) => {
+                self.status = format!("Speaking {}", hit.name);
+                self.reading = Some(Reading {
+                    id,
+                    file: hit.path.clone(),
+                    started: Instant::now(),
+                    stop_sent: None,
+                });
+            }
+            Err(e) => {
+                self.status = format!("{e:#}");
+                self.worker = None;
+            }
+        }
+    }
+
+    fn stop_reading(&mut self) {
+        if let (Some(reading), Some(worker)) = (&mut self.reading, &mut self.worker)
+            && reading.stop_sent.is_none()
+        {
+            reading.stop_sent = Some(Instant::now());
+            if worker.stop().is_err() {
+                self.worker = None;
+            }
+        }
+    }
+
+    fn name(reading: &Reading) -> String {
+        reading
             .file
             .file_name()
             .unwrap_or_default()
             .to_string_lossy()
-            .into_owned();
-        match reading.poll() {
-            State::Speaking | State::Stopping => {
-                ctx.request_repaint_after(Duration::from_millis(250));
-                return;
+            .into_owned()
+    }
+
+    fn poll_reading(&mut self, ctx: &egui::Context) {
+        let events = self.worker.as_ref().map(Worker::events).unwrap_or_default();
+        let current = self.reading.as_ref().map(|r| r.id);
+        for event in events {
+            let ended = match event {
+                Event::Ready => None,
+                Event::FirstAudio { id, ms } => {
+                    if let Some(r) = self.reading.as_ref().filter(|r| r.id == id)
+                        && std::env::var_os("VINOSPEAK_GUI_DEBUG").is_some()
+                    {
+                        let since = r.started.elapsed().as_millis();
+                        eprintln!("first audio {since} ms after Read aloud ({ms} ms in vinospeak)");
+                    }
+                    None
+                }
+                Event::Done { id } if Some(id) == current => Some(None),
+                Event::Error { id, message } if id.is_none() || id == current => {
+                    Some(Some(message))
+                }
+                Event::Exited(message) => {
+                    self.worker = None;
+                    // A worker that died idle is started again by the next Read aloud.
+                    current.map(|_| Some(message))
+                }
+                Event::Done { .. } | Event::Error { .. } => None,
+            };
+            if let Some(failed) = ended {
+                let name = self.reading.as_ref().map(Self::name);
+                self.status = match (name, failed) {
+                    (Some(name), None) => format!("Finished {name}"),
+                    (Some(name), Some(e)) => format!("Couldn't read {name}: {e}"),
+                    (None, Some(e)) => format!("vinospeak: {e}"),
+                    (None, None) => String::new(),
+                };
+                self.reading = None;
             }
-            State::Finished => self.status = format!("Finished {name}"),
-            State::Failed(e) => self.status = format!("Couldn't read {name}: {e}"),
         }
-        self.reading = None;
+        let Some(reading) = &self.reading else {
+            return;
+        };
+        // A worker that doesn't answer a stop is killed, and the next Read
+        // aloud starts another.
+        if reading
+            .stop_sent
+            .is_some_and(|sent| sent.elapsed() > speech::STOP_GRACE)
+        {
+            self.status = format!("Finished {}", Self::name(reading));
+            self.reading = None;
+            self.worker = None;
+            return;
+        }
+        ctx.request_repaint_after(Duration::from_millis(250));
     }
 
     fn capture(&mut self, ctx: &egui::Context) {
@@ -359,7 +437,7 @@ impl App {
             if capture.speak && self.reading.is_none() && self.preview.is_some() {
                 capture.speak = false;
                 capture.deadline = Instant::now() + Duration::from_secs(4);
-                self.read_aloud();
+                self.read_aloud(ctx);
                 return;
             }
             if self.reading.is_some() && Instant::now() < capture.deadline {
@@ -623,10 +701,8 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(12.0, 8.0);
             if speaking_this {
-                if round_button(ui, Icon::Stop, "Stop", p.text, p.bg, true).clicked()
-                    && let Some(r) = &mut self.reading
-                {
-                    r.stop();
+                if round_button(ui, Icon::Stop, "Stop", p.text, p.bg, true).clicked() {
+                    self.stop_reading();
                 }
                 let secs = self
                     .reading
@@ -658,7 +734,8 @@ impl App {
                 )
                 .clicked()
                 {
-                    self.read_aloud();
+                    let ctx = ui.ctx().clone();
+                    self.read_aloud(&ctx);
                 }
                 let shown = ui.label(RichText::new("Read aloud").family(theme::semibold()));
                 a11y::decorative(ui, shown.id);

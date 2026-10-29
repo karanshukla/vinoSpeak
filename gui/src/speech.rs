@@ -1,15 +1,16 @@
-//! The vinospeak CLI, run for a file: `--print-text` for the preview, then
-//! once more to speak it. One reading at a time.
+//! The vinospeak CLI: run for a file with `--print-text` for the preview,
+//! and kept running as `vinospeak --serve` to speak it. One reading at a time.
 
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 
-/// How long a reading has to wind down after Ctrl+C before it is killed.
-const STOP_GRACE: Duration = Duration::from_secs(2);
+/// How long the worker has to stop a reading, or to exit, before it is killed.
+pub const STOP_GRACE: Duration = Duration::from_secs(2);
 
 /// `$VINOSPEAK`, else `vinospeak` on PATH, else `~/.local/bin/vinospeak`
 /// (where `uv tool install` puts it).
@@ -129,103 +130,165 @@ fn last_line(stderr: &str) -> String {
     line.trim_start_matches("vinospeak: error: ").to_owned()
 }
 
-pub enum State {
-    Speaking,
-    Stopping,
-    Finished,
-    Failed(String),
+/// What the worker reports, by the id of the reading it is about.
+#[derive(Debug, PartialEq)]
+pub enum Event {
+    /// The model is loaded and warmed up.
+    Ready,
+    /// The first samples are with the player, `ms` after the worker read the request.
+    FirstAudio {
+        id: u64,
+        ms: u64,
+    },
+    Done {
+        id: u64,
+    },
+    /// `id` is None for an error that is about no reading (a load that failed).
+    Error {
+        id: Option<u64>,
+        message: String,
+    },
+    /// The worker is gone; its last words on stderr.
+    Exited(String),
 }
 
-pub struct Reading {
+fn event(line: &str) -> Option<Event> {
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    let id = v.get("id").and_then(serde_json::Value::as_u64);
+    Some(match v.get("event")?.as_str()? {
+        "ready" => Event::Ready,
+        "first-audio" => Event::FirstAudio {
+            id: id?,
+            ms: v.get("ms").and_then(serde_json::Value::as_u64).unwrap_or(0),
+        },
+        "done" => Event::Done { id: id? },
+        "error" => Event::Error {
+            id,
+            message: v
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("vinospeak failed")
+                .to_owned(),
+        },
+        _ => return None,
+    })
+}
+
+/// `vinospeak --serve`: one process for the window's lifetime that keeps
+/// the model loaded, so only the first reading pays for loading and
+/// compiling it (vinoSpeak#39).
+pub struct Worker {
     child: Child,
-    pub file: PathBuf,
-    pub started: Instant,
-    stop_sent: Option<Instant>,
+    stdin: Option<ChildStdin>,
+    events: mpsc::Receiver<Event>,
+    next_id: u64,
 }
 
-impl Reading {
-    pub fn start(
-        vinospeak: &Path,
-        file: &Path,
-        source: &Source,
-        voice: &Voice,
-        speed: f32,
-        output: Option<&str>,
-    ) -> Result<Self> {
-        let mut cmd = command(vinospeak, source);
-        cmd.args(["--voice", &voice.id, "--language", voice.language]);
-        // "1.0" and "1.25": one decimal would round a preset away.
-        let speed = if speed.fract() == 0.0 {
-            format!("{speed:.1}")
-        } else {
-            format!("{speed}")
-        };
-        cmd.args(["--speed", &speed]);
-        if let Some(output) = output {
-            cmd.args(["--audio-device", output]);
+impl Worker {
+    /// Start it loading; `wake` is called for each event, to repaint.
+    /// `VINOSPEAK_GUI_DEVICE` picks the OpenVINO device (NPU otherwise).
+    pub fn start(vinospeak: &Path, wake: impl Fn() + Send + 'static) -> Result<Self> {
+        let mut cmd = Command::new(vinospeak);
+        cmd.arg("--serve");
+        if let Some(device) = std::env::var_os("VINOSPEAK_GUI_DEVICE").filter(|d| !d.is_empty()) {
+            cmd.arg("--device").arg(device);
         }
         let mut child = cmd
-            .stdout(Stdio::null())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .context("running vinospeak (uv tool install vinospeak)")?;
-        feed(&mut child, source);
+        let (stdout, mut stderr) = (child.stdout.take(), child.stderr.take());
+        let (tx, events) = mpsc::channel();
+        // Read whole, so a chatty stderr can't fill its pipe and stall the worker.
+        let stderr = std::thread::spawn(move || {
+            let mut text = String::new();
+            if let Some(pipe) = &mut stderr {
+                let _ = pipe.read_to_string(&mut text);
+            }
+            text
+        });
+        std::thread::spawn(move || {
+            if let Some(stdout) = stdout {
+                for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                    if let Some(event) = event(&line) {
+                        let _ = tx.send(event);
+                        wake();
+                    }
+                }
+            }
+            let stderr = stderr.join().unwrap_or_default();
+            let _ = tx.send(Event::Exited(last_line(&stderr)));
+            wake();
+        });
         Ok(Self {
+            stdin: child.stdin.take(),
             child,
-            file: file.to_owned(),
-            started: Instant::now(),
-            stop_sent: None,
+            events,
+            next_id: 0,
         })
     }
 
-    /// Ctrl+C, so vinospeak stops its player too; a kill would leave the
-    /// player running out the audio it already has.
-    pub fn stop(&mut self) {
-        if self.stop_sent.is_none() {
-            // SAFETY: kill(2) on our own child's pid; it is reaped only in poll.
-            unsafe { libc::kill(self.child.id() as libc::pid_t, libc::SIGINT) };
-            self.stop_sent = Some(Instant::now());
-        }
+    fn send(&mut self, request: &serde_json::Value) -> Result<()> {
+        let stdin = self.stdin.as_mut().context("vinospeak has stopped")?;
+        writeln!(stdin, "{request}")
+            .and_then(|()| stdin.flush())
+            .context("vinospeak has stopped")
     }
 
-    pub fn poll(&mut self) -> State {
-        match self.child.try_wait() {
-            Ok(Some(status)) if status.success() || self.stop_sent.is_some() => State::Finished,
-            Ok(Some(_)) => {
-                let mut stderr = String::new();
-                if let Some(mut pipe) = self.child.stderr.take() {
-                    let _ = pipe.read_to_string(&mut stderr);
-                }
-                State::Failed(last_line(&stderr))
-            }
-            Ok(None) => match self.stop_sent {
-                Some(sent) if sent.elapsed() > STOP_GRACE => {
-                    let _ = self.child.kill();
-                    State::Stopping
-                }
-                Some(_) => State::Stopping,
-                None => State::Speaking,
-            },
-            Err(e) => State::Failed(e.to_string()),
-        }
+    /// Read `text` aloud, stopping whatever was playing; its id for the events.
+    pub fn speak(
+        &mut self,
+        text: &str,
+        voice: &Voice,
+        speed: f32,
+        output: Option<&str>,
+    ) -> Result<u64> {
+        self.next_id += 1;
+        self.send(&serde_json::json!({
+            "op": "speak",
+            "id": self.next_id,
+            "text": text,
+            "voice": voice.id,
+            "language": voice.language,
+            "speed": speed,
+            "audio_device": output,
+        }))?;
+        Ok(self.next_id)
+    }
+
+    pub fn stop(&mut self) -> Result<()> {
+        self.send(&serde_json::json!({"op": "stop"}))
+    }
+
+    pub fn events(&self) -> Vec<Event> {
+        self.events.try_iter().collect()
     }
 }
 
-impl Drop for Reading {
+impl Drop for Worker {
+    /// Closing stdin is the worker's cue to stop playing and exit.
     fn drop(&mut self) {
-        if let Ok(None) = self.child.try_wait() {
-            self.stop();
-            let deadline = Instant::now() + STOP_GRACE;
-            while Instant::now() < deadline {
-                if let Ok(Some(_)) = self.child.try_wait() {
-                    return;
-                }
-                std::thread::sleep(Duration::from_millis(20));
+        self.stdin = None;
+        let deadline = Instant::now() + STOP_GRACE;
+        while Instant::now() < deadline {
+            if let Ok(Some(_)) = self.child.try_wait() {
+                return;
             }
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+            std::thread::sleep(Duration::from_millis(20));
         }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
+}
+
+/// A reading the worker was asked for.
+pub struct Reading {
+    pub id: u64,
+    pub file: PathBuf,
+    pub started: Instant,
+    pub stop_sent: Option<Instant>,
 }
 
 /// A sound output, as PipeWire (through pipewire-pulse) or PulseAudio
@@ -396,6 +459,31 @@ mod tests {
             ]
         );
         assert!(parse_sinks("not json").is_empty());
+    }
+
+    #[test]
+    fn worker_events_are_read_from_json_lines() {
+        assert_eq!(
+            event(r#"{"event": "ready", "load_ms": 1}"#),
+            Some(Event::Ready)
+        );
+        assert_eq!(
+            event(r#"{"event": "first-audio", "id": 2, "ms": 812}"#),
+            Some(Event::FirstAudio { id: 2, ms: 812 })
+        );
+        assert_eq!(
+            event(r#"{"event": "done", "id": 2, "stopped": true}"#),
+            Some(Event::Done { id: 2 })
+        );
+        assert_eq!(
+            event(r#"{"event": "error", "id": null, "message": "no NPU"}"#),
+            Some(Event::Error {
+                id: None,
+                message: "no NPU".to_owned()
+            })
+        );
+        assert_eq!(event(r#"{"event": "started", "id": 2}"#), None);
+        assert_eq!(event("Traceback (most recent call last):"), None);
     }
 
     #[test]

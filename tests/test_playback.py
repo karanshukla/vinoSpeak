@@ -1,5 +1,6 @@
 import sys
 import threading
+import time
 
 import numpy as np
 import pytest
@@ -241,3 +242,53 @@ def test_wait_times_out_while_speech_is_still_coming(monkeypatch):
     finally:
         release.set()
     assert speech.wait(timeout=10)
+
+
+def test_with_the_rate_known_the_player_starts_before_the_first_chunk(monkeypatch, tmp_path):
+    started = tmp_path / "started"
+    player_running(
+        monkeypatch,
+        f"import sys; open({str(started)!r}, 'w').close(); sys.stdin.buffer.read()",
+    )
+    release = threading.Event()
+
+    def slow_synthesis():
+        release.wait(30)
+        yield chunk(0.1)
+
+    heard = []
+    speech = playback.Speech(
+        slow_synthesis(), player="fake", sample_rate=24000, on_first_audio=lambda: heard.append(1)
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not started.exists():
+            assert time.monotonic() < deadline, "the player never started"
+            time.sleep(0.02)
+        assert heard == []
+    finally:
+        release.set()
+    assert speech.wait(timeout=10)
+    assert heard == [1], "once, after the first write"
+
+
+def test_a_chunk_at_another_rate_than_the_player_is_raised(monkeypatch):
+    player_running(monkeypatch, "import sys; sys.stdin.buffer.read()")
+    speech = playback.Speech([chunk(0.1)], player="fake", sample_rate=16000)
+    with pytest.raises(RuntimeError, match="24000 Hz to a player started at 16000 Hz"):
+        speech.wait(timeout=10)
+
+
+def test_stop_before_an_early_player_starts_starts_none(monkeypatch):
+    monkeypatch.setattr(playback, "raw_command", lambda *args: pytest.fail("player started"))
+    speech = playback.Speech.__new__(playback.Speech)
+    speech._stopped = threading.Event()
+    speech._stopped.set()
+    speech._process_lock = threading.Lock()
+    speech._process = None
+    speech._sample_rate = 24000
+    speech._on_first_audio = None
+    speech._error = None
+    speech._ready = playback.queue.Queue()
+    speech._play()
+    assert speech._error is None

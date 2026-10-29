@@ -2927,7 +2927,6 @@ dependencies = [
  "eframe",
  "egui_kittest",
  "image",
- "libc",
  "serde_json",
  "vino-user-interface",
  "zbus 6.0.0",

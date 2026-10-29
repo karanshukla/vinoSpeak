@@ -1,7 +1,7 @@
 //! The window driven headless through egui_kittest, finding widgets by their
 //! AccessKit labels as a screen reader would. vinoSearch is a fake `Index`;
-//! vinospeak is a shell script that prints `--print-text`, and otherwise
-//! logs its arguments and "plays" until it's interrupted.
+//! vinospeak is a shell script that prints `--print-text`, and as `--serve`
+//! logs each request and "plays" until it's stopped.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -20,22 +20,37 @@ use crate::speech::{self, Output};
 use vino_ui::theme;
 
 const FAKE_VINOSPEAK: &str = r#"#!/bin/sh
-# argv: --file PATH|- [--kind document | --part P] [--print-text | --voice V --language L --speed S [--audio-device D]]
+# argv: --serve [--device D], or --file PATH|- [--kind document | --part P] --print-text
 dir=$(dirname "$0")
 echo "$*" >> "$dir/calls"
-case " $* " in
-*" --print-text "*)
-    [ -f "$dir/fail-preview" ] && { echo "vinospeak: error: not a UTF-8 text file." >&2; exit 2; }
-    if [ "$3" = "--part" ]; then echo "The $4 of the session."
-    elif [ "$2" = "-" ]; then cat; else cat "$2"; fi
-    exit 0 ;;
-esac
-[ "$2" = "-" ] && cat > "$dir/stdin"
-[ -f "$dir/fail-read" ] && { echo "vinospeak: error: boom" >&2; exit 2; }
-[ -f "$dir/quick" ] && exit 0
-trap 'echo interrupted >> "$dir/calls"; exit 130' INT
-i=0
-while [ $i -lt 300 ]; do sleep 0.1; i=$((i + 1)); done
+if [ "$1" = "--serve" ]; then
+    echo '{"event": "ready"}'
+    current=
+    while read -r line; do
+        printf '%s\n' "$line" >> "$dir/calls"
+        if [ -n "$current" ]; then
+            echo interrupted >> "$dir/calls"
+            echo "{\"event\": \"done\", \"id\": $current, \"stopped\": true}"
+            current=
+        fi
+        case "$line" in *'"op":"speak"'*) ;; *) continue ;; esac
+        id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+        if [ -f "$dir/fail-read" ]; then
+            echo "{\"event\": \"error\", \"id\": $id, \"message\": \"boom\"}"
+            continue
+        fi
+        echo "{\"event\": \"first-audio\", \"id\": $id, \"ms\": 5}"
+        if [ -f "$dir/quick" ]; then
+            echo "{\"event\": \"done\", \"id\": $id, \"stopped\": false}"
+        else
+            current=$id
+        fi
+    done
+    exit 0
+fi
+[ -f "$dir/fail-preview" ] && { echo "vinospeak: error: not a UTF-8 text file." >&2; exit 2; }
+if [ "$3" = "--part" ]; then echo "The $4 of the session."
+elif [ "$2" = "-" ]; then cat; else cat "$2"; fi
 "#;
 
 /// A scratch directory with the fake vinospeak and the files the hits point
@@ -198,6 +213,20 @@ fn wait_for(h: &mut Harness<'_, App>, text: &str) {
     wait_until(h, text, |h| shows(h, text));
 }
 
+/// The last speak request the worker got, once it has one.
+fn last_speak(h: &mut Harness<'_, App>, scratch: &Scratch) -> String {
+    let speaks = |calls: String| {
+        calls
+            .lines()
+            .rfind(|l| l.contains(r#""op":"speak""#))
+            .map(str::to_owned)
+    };
+    wait_until(h, "a speak request", |_| {
+        speaks(scratch.read("calls")).is_some()
+    });
+    speaks(scratch.read("calls")).unwrap()
+}
+
 #[test]
 fn before_a_search_the_recent_files_show_and_the_first_is_previewed() {
     let scratch = Scratch::new();
@@ -285,8 +314,10 @@ fn a_document_is_previewed_and_read_from_vinosearchs_text() {
     wait_for(&mut h, "Extracted page one.");
     assert!(shows(&h, "Document"));
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
-    wait_until(&mut h, "the text on stdin", |_| {
-        scratch.read("stdin").contains("Extracted page one.")
+    wait_until(&mut h, "the text sent to the worker", |_| {
+        scratch
+            .read("calls")
+            .contains(r#""text":"Extracted page one.""#)
     });
     assert!(scratch.read("calls").contains("--file - --kind document"));
 }
@@ -306,13 +337,16 @@ fn read_aloud_passes_the_voice_its_language_the_speed_and_the_output() {
     state.output = Some("hdmi_sink".to_owned());
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Stop");
-    let calls = scratch.read("calls");
-    let reading = calls.lines().last().unwrap();
-    assert!(
-        reading
-            .ends_with("--voice bm_george --language en-gb --speed 1.5 --audio-device hdmi_sink"),
-        "{reading}"
-    );
+    let request = last_speak(&mut h, &scratch);
+    for field in [
+        r#""voice":"bm_george""#,
+        r#""language":"en-gb""#,
+        r#""speed":1.5"#,
+        r#""audio_device":"hdmi_sink""#,
+        r#""text":"Read me.""#,
+    ] {
+        assert!(request.contains(field), "{field} in {request}");
+    }
 }
 
 #[test]
@@ -326,15 +360,33 @@ fn the_default_output_passes_no_audio_device() {
     wait_for(&mut h, "Read me.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Stop");
+    let request = last_speak(&mut h, &scratch);
+    assert!(request.contains(r#""voice":"af_heart"}"#), "{request}");
+    assert!(request.contains(r#""audio_device":null"#), "{request}");
+}
+
+#[test]
+fn every_reading_goes_to_the_one_worker() {
+    let scratch = Scratch::new();
+    scratch.mode("quick");
+    let index = FakeIndex {
+        recent: vec![scratch.file("notes.md", "Twice.")],
+        ..Default::default()
+    };
+    let mut h = window(&scratch, index);
+    wait_for(&mut h, "Twice.");
+    for _ in 0..2 {
+        h.get_by_role_and_label(Role::Button, "Read aloud").click();
+        wait_for(&mut h, "Finished notes.md");
+        h.state_mut().status.clear();
+    }
     let calls = scratch.read("calls");
-    assert!(
-        calls
-            .lines()
-            .last()
-            .unwrap()
-            .contains("--voice af_heart --language en-us")
+    assert_eq!(
+        calls.lines().filter(|l| *l == "--serve").count(),
+        1,
+        "{calls}"
     );
-    assert!(!calls.contains("--audio-device"));
+    assert_eq!(calls.matches(r#""op":"speak""#).count(), 2, "{calls}");
 }
 
 #[test]
@@ -352,7 +404,7 @@ fn stop_interrupts_vinospeak_and_brings_read_aloud_back() {
     wait_for(&mut h, "Read aloud");
     assert!(
         scratch.read("calls").contains("interrupted"),
-        "Ctrl+C, not a kill"
+        "a stop request, not a kill"
     );
     assert!(shows(&h, "Finished notes.md"));
 }
@@ -398,7 +450,7 @@ fn a_file_vinospeak_refuses_says_why_and_cant_be_read_aloud() {
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
     h.run_steps(5);
     assert!(
-        !scratch.read("calls").contains("--voice"),
+        !scratch.read("calls").contains(r#""op":"speak""#),
         "nothing was started"
     );
 }
@@ -430,10 +482,11 @@ fn a_session_is_titled_by_its_summary_and_reads_either_part() {
         .click();
     wait_for(&mut h, "The transcript of the session.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
-    wait_for(&mut h, "Stop");
-    let calls = scratch.read("calls");
-    let reading = calls.lines().last().unwrap();
-    assert!(reading.contains("--part transcript --voice"), "{reading}");
+    let request = last_speak(&mut h, &scratch);
+    assert!(
+        request.contains(r#""text":"The transcript of the session.\n""#),
+        "{request}"
+    );
 }
 
 #[test]
