@@ -109,10 +109,14 @@ some-command | vinospeak --file -       # plain text from stdin
 ```
 
 Markdown headings, list items and table rows become sentences, links keep
-their text, a URL is said as its host, and code blocks are skipped. Other files
-are read as plain text with URLs shortened; anything that isn't UTF-8 text is
-refused. [vinoSearch](https://github.com/karanshukla/vinoSearch) uses `--file -`
-to read PDFs and Office documents aloud, and [`gui/`](gui/) is a proof-of-concept
+their text, a URL is said as its host, and code blocks are skipped. In other
+files a line that ends without punctuation ends a sentence unless the next line
+carries on in lowercase, and a word hyphenated over a line end is rejoined.
+Stdin is plain text unless `--kind` says otherwise; anything that isn't UTF-8
+text is refused. A full stop after `e.g.`, `Dr.`, `U.S.` and the like doesn't
+end a sentence. `--kind document` is for text with one heading, paragraph or
+table cell a line, as [vinoSearch](https://github.com/karanshukla/vinoSearch)
+extracts PDFs and Office documents, and [`gui/`](gui/) is a proof-of-concept
 window for finding a file with vinoSearch and listening to it.
 
 The default inference device is the Intel NPU. Choose a different OpenVINO

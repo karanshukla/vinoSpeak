@@ -29,7 +29,8 @@ pub fn binary() -> PathBuf {
 }
 
 /// What vinospeak reads: a file it opens itself (markdown is cleaned up by
-/// its suffix), or a document's text from vinoSearch, piped in.
+/// its suffix), or a document's text from vinoSearch, piped in and read as
+/// one heading, paragraph or table cell a line.
 #[derive(Clone)]
 pub enum Source {
     File(PathBuf),
@@ -40,7 +41,7 @@ fn command(vinospeak: &Path, source: &Source) -> Command {
     let mut cmd = Command::new(vinospeak);
     match source {
         Source::File(path) => cmd.arg("--file").arg(path),
-        Source::Text(_) => cmd.args(["--file", "-"]),
+        Source::Text(_) => cmd.args(["--file", "-", "--kind", "document"]),
     };
     cmd.stdin(match source {
         Source::File(_) => Stdio::null(),

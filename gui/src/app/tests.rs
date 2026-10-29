@@ -20,7 +20,7 @@ use crate::speech::{self, Output};
 use vino_ui::theme;
 
 const FAKE_VINOSPEAK: &str = r#"#!/bin/sh
-# argv: --file PATH|- [--print-text | --voice V --language L --speed S [--audio-device D]]
+# argv: --file PATH|- [--kind document] [--print-text | --voice V --language L --speed S [--audio-device D]]
 dir=$(dirname "$0")
 echo "$*" >> "$dir/calls"
 case " $* " in
@@ -274,7 +274,7 @@ fn a_document_is_previewed_and_read_from_vinosearchs_text() {
     wait_until(&mut h, "the text on stdin", |_| {
         scratch.read("stdin").contains("Extracted page one.")
     });
-    assert!(scratch.read("calls").contains("--file -"));
+    assert!(scratch.read("calls").contains("--file - --kind document"));
 }
 
 #[test]

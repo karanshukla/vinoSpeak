@@ -2,7 +2,7 @@ import time
 
 import pytest
 
-from vino_speak.readable import CODE_SKIPPED, markdown, plain
+from vino_speak.readable import CODE_SKIPPED, document, markdown, plain, read
 
 
 def spoken(text: str) -> str:
@@ -83,3 +83,59 @@ def test_unclosed_inline_markup_is_linear(unit: str) -> None:
     start = time.perf_counter()
     markdown(text)
     assert time.perf_counter() - start < 1.0
+
+
+def test_a_document_line_without_punctuation_ends_a_sentence():
+    text = "Introduction\nThe guild grew this year.\nIt hired keepers"
+    assert document(text) == "Introduction.\nThe guild grew this year.\nIt hired keepers."
+
+
+def test_a_docx_table_is_read_cell_by_cell():
+    # vinoSearch's DOCX extractor: one line per paragraph and per table cell
+    assert " ".join(document("Results\nName\nScore\nAlice\n90\n").split()) == (
+        "Results. Name. Score. Alice. 90."
+    )
+
+
+def test_a_word_hyphenated_at_a_line_end_is_rejoined():
+    assert document("more infor-\nmation here.") == "more information here."
+    assert document("more infor- \n  mation here.") == "more information here."
+    assert document("COVID-\n19 cases.") == "COVID-19 cases."
+    assert document("Jean-\nPaul came.") == "Jean-Paul came."
+
+
+def test_an_all_caps_heading_is_left_as_it_is():
+    # Kokoro said "ANNUAL REPORT" and "Annual Report" alike (2026-10-29, CPU)
+    assert document("ANNUAL REPORT\nBody.") == "ANNUAL REPORT.\nBody."
+
+
+def test_a_document_url_is_its_host_and_an_email_is_kept():
+    text = "See https://example.org/reports/2025\nWrite to guild@example.org"
+    assert document(text) == "See example.org.\nWrite to guild@example.org."
+
+
+def test_a_blank_line_stays_a_paragraph_break():
+    assert document("Page one\n\nPage two") == "Page one.\n\nPage two."
+
+
+def test_a_wrapped_text_file_carries_its_sentences_over_lines():
+    text = "A hard-wrapped line\ncarries on here\nAnd a Title\n\nNext"
+    assert (
+        document(text, wrapped=True)
+        == "A hard-wrapped line\ncarries on here.\nAnd a Title.\n\nNext."
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "kind", "spoken"),
+    [
+        ("a.md", None, "Title."),
+        ("a.txt", None, "# Title."),
+        ("a.md", "plain", "# Title"),
+        ("a.txt", "document", "# Title."),
+        ("a.txt", "markdown", "Title."),
+    ],
+)
+def test_read_picks_the_kind_by_suffix_unless_told(tmp_path, name, kind, spoken):
+    (tmp_path / name).write_text("# Title")
+    assert read(tmp_path / name, kind).strip() == spoken

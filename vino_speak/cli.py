@@ -22,6 +22,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Read a text file aloud instead (- for stdin); markdown loses its markup and code blocks.",
     )
     parser.add_argument(
+        "--kind",
+        choices=readable.KINDS,
+        help="Read --file as this instead of by its suffix: document is text extracted from a "
+        "PDF, DOCX or slides, one heading, paragraph or table cell a line.",
+    )
+    parser.add_argument(
         "--print-text",
         action="store_true",
         help="Print the text that would be spoken and exit, without loading the model.",
@@ -56,8 +62,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     arguments = parser.parse_args(argv)
     if (arguments.text is None) == (arguments.file is None):
         parser.error("give the text to speak or --file, not both")
+    if arguments.kind and arguments.file is None:
+        parser.error("--kind says how to read --file")
     try:
-        text = arguments.text if arguments.file is None else readable.read(arguments.file)
+        text = (
+            arguments.text
+            if arguments.file is None
+            else readable.read(arguments.file, arguments.kind)
+        )
     except (OSError, ValueError) as error:
         parser.error(str(error))
     if arguments.audio_device and arguments.output is not None:
