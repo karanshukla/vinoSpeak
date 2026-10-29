@@ -17,7 +17,7 @@ eframe = { version = "0.37", default-features = false, features = ["accesskit", 
 image = { version = "0.25", default-features = false, features = ["png"] }
 serde_json = "1"
 zbus = "6"
-vino-ui = { package = "vino-user-interface", version = "0.2" }
+vino-ui = { package = "vino-user-interface", version = "0.2.1" }
 # A vinoWhisper session's title and whether it has a summary, read as vinoSearch reads them
 zip = { version = "9", default-features = false, features = ["deflate"] }
 
