@@ -6,7 +6,7 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-from . import readable
+from . import readable, session
 from .model import default_model_dir
 from .tts import DEFAULT_DEVICE, DEFAULT_VOICE, LANGUAGES, speak, synthesize
 
@@ -26,6 +26,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=readable.KINDS,
         help="Read --file as this instead of by its suffix: document is text extracted from a "
         "PDF, DOCX or slides, one heading, paragraph or table cell a line.",
+    )
+    parser.add_argument(
+        "--part",
+        choices=session.PARTS,
+        help="Which part of a vinoWhisper session (.vwsession) to read "
+        "(default: the summary, if it has one).",
     )
     parser.add_argument(
         "--print-text",
@@ -64,12 +70,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("give the text to speak or --file, not both")
     if arguments.kind and arguments.file is None:
         parser.error("--kind says how to read --file")
+    is_session = arguments.file is not None and session.is_session(arguments.file)
+    if arguments.part and not is_session:
+        parser.error("--part is for a vinoWhisper session: --file x.vwsession")
+    if is_session and arguments.kind:
+        parser.error("a vinoWhisper session is read as one; --kind doesn't apply")
     try:
-        text = (
-            arguments.text
-            if arguments.file is None
-            else readable.read(arguments.file, arguments.kind)
-        )
+        if arguments.file is None:
+            text = arguments.text
+        elif is_session:
+            text = session.read(arguments.file, arguments.part)
+        else:
+            text = readable.read(arguments.file, arguments.kind)
     except (OSError, ValueError) as error:
         parser.error(str(error))
     if arguments.audio_device and arguments.output is not None:

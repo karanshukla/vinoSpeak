@@ -35,6 +35,24 @@ pub fn binary() -> PathBuf {
 pub enum Source {
     File(PathBuf),
     Text(String),
+    /// A vinoWhisper session, which vinospeak opens itself.
+    Session(PathBuf, Part),
+}
+
+/// Which part of a vinoWhisper session to read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Part {
+    Summary,
+    Transcript,
+}
+
+impl Part {
+    fn arg(self) -> &'static str {
+        match self {
+            Part::Summary => "summary",
+            Part::Transcript => "transcript",
+        }
+    }
 }
 
 fn command(vinospeak: &Path, source: &Source) -> Command {
@@ -42,10 +60,11 @@ fn command(vinospeak: &Path, source: &Source) -> Command {
     match source {
         Source::File(path) => cmd.arg("--file").arg(path),
         Source::Text(_) => cmd.args(["--file", "-", "--kind", "document"]),
+        Source::Session(path, part) => cmd.arg("--file").arg(path).args(["--part", part.arg()]),
     };
     cmd.stdin(match source {
-        Source::File(_) => Stdio::null(),
         Source::Text(_) => Stdio::piped(),
+        _ => Stdio::null(),
     });
     cmd
 }

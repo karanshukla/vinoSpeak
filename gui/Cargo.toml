@@ -19,6 +19,8 @@ libc = "0.2"
 serde_json = "1"
 zbus = "6"
 vino-ui = { package = "vino-user-interface", version = "0.2" }
+# A vinoWhisper session's title and whether it has a summary, read as vinoSearch reads them
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 egui_kittest = { version = "0.37", default-features = false }

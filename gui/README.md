@@ -17,8 +17,10 @@ to `~/.local/share`, both of which the host sees. Use a container of the host's
 own release (what `toolbox create` gives you), since a binary linked against a
 newer glibc than the host's won't start there.
 
-Text files only for now: PDFs and other documents show up but can't be read
-aloud until vinoSpeak can get their text from vinoSearch.
+Text files are read by vinospeak itself; PDFs and other documents through the
+text vinoSearch extracts. A vinoWhisper session is titled by its summary (or the
+time it was recorded) and has a Summary / Transcript toggle; Summary is
+disabled until vinoWhisper has summarised it.
 
 Checked without anyone at the screen: `VINOSPEAK_GUI_QUERY` searches,
 `VINOSPEAK_GUI_SCREENSHOT=out.png` saves the window once the first hit's text is

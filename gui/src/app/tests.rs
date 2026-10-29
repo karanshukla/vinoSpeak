@@ -20,13 +20,14 @@ use crate::speech::{self, Output};
 use vino_ui::theme;
 
 const FAKE_VINOSPEAK: &str = r#"#!/bin/sh
-# argv: --file PATH|- [--kind document] [--print-text | --voice V --language L --speed S [--audio-device D]]
+# argv: --file PATH|- [--kind document | --part P] [--print-text | --voice V --language L --speed S [--audio-device D]]
 dir=$(dirname "$0")
 echo "$*" >> "$dir/calls"
 case " $* " in
 *" --print-text "*)
     [ -f "$dir/fail-preview" ] && { echo "vinospeak: error: not a UTF-8 text file." >&2; exit 2; }
-    if [ "$2" = "-" ]; then cat; else cat "$2"; fi
+    if [ "$3" = "--part" ]; then echo "The $4 of the session."
+    elif [ "$2" = "-" ]; then cat; else cat "$2"; fi
     exit 0 ;;
 esac
 [ "$2" = "-" ] && cat > "$dir/stdin"
@@ -69,6 +70,19 @@ impl Scratch {
             } else {
                 Kind::Text
             },
+            path,
+        }
+    }
+
+    /// One of vinoWhisper's session fixtures, as vinoSearch lists it: by file name.
+    fn session(&self, name: &str, fixture: &str) -> Hit {
+        let path = self.0.join(name);
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures");
+        std::fs::copy(fixtures.join(fixture), &path).unwrap();
+        Hit {
+            name: name.to_owned(),
+            description: format!("{}  Changed just now", self.0.display()),
+            kind: crate::search::kind_of(&path, ""),
             path,
         }
     }
@@ -399,4 +413,42 @@ fn vinosearch_being_down_is_shown() {
     let mut h = window(&scratch, index);
     h.state_mut().type_query("anything");
     wait_for(&mut h, "vinoSearch didn't answer");
+}
+
+#[test]
+fn a_session_is_titled_by_its_summary_and_reads_either_part() {
+    let scratch = Scratch::new();
+    let index = FakeIndex {
+        recent: vec![scratch.session("2026-10-27-140512.vwsession", "session_v1.vwsession")],
+        ..Default::default()
+    };
+    let mut h = window(&scratch, index);
+    wait_for(&mut h, "The summary of the session.");
+    assert!(shows(&h, "Local captioning on the NPU"));
+    assert!(shows(&h, "Session"));
+    h.get_by_role_and_label(Role::RadioButton, "Transcript")
+        .click();
+    wait_for(&mut h, "The transcript of the session.");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "Stop");
+    let calls = scratch.read("calls");
+    let reading = calls.lines().last().unwrap();
+    assert!(reading.contains("--part transcript --voice"), "{reading}");
+}
+
+#[test]
+fn a_session_without_a_summary_reads_its_transcript_and_says_why() {
+    let scratch = Scratch::new();
+    let index = FakeIndex {
+        recent: vec![scratch.session(
+            "2026-10-27-140512.vwsession",
+            "session_v1_nosummary.vwsession",
+        )],
+        ..Default::default()
+    };
+    let mut h = window(&scratch, index);
+    wait_for(&mut h, "The transcript of the session.");
+    assert!(shows(&h, "27 October 2026, 14:05"));
+    assert!(shows(&h, "Not summarised yet"));
+    assert!(!scratch.read("calls").contains("--part summary"));
 }

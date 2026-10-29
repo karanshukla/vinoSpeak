@@ -2,6 +2,7 @@
 //! any running vinoSearch answers, whichever desktop it was set up for.
 
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -48,6 +49,11 @@ pub enum Kind {
     Text,
     Document,
     Image,
+    /// A vinoWhisper session (`.vwsession`): a transcript, and a summary
+    /// once it has been summarised.
+    Session {
+        summarised: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -64,7 +70,9 @@ pub fn kind_of(path: &Path, gicon: &str) -> Kind {
         .extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
-    if gicon.contains(" image-") {
+    if ext == "vwsession" {
+        Kind::Session { summarised: false }
+    } else if gicon.contains(" image-") {
         Kind::Image
     } else if DOCUMENTS.contains(&ext.as_str()) {
         Kind::Document
@@ -163,7 +171,7 @@ fn recent(limit: u32) -> Result<Vec<Hit>> {
                     kind: if kind == "document" {
                         Kind::Document
                     } else {
-                        Kind::Text
+                        kind_of(&path, "")
                     },
                     path,
                 }
@@ -192,6 +200,77 @@ fn file_text(path: &Path) -> Result<String> {
             .deserialize()?;
         Ok(text)
     })
+}
+
+/// The most of a summary read for its title; vinoWhisper's are a few KiB.
+const SUMMARY_PEEK: u64 = 64 * 1024;
+
+/// Each session titled by its summary's `# ` line, else by when it was
+/// recorded, and marked with whether it has a summary. vinoSearch names a
+/// session by its file name, which is only a time stamp.
+pub fn title_sessions(hits: Vec<Hit>) -> Vec<Hit> {
+    hits.into_iter()
+        .map(|mut hit| {
+            if let Kind::Session { .. } = hit.kind {
+                let summary = summary(&hit.path);
+                hit.kind = Kind::Session {
+                    summarised: summary.is_some(),
+                };
+                if let Some(title) = summary
+                    .as_deref()
+                    .and_then(summary_title)
+                    .or_else(|| recorded(&hit.path))
+                {
+                    hit.name = title;
+                }
+            }
+            hit
+        })
+        .collect()
+}
+
+/// The start of a session's summary.md; None without one, or for a bundle
+/// that won't open (vinospeak says why when it is read).
+fn summary(path: &Path) -> Option<String> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(path).ok()?).ok()?;
+    let mut bytes = Vec::new();
+    let entry = zip.by_name("summary.md").ok()?;
+    entry.take(SUMMARY_PEEK).read_to_end(&mut bytes).ok()?;
+    // A cut can split a character; the title is on the first lines anyway.
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn summary_title(summary: &str) -> Option<String> {
+    summary
+        .lines()
+        .find_map(|line| line.strip_prefix("# "))
+        .map(|title| title.trim().to_owned())
+        .filter(|title| !title.is_empty())
+}
+
+const MONTHS: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+
+/// "27 October 2026, 14:05" from vinoWhisper's `2026-10-27-140512.vwsession`.
+fn recorded(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_str()?;
+    let field = |range: std::ops::Range<usize>| stem.get(range)?.parse::<u32>().ok();
+    let (year, month, day) = (field(0..4)?, field(5..7)?, field(8..10)?);
+    let (hour, minute) = (field(11..13)?, field(13..15)?);
+    let month = MONTHS.get(usize::try_from(month).ok()?.checked_sub(1)?)?;
+    Some(format!("{day} {month} {year}, {hour:02}:{minute:02}"))
 }
 
 fn ago(secs: i64) -> String {
@@ -225,6 +304,58 @@ mod tests {
             Kind::Text
         );
         assert_eq!(kind("/a/Makefile", ""), Kind::Text);
+        assert_eq!(
+            kind(
+                "/t/2026-10-27-140512.vwsession",
+                ". GThemedIcon x text-x-generic"
+            ),
+            Kind::Session { summarised: false }
+        );
+    }
+
+    #[test]
+    fn sessions_are_titled_by_their_summary_else_by_when() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures");
+        let hit = |path: PathBuf| Hit {
+            name: path.file_name().unwrap().to_string_lossy().into_owned(),
+            description: String::new(),
+            kind: kind_of(&path, ""),
+            path,
+        };
+        let dir = std::env::temp_dir().join(format!("vinospeak-titles-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let unsummarised = dir.join("2026-10-27-140512.vwsession");
+        std::fs::copy(
+            fixtures.join("session_v1_nosummary.vwsession"),
+            &unsummarised,
+        )
+        .unwrap();
+        let broken = dir.join("notes.vwsession");
+        std::fs::write(&broken, "not a zip").unwrap();
+        let hits = title_sessions(vec![
+            hit(fixtures.join("session_v1.vwsession")),
+            hit(unsummarised),
+            hit(broken),
+            hit(PathBuf::from("/a/b.md")),
+        ]);
+        let _ = std::fs::remove_dir_all(&dir);
+        let shown: Vec<_> = hits.iter().map(|h| (h.name.as_str(), h.kind)).collect();
+        assert_eq!(
+            shown,
+            [
+                (
+                    "Local captioning on the NPU",
+                    Kind::Session { summarised: true }
+                ),
+                (
+                    "27 October 2026, 14:05",
+                    Kind::Session { summarised: false }
+                ),
+                ("notes.vwsession", Kind::Session { summarised: false }),
+                ("b.md", Kind::Text),
+            ]
+        );
+        assert_eq!(recorded(Path::new("/t/2026-13-01-000000.vwsession")), None);
     }
 
     #[test]
