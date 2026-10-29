@@ -13,8 +13,8 @@ use vino_ui::icons::{self, Icon};
 use vino_ui::theme;
 use vino_ui::widgets::{self, Tone};
 
-use crate::search::{Hit, Index, Kind, VinoSearch};
-use crate::speech::{self, Output, Reading, Source, State, Voice};
+use crate::search::{self, Hit, Index, Kind, VinoSearch};
+use crate::speech::{self, Output, Part, Reading, Source, State, Voice};
 
 /// vinoSearch answers nothing under three characters, as KRunner does.
 const MIN_QUERY_CHARS: usize = 3;
@@ -24,13 +24,16 @@ const DEBOUNCE: Duration = Duration::from_millis(300);
 const MEASURE: f32 = 680.0;
 /// How many recent files fill the list before a search.
 const RECENT: u32 = 20;
+/// A session's parts, as the reader's toggle offers them.
+const PARTS: [(Part, &str); 2] = [(Part::Summary, "Summary"), (Part::Transcript, "Transcript")];
 /// The speed presets, as the player offers them.
 const SPEEDS: [(f32, &str); 4] = [(0.8, "0.8×"), (1.0, "1.0×"), (1.25, "1.25×"), (1.5, "1.5×")];
 
 enum Reply {
     Results(u64, anyhow::Result<Vec<Hit>>),
     Recent(anyhow::Result<Vec<Hit>>),
-    Preview(PathBuf, anyhow::Result<(Source, String)>),
+    /// The preview for the `previewed` it was asked for.
+    Preview(u64, anyhow::Result<(Source, String)>),
 }
 
 /// `VINOSPEAK_GUI_SCREENSHOT=out.png`, with `VINOSPEAK_GUI_QUERY=...` to
@@ -67,6 +70,10 @@ pub struct App {
     error: Option<String>,
     selected: Option<Hit>,
     preview: Option<Result<Preview, String>>,
+    /// Counts the previews asked for, so a late one for another file or part is dropped.
+    previewed: u64,
+    /// The part of the selected session shown and read.
+    part: Part,
     voices: Vec<Voice>,
     voice: Voice,
     speed: f32,
@@ -136,6 +143,8 @@ impl App {
             error: None,
             selected: None,
             preview: None,
+            previewed: 0,
+            part: Part::Summary,
             voices,
             voice,
             speed: 1.0,
@@ -194,7 +203,8 @@ impl App {
         );
         let index = self.index.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(Reply::Results(generation, index.search(&query)));
+            let hits = index.search(&query).map(search::title_sessions);
+            let _ = tx.send(Reply::Results(generation, hits));
             ctx.request_repaint();
         });
     }
@@ -203,26 +213,39 @@ impl App {
         self.recent_asked = true;
         let (tx, ctx, index) = (self.tx.clone(), ctx.clone(), self.index.clone());
         std::thread::spawn(move || {
-            let _ = tx.send(Reply::Recent(index.recent(RECENT)));
+            let _ = tx.send(Reply::Recent(
+                index.recent(RECENT).map(search::title_sessions),
+            ));
             ctx.request_repaint();
         });
     }
 
     fn select(&mut self, ctx: &egui::Context, hit: Hit) {
+        self.part = match hit.kind {
+            Kind::Session { summarised: false } => Part::Transcript,
+            _ => Part::Summary,
+        };
+        self.selected = Some(hit);
+        self.load_preview(ctx);
+    }
+
+    /// The selected file's text, as vinospeak will say it.
+    fn load_preview(&mut self, ctx: &egui::Context) {
         self.preview = None;
-        self.selected = Some(hit.clone());
-        if hit.kind == Kind::Image {
+        self.previewed += 1;
+        let Some(hit) = self.selected.clone().filter(|h| h.kind != Kind::Image) else {
             return;
-        }
-        let (tx, ctx) = (self.tx.clone(), ctx.clone());
+        };
+        let (tx, ctx, previewed, part) = (self.tx.clone(), ctx.clone(), self.previewed, self.part);
         let (index, vinospeak) = (self.index.clone(), self.vinospeak.clone());
         std::thread::spawn(move || {
             let text = match hit.kind {
                 Kind::Document => index.file_text(&hit.path).map(Source::Text),
+                Kind::Session { .. } => Ok(Source::Session(hit.path.clone(), part)),
                 _ => Ok(Source::File(hit.path.clone())),
             }
             .and_then(|source| Ok((source.clone(), speech::preview(&vinospeak, &source)?)));
-            let _ = tx.send(Reply::Preview(hit.path, text));
+            let _ = tx.send(Reply::Preview(previewed, text));
             ctx.request_repaint();
         });
     }
@@ -268,8 +291,8 @@ impl App {
                 Reply::Recent(Err(e)) => {
                     self.status = format!("No recent files: {e:#}");
                 }
-                Reply::Preview(path, text) => {
-                    if self.selected.as_ref().map(|h| &h.path) == Some(&path) {
+                Reply::Preview(previewed, text) => {
+                    if previewed == self.previewed {
                         self.preview = Some(
                             text.map(|(source, text)| Preview {
                                 source,
@@ -465,6 +488,7 @@ impl App {
                                 Kind::Text => Icon::FileText,
                                 Kind::Document => Icon::File,
                                 Kind::Image => Icon::Image,
+                                Kind::Session { .. } => Icon::Sessions,
                             };
                             widgets::file_tile(ui, icon, 30.0);
                             ui.vertical(|ui| {
@@ -675,8 +699,10 @@ impl App {
                             .truncate(),
                     );
                     a11y::heading(&title, &hit.name, 2);
-                    if hit.kind == Kind::Document {
-                        widgets::tag(ui, Tone::Neutral, "Document");
+                    match hit.kind {
+                        Kind::Document => drop(widgets::tag(ui, Tone::Neutral, "Document")),
+                        Kind::Session { .. } => drop(widgets::tag(ui, Tone::Neutral, "Session")),
+                        _ => {}
                     }
                 });
                 ui.add(
@@ -705,49 +731,82 @@ impl App {
                 top: 20,
                 bottom: 0,
             })
-            .show(ui, |ui| match (&hit.kind, &self.preview) {
-                (Kind::Image, _) => {
-                    widgets::muted(ui, "An image has no text to read.");
+            .show(ui, |ui| {
+                if let Kind::Session { summarised } = hit.kind {
+                    self.part_toggle(ui, summarised);
+                    ui.add_space(12.0);
                 }
-                (Kind::Document, None) => {
-                    a11y::live(&widgets::muted(ui, "Getting the text from vinoSearch…"));
-                }
-                (_, None) => {
-                    a11y::live(&widgets::muted(ui, "Preparing the text…"));
-                }
-                (_, Some(Err(e))) => {
-                    a11y::live(&widgets::muted(ui, format!("Can't read this file: {e}")));
-                }
-                (_, Some(Ok(preview))) if preview.paragraphs.is_empty() => {
-                    widgets::muted(ui, "This file has no text to read (a scan?).");
-                }
-                (_, Some(Ok(preview))) => {
-                    widgets::page_scroll(ui, "the text", MEASURE, |ui| {
-                        ui.spacing_mut().item_spacing.y = 12.0;
-                        for para in &preview.paragraphs {
-                            let mut job = egui::text::LayoutJob::default();
-                            job.wrap.max_width = ui.available_width();
-                            let (color, italics) = if para == "Code skipped." {
-                                (p.muted, true)
-                            } else {
-                                (p.text, false)
-                            };
-                            job.append(
-                                para,
-                                0.0,
-                                egui::TextFormat {
-                                    font_id: egui::FontId::proportional(15.0),
-                                    color,
-                                    italics,
-                                    line_height: Some(25.0),
-                                    ..Default::default()
-                                },
-                            );
-                            ui.add(egui::Label::new(job).wrap());
-                        }
-                    });
-                }
+                self.text(ui, &hit);
             });
+    }
+
+    /// Summary or Transcript, for a session. Without a summary the toggle
+    /// stays on Transcript, disabled: vino-ui's segmented can't disable one
+    /// option alone.
+    fn part_toggle(&mut self, ui: &mut egui::Ui, summarised: bool) {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            let mut part = self.part;
+            let changed = ui
+                .add_enabled_ui(summarised, |ui| {
+                    widgets::segmented(ui, "Part", &mut part, &PARTS)
+                })
+                .inner;
+            if !summarised {
+                widgets::muted(ui, "Not summarised yet");
+            }
+            if changed {
+                self.part = part;
+                self.load_preview(ui.ctx());
+            }
+        });
+    }
+
+    fn text(&self, ui: &mut egui::Ui, hit: &Hit) {
+        let p = theme::palette(ui.ctx());
+        match (&hit.kind, &self.preview) {
+            (Kind::Image, _) => {
+                widgets::muted(ui, "An image has no text to read.");
+            }
+            (Kind::Document, None) => {
+                a11y::live(&widgets::muted(ui, "Getting the text from vinoSearch…"));
+            }
+            (_, None) => {
+                a11y::live(&widgets::muted(ui, "Preparing the text…"));
+            }
+            (_, Some(Err(e))) => {
+                a11y::live(&widgets::muted(ui, format!("Can't read this file: {e}")));
+            }
+            (_, Some(Ok(preview))) if preview.paragraphs.is_empty() => {
+                widgets::muted(ui, "This file has no text to read (a scan?).");
+            }
+            (_, Some(Ok(preview))) => {
+                widgets::page_scroll(ui, "the text", MEASURE, |ui| {
+                    ui.spacing_mut().item_spacing.y = 12.0;
+                    for para in &preview.paragraphs {
+                        let mut job = egui::text::LayoutJob::default();
+                        job.wrap.max_width = ui.available_width();
+                        let (color, italics) = if para == "Code skipped." {
+                            (p.muted, true)
+                        } else {
+                            (p.text, false)
+                        };
+                        job.append(
+                            para,
+                            0.0,
+                            egui::TextFormat {
+                                font_id: egui::FontId::proportional(15.0),
+                                color,
+                                italics,
+                                line_height: Some(25.0),
+                                ..Default::default()
+                            },
+                        );
+                        ui.add(egui::Label::new(job).wrap());
+                    }
+                });
+            }
+        }
     }
 }
 

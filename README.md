@@ -119,6 +119,18 @@ table cell a line, as [vinoSearch](https://github.com/karanshukla/vinoSearch)
 extracts PDFs and Office documents, and [`gui/`](gui/) is a proof-of-concept
 window for finding a file with vinoSearch and listening to it.
 
+A [vinoWhisper](https://github.com/karanshukla/vinoWhisper) session reads its
+summary, or its transcript when it isn't summarised yet:
+
+```bash
+vinospeak --file ~/.local/share/vinowhisper/transcripts/2026-10-27-140512.vwsession
+vinospeak --file 2026-10-27-140512.vwsession --part transcript
+```
+
+A summary starts with "This summary was machine-written." and loses its time
+stamps; a transcript starts with the day it was recorded and loses its
+paragraph stamps.
+
 The default inference device is the Intel NPU. Choose a different OpenVINO
 device, voice, language, speed, or model directory with the corresponding
 options:
