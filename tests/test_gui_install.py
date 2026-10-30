@@ -1,4 +1,4 @@
-"""gui/install.sh writes the app menu entry; cargo is faked, so nothing builds."""
+"""gui/install.sh writes the app menu entry; cargo and the desktop tools are faked."""
 
 import os
 import re
@@ -42,9 +42,12 @@ def exec_argv(desktop: Path) -> list[str]:
 def home(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    cargo = bin_dir / "cargo"
-    cargo.write_text("#!/bin/sh\nexit 0\n")
-    cargo.chmod(cargo.stat().st_mode | stat.S_IXUSR)
+    # The desktop tools too: update-desktop-database leaves a mimeinfo.cache
+    # where it's installed, and that cache is shared, so uninstall keeps it
+    for name in ("cargo", "update-desktop-database", "kbuildsycoca6", "kbuildsycoca5"):
+        tool = bin_dir / name
+        tool.write_text("#!/bin/sh\nexit 0\n")
+        tool.chmod(tool.stat().st_mode | stat.S_IXUSR)
     return tmp_path
 
 

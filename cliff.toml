@@ -2,8 +2,8 @@
 # Docs: https://git-cliff.org/docs/configuration
 #
 # Usage:
-#   git cliff -c cliff.toml -o CHANGELOG.md          # regenerate everything
-#   git cliff -c cliff.toml --tag v0.3.0 -o CHANGELOG.md  # file pending commits under v0.3.0
+#   git cliff -c cliff.toml --unreleased --tag v0.4.0 --prepend CHANGELOG.md  # file pending commits under v0.4.0
+#   git cliff -c cliff.toml -o CHANGELOG.md          # regenerate everything, losing hand edits
 #   git cliff --unreleased                           # preview, to stdout
 
 [changelog]
