@@ -20,7 +20,9 @@ newer glibc than the host's won't start there.
 Text files are read by vinospeak itself; PDFs and other documents through the
 text vinoSearch extracts. A vinoWhisper session is titled by its summary (or the
 time it was recorded) and has a Summary / Transcript toggle; Summary is
-disabled until vinoWhisper has summarised it.
+disabled until vinoWhisper has summarised it. Spreadsheets and source code are
+left out of the lists, though vinoSearch indexes them: `vinospeak --file` still
+reads one if you want it.
 
 Checked without anyone at the screen: `VINOSPEAK_GUI_QUERY` searches,
 `VINOSPEAK_GUI_SCREENSHOT=out.png` saves the window once the first hit's text is

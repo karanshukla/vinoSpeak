@@ -142,11 +142,11 @@ impl Index for FakeIndex {
         Ok(self.searches.get(query).cloned().unwrap_or_default())
     }
 
-    fn recent(&self, _limit: u32) -> Result<Vec<Hit>> {
+    fn recent(&self, limit: u32) -> Result<Vec<Hit>> {
         if self.down {
             bail!("vinoSearch isn't running or isn't installed");
         }
-        Ok(self.recent.clone())
+        Ok(self.recent.iter().take(limit as usize).cloned().collect())
     }
 
     fn file_text(&self, path: &Path) -> Result<String> {
@@ -280,6 +280,49 @@ fn a_search_that_finds_nothing_says_so_and_keeps_the_recent_files() {
     wait_for(&mut h, "Nothing close enough.");
     assert!(shows(&h, "Recently changed"));
     assert!(shows(&h, "notes.md"));
+}
+
+#[test]
+fn spreadsheets_and_code_are_not_listed() {
+    let scratch = Scratch::new();
+    let mut recent: Vec<Hit> = (0..25)
+        .map(|i| scratch.file(&format!("sheet{i}.csv"), "a,b,c"))
+        .collect();
+    recent.push(scratch.file("notes.md", "Older than the sheets."));
+    let mut index = FakeIndex {
+        recent,
+        ..Default::default()
+    };
+    index.searches.insert(
+        "budget".to_owned(),
+        vec![
+            scratch.file("budget.csv", "a,b,c"),
+            scratch.file("budget.py", "print()"),
+            scratch.file("budget.md", "The budget, in words."),
+        ],
+    );
+    let mut h = window(&scratch, index);
+    wait_for(&mut h, "Older than the sheets.");
+    assert!(!shows(&h, "sheet0.csv"));
+    h.state_mut().type_query("budget");
+    wait_for(&mut h, "The budget, in words.");
+    assert!(!shows(&h, "budget.csv"));
+    assert!(!shows(&h, "budget.py"));
+}
+
+#[test]
+fn the_recent_list_stops_at_twenty() {
+    let scratch = Scratch::new();
+    let index = FakeIndex {
+        recent: (0..21)
+            .map(|i| scratch.file(&format!("note{i}.md"), "Some notes."))
+            .collect(),
+        ..Default::default()
+    };
+    let mut h = window(&scratch, index);
+    wait_for(&mut h, "Some notes.");
+    assert!(shows(&h, "note19.md"));
+    assert!(!shows(&h, "note20.md"));
 }
 
 #[test]

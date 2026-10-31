@@ -23,7 +23,10 @@ const DEBOUNCE: Duration = Duration::from_millis(300);
 /// The reading column's widest: about 80 characters of body text.
 const MEASURE: f32 = 680.0;
 /// How many recent files fill the list before a search.
-const RECENT: u32 = 20;
+const RECENT: usize = 20;
+/// How many vinoSearch is asked for (its most, recent::MAX), so a folder of
+/// spreadsheets changed last doesn't leave the list empty.
+const RECENT_ASKED: u32 = 50;
 /// A session's parts, as the reader's toggle offers them.
 const PARTS: [(Part, &str); 2] = [(Part::Summary, "Summary"), (Part::Transcript, "Transcript")];
 /// The speed presets, as the player offers them.
@@ -206,7 +209,9 @@ impl App {
         );
         let index = self.index.clone();
         std::thread::spawn(move || {
-            let hits = index.search(&query).map(search::title_sessions);
+            let hits = index.search(&query).map(|hits| {
+                search::title_sessions(hits.into_iter().filter(search::worth_hearing).collect())
+            });
             let _ = tx.send(Reply::Results(generation, hits));
             ctx.request_repaint();
         });
@@ -216,9 +221,14 @@ impl App {
         self.recent_asked = true;
         let (tx, ctx, index) = (self.tx.clone(), ctx.clone(), self.index.clone());
         std::thread::spawn(move || {
-            let _ = tx.send(Reply::Recent(
-                index.recent(RECENT).map(search::title_sessions),
-            ));
+            let _ = tx.send(Reply::Recent(index.recent(RECENT_ASKED).map(|hits| {
+                search::title_sessions(
+                    hits.into_iter()
+                        .filter(search::worth_hearing)
+                        .take(RECENT)
+                        .collect(),
+                )
+            })));
             ctx.request_repaint();
         });
     }
@@ -274,8 +284,7 @@ impl App {
                 Reply::Results(_, Ok(hits)) => {
                     self.searching = false;
                     self.error = None;
-                    // An image has nothing to read aloud.
-                    self.hits = hits.into_iter().filter(|h| h.kind != Kind::Image).collect();
+                    self.hits = hits;
                     if self.showing_hits() {
                         self.select_first(ctx);
                     }
