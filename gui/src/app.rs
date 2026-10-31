@@ -568,13 +568,13 @@ impl App {
                         ui.set_width(ui.available_width());
                         ui.horizontal_top(|ui| {
                             ui.spacing_mut().item_spacing.x = 10.0;
-                            let icon = match hit.kind {
-                                Kind::Text => Icon::FileText,
-                                Kind::Document => Icon::File,
-                                Kind::Image => Icon::Image,
-                                Kind::Session { .. } => Icon::Sessions,
+                            match hit.kind {
+                                Kind::Text => widgets::file_tile(ui, Icon::FileText, 30.0),
+                                Kind::Document => widgets::file_tile(ui, Icon::File, 30.0),
+                                Kind::Image => widgets::file_tile(ui, Icon::Image, 30.0),
+                                // As vinoSearch shows one; Icon::Sessions is drawn as FileText.
+                                Kind::Session { .. } => vino_ui::logo::whisper(ui, 30.0),
                             };
-                            widgets::file_tile(ui, icon, 30.0);
                             ui.vertical(|ui| {
                                 ui.spacing_mut().item_spacing.y = 1.0;
                                 let name = RichText::new(&hit.name).family(if faded {
