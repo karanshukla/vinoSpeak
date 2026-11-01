@@ -105,10 +105,10 @@ fetches Intel's into your home directory and vinoSpeak loads it from there.
 ```python
 from vino_speak import Synthesizer
 
-synth = Synthesizer("NPU")               # compiles once; reuse it
-audio = synth.synthesize("Hello.")       # audio.samples (float32), audio.sample_rate
+synth = Synthesizer("NPU")  # compiles once; reuse it
+audio = synth.synthesize("Hello.")  # audio.samples (float32), audio.sample_rate
 speech = synth.speak("A long passage.")  # plays in the background
-speech.stop()                            # or speech.wait()
+speech.stop()  # or speech.wait()
 ```
 
 ## Development
