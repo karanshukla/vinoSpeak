@@ -17,7 +17,7 @@ const CONTROL: &str = "dev.vinosearch.Control1";
 /// in NOT_FOR_LISTENING. vinoSpeak reads a file's bytes as UTF-8 text, so
 /// their text comes from vinoSearch's extractor: some of them aren't UTF-8,
 /// and the rest (RTF, flat ODF, subtitles) would be read out markup and all.
-pub const DOCUMENTS: &[&str] = &[
+const DOCUMENTS: &[&str] = &[
     "pdf", "docx", "docm", "dotx", "dotm", "odt", "ott", "fodt", "pptx", "pptm", "potx", "ppsx",
     "ppsm", "odp", "otp", "fodp", "epub", "srt", "vtt", "doc", "dot", "ppt", "pot", "pps", "rtf",
 ];
@@ -418,6 +418,15 @@ mod tests {
             ]
         );
         assert_eq!(recorded(Path::new("/t/2026-13-01-000000.vwsession")), None);
+    }
+
+    /// vino-ui draws the tiles; this keeps its formats and DOCUMENTS in step.
+    #[test]
+    fn every_document_has_a_tile_of_its_own() {
+        use vino_ui::file_tile::Format;
+        for ext in DOCUMENTS {
+            assert_ne!(Format::from_extension(ext), Format::Plain, "{ext}");
+        }
     }
 
     #[test]

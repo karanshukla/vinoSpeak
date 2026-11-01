@@ -9,13 +9,13 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Align, Color32, Layout, Margin, RichText, Sense, Stroke};
 use vino_ui::a11y;
+use vino_ui::file_tile::{self, Format};
 use vino_ui::icons::{self, Icon};
 use vino_ui::theme;
 use vino_ui::widgets::{self, Tone};
 
 use crate::search::{self, Hit, Index, Kind, VinoSearch};
 use crate::speech::{self, Event, Output, Part, Reading, Source, Voice, Worker};
-use crate::tile;
 
 /// vinoSearch answers nothing under three characters, as KRunner does.
 const MIN_QUERY_CHARS: usize = 3;
@@ -571,7 +571,7 @@ impl App {
                             ui.spacing_mut().item_spacing.x = 10.0;
                             match hit.kind {
                                 Kind::Text | Kind::Document => {
-                                    tile::file(ui, tile::Format::of(&hit.path), 30.0)
+                                    file_tile::file(ui, Format::of(&hit.path), 30.0)
                                 }
                                 Kind::Image => widgets::file_tile(ui, Icon::Image, 30.0),
                                 // As vinoSearch shows one; Icon::Sessions is drawn as FileText.
