@@ -28,6 +28,8 @@ own telemetry is blocked.
 - A [window](gui/) (proof of concept) to find a file with vinoSearch and listen
   to it, and a Python API.
 
+<p align="center"><img src="docs/assets/gui.svg" width="800" alt="The vinoSpeak window. Typing &quot;how often is the lens cleaned&quot; finds lighthouse-log.pdf through vinoSearch; Read aloud starts speaking it and the status bar says so. Then a vinoWhisper session, Harbour safety meeting, is picked and its summary is read aloud."></p>
+
 ## Install
 
 Python 3.11 to 3.14. With [uv](https://docs.astral.sh/uv/):
