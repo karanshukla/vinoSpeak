@@ -13,9 +13,14 @@ const PATH: &str = "/gnome";
 const INTERFACE: &str = "org.gnome.Shell.SearchProvider2";
 const CONTROL_PATH: &str = "/control";
 const CONTROL: &str = "dev.vinosearch.Control1";
-/// vinoSearch's document formats (its src/extract.rs). vinoSpeak reads
-/// UTF-8 text only, so their text comes from vinoSearch's extractor.
-const DOCUMENTS: &[&str] = &["pdf", "docx", "odt", "pptx", "odp"];
+/// vinoSearch's document formats (its src/extract.rs), less the spreadsheets
+/// in NOT_FOR_LISTENING. vinoSpeak reads a file's bytes as UTF-8 text, so
+/// their text comes from vinoSearch's extractor: some of them aren't UTF-8,
+/// and the rest (RTF, flat ODF, subtitles) would be read out markup and all.
+const DOCUMENTS: &[&str] = &[
+    "pdf", "docx", "docm", "dotx", "dotm", "odt", "ott", "fodt", "pptx", "pptm", "potx", "ppsx",
+    "ppsm", "odp", "otp", "fodp", "epub", "srt", "vtt", "doc", "dot", "ppt", "pot", "pps", "rtf",
+];
 /// vinoSearch's spreadsheets (its src/extract.rs) and code (its src/code.rs):
 /// it indexes them, but read aloud they are cell after cell and symbol after
 /// symbol, so the window doesn't list them.
@@ -321,6 +326,22 @@ mod tests {
             Kind::Text
         );
         assert_eq!(kind("/a/Makefile", ""), Kind::Text);
+        for p in [
+            "/a/b.epub",
+            "/a/b.doc",
+            "/a/b.docm",
+            "/a/b.RTF",
+            "/a/b.fodt",
+            "/a/b.ppt",
+            "/a/b.srt",
+            "/a/b.vtt",
+        ] {
+            assert_eq!(
+                kind(p, ". GThemedIcon x text-x-generic"),
+                Kind::Document,
+                "{p}"
+            );
+        }
         assert_eq!(
             kind(
                 "/t/2026-10-27-140512.vwsession",
@@ -340,10 +361,12 @@ mod tests {
                 kind,
             })
         };
-        for p in ["/a/b.md", "/a/b.html", "/a/Makefile", "/a/b.srt"] {
+        for p in ["/a/b.md", "/a/b.html", "/a/Makefile"] {
             assert!(worth(p, Kind::Text), "{p}");
         }
-        assert!(worth("/a/b.pdf", Kind::Document));
+        for p in ["/a/b.pdf", "/a/b.srt"] {
+            assert!(worth(p, Kind::Document), "{p}");
+        }
         assert!(worth("/a/b.vwsession", Kind::Session { summarised: true }));
         for p in ["/a/b.csv", "/a/b.TSV", "/a/b.rs", "/a/b.py"] {
             assert!(!worth(p, Kind::Text), "{p}");
