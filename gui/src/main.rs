@@ -4,7 +4,6 @@
 mod app;
 mod search;
 mod speech;
-mod tile;
 
 use std::process::ExitCode;
 
