@@ -41,8 +41,36 @@ vinospeak "Hello."
 
 `--python 3.14` because OpenVINO 2026.4.1 has no 3.15 wheels yet. OpenVINO is
 pinned to the same release as vinoPop and vinoWhisper, so programs sharing one
-NPU never run mismatched runtimes. For the exact versions in `uv.lock`, use a
-checkout: `uv sync --locked && uv run vinospeak "Hello."`.
+NPU never run mismatched runtimes.
+
+**From source**, for the exact versions in `uv.lock`, hashes included. `--locked`
+fails if the lock is out of date:
+
+```bash
+git clone https://github.com/karanshukla/vinoSpeak && cd vinoSpeak
+uv sync --locked
+uv run vinospeak "Hello."
+```
+
+To put that checkout's `vinospeak` on your `PATH` with the lock's versions as
+constraints (`uv tool install` doesn't read `uv.lock` by itself):
+
+```bash
+uv export --locked --no-dev --no-emit-project --no-hashes -o constraints.txt
+uv tool install --constraints constraints.txt .
+```
+
+**The window** isn't on PyPI, so it's always built from a checkout, with
+[Rust](https://rustup.rs). This puts it in your app menu, using the `vinospeak`
+on your `PATH` or in `~/.local/bin`:
+
+```bash
+gui/install.sh                                             # --uninstall removes it
+VINOSPEAK=.venv/bin/vinospeak gui/install.sh               # or the checkout's vinospeak
+```
+
+Finding files in it needs [vinoSearch](https://github.com/karanshukla/vinoSearch)
+running. See [gui/README.md](gui/README.md).
 
 **Fedora Atomic / openSUSE Aeon**: nothing to layer for vinoSpeak itself. uv
 brings its own Python and the wheels carry espeak-ng and libsndfile. Only the
