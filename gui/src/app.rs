@@ -15,6 +15,7 @@ use vino_ui::widgets::{self, Tone};
 
 use crate::search::{self, Hit, Index, Kind, VinoSearch};
 use crate::speech::{self, Event, Output, Part, Reading, Source, Voice, Worker};
+use crate::tile;
 
 /// vinoSearch answers nothing under three characters, as KRunner does.
 const MIN_QUERY_CHARS: usize = 3;
@@ -569,8 +570,9 @@ impl App {
                         ui.horizontal_top(|ui| {
                             ui.spacing_mut().item_spacing.x = 10.0;
                             match hit.kind {
-                                Kind::Text => widgets::file_tile(ui, Icon::FileText, 30.0),
-                                Kind::Document => widgets::file_tile(ui, Icon::File, 30.0),
+                                Kind::Text | Kind::Document => {
+                                    tile::file(ui, tile::Format::of(&hit.path), 30.0)
+                                }
                                 Kind::Image => widgets::file_tile(ui, Icon::Image, 30.0),
                                 // As vinoSearch shows one; Icon::Sessions is drawn as FileText.
                                 Kind::Session { .. } => vino_ui::logo::whisper(ui, 30.0),
