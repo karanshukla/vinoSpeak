@@ -17,7 +17,7 @@ const CONTROL: &str = "dev.vinosearch.Control1";
 /// in NOT_FOR_LISTENING. vinoSpeak reads a file's bytes as UTF-8 text, so
 /// their text comes from vinoSearch's extractor: some of them aren't UTF-8,
 /// and the rest (RTF, flat ODF, subtitles) would be read out markup and all.
-const DOCUMENTS: &[&str] = &[
+pub const DOCUMENTS: &[&str] = &[
     "pdf", "docx", "docm", "dotx", "dotm", "odt", "ott", "fodt", "pptx", "pptm", "potx", "ppsx",
     "ppsm", "odp", "otp", "fodp", "epub", "srt", "vtt", "doc", "dot", "ppt", "pot", "pps", "rtf",
 ];
@@ -79,7 +79,7 @@ pub struct Hit {
     pub kind: Kind,
 }
 
-fn extension(path: &Path) -> String {
+pub fn extension(path: &Path) -> String {
     path.extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default()
