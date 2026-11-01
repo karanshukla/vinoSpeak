@@ -573,7 +573,7 @@ impl App {
                                 Kind::Text | Kind::Document => {
                                     file_tile::file(ui, Format::of(&hit.path), 30.0)
                                 }
-                                Kind::Image => widgets::file_tile(ui, Icon::Image, 30.0),
+                                Kind::Image => file_tile::file(ui, Format::Image, 30.0),
                                 // As vinoSearch shows one; Icon::Sessions is drawn as FileText.
                                 Kind::Session { .. } => vino_ui::logo::whisper(ui, 30.0),
                             };
