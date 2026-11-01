@@ -15,8 +15,17 @@ const CONTROL_PATH: &str = "/control";
 const CONTROL: &str = "dev.vinosearch.Control1";
 /// vinoSearch's document formats (its src/extract.rs). vinoSpeak reads
 /// UTF-8 text only, so their text comes from vinoSearch's extractor.
-const DOCUMENTS: &[&str] = &[
-    "pdf", "docx", "odt", "pptx", "odp", "xlsx", "xls", "ods", "csv", "tsv",
+const DOCUMENTS: &[&str] = &["pdf", "docx", "odt", "pptx", "odp"];
+/// vinoSearch's spreadsheets (its src/extract.rs) and code (its src/code.rs):
+/// it indexes them, but read aloud they are cell after cell and symbol after
+/// symbol, so the window doesn't list them.
+const NOT_FOR_LISTENING: &[&str] = &[
+    "csv", "tsv", "xlsx", "xlsm", "xlsb", "xltx", "xltm", "xls", "ods", "ots", "rs", "py", "pyi",
+    "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "vue", "svelte", "go", "c", "h", "cc",
+    "cpp", "cxx", "hh", "hpp", "hxx", "m", "mm", "java", "kt", "kts", "scala", "swift", "dart",
+    "rb", "php", "pl", "pm", "lua", "zig", "nix", "cs", "fs", "ex", "exs", "erl", "hs", "ml",
+    "mli", "clj", "r", "jl", "sh", "bash", "zsh", "fish", "ps1", "css", "scss", "sass", "less",
+    "sql", "qml", "cmake", "gd", "glsl", "wgsl", "proto",
 ];
 
 /// What the window asks vinoSearch. A trait so the tests can stand in for
@@ -65,11 +74,19 @@ pub struct Hit {
     pub kind: Kind,
 }
 
-pub fn kind_of(path: &Path, gicon: &str) -> Kind {
-    let ext = path
-        .extension()
+fn extension(path: &Path) -> String {
+    path.extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+/// Whether a hit belongs in the window's lists.
+pub fn worth_hearing(hit: &Hit) -> bool {
+    hit.kind != Kind::Image && !NOT_FOR_LISTENING.contains(&extension(&hit.path).as_str())
+}
+
+pub fn kind_of(path: &Path, gicon: &str) -> Kind {
+    let ext = extension(path);
     if ext == "vwsession" {
         Kind::Session { summarised: false }
     } else if gicon.contains(" image-") {
@@ -311,6 +328,28 @@ mod tests {
             ),
             Kind::Session { summarised: false }
         );
+    }
+
+    #[test]
+    fn only_what_reads_well_aloud_is_worth_hearing() {
+        let worth = |p: &str, kind: Kind| {
+            worth_hearing(&Hit {
+                path: PathBuf::from(p),
+                name: String::new(),
+                description: String::new(),
+                kind,
+            })
+        };
+        for p in ["/a/b.md", "/a/b.html", "/a/Makefile", "/a/b.srt"] {
+            assert!(worth(p, Kind::Text), "{p}");
+        }
+        assert!(worth("/a/b.pdf", Kind::Document));
+        assert!(worth("/a/b.vwsession", Kind::Session { summarised: true }));
+        for p in ["/a/b.csv", "/a/b.TSV", "/a/b.rs", "/a/b.py"] {
+            assert!(!worth(p, Kind::Text), "{p}");
+        }
+        assert!(!worth("/a/b.xlsx", Kind::Document));
+        assert!(!worth("/a/b.png", Kind::Image));
     }
 
     #[test]
