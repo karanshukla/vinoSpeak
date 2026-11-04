@@ -32,11 +32,22 @@ own telemetry is blocked.
 
 ## Install
 
-Python 3.11 to 3.14. With [uv](https://docs.astral.sh/uv/):
+One line, no sudo, everything in your home:
+
+```bash
+curl -fsSL https://github.com/karanshukla/vinoSpeak/releases/latest/download/install.sh | bash
+vinospeak "Hello."
+```
+
+That checks the latest release's wheel against its `SHA256SUMS` and installs it with
+[uv](https://docs.astral.sh/uv/) (fetching uv itself, hash-pinned, if you don't have it).
+Add `-s -- --gui` after `bash` for the window too. To upgrade, use **Check for updates** on the
+window's About page, or run `vinospeak-upgrade`; `vinospeak-upgrade --uninstall` removes it all.
+
+Or with uv directly, Python 3.11 to 3.14:
 
 ```bash
 uv tool install --python 3.14 vinospeak
-vinospeak "Hello."
 ```
 
 `--python 3.14` because OpenVINO 2026.4.1 has no 3.15 wheels yet. OpenVINO is

@@ -97,6 +97,23 @@ pub struct App {
     text_scale: Option<f32>,
     /// The About page shows in place of the reader until a file is picked.
     about: bool,
+    /// About's Updates row.
+    updater: vino_ui::update::Updater,
+}
+
+/// The release installer leaves itself as `~/.local/bin/vinospeak-upgrade`, which installs a
+/// release of vinospeak and this window; without it (a build from a checkout) About links to
+/// the release instead.
+fn updater() -> vino_ui::update::Updater {
+    let updater = vino_ui::update::Updater::new(vino_ui::App::Speak, env!("CARGO_PKG_VERSION"));
+    match std::env::var_os("HOME")
+        .map(|home| PathBuf::from(home).join(".local/bin/vinospeak-upgrade"))
+    {
+        Some(upgrade) if upgrade.is_file() => {
+            updater.with_command([upgrade.to_string_lossy().into_owned()])
+        }
+        _ => updater,
+    }
 }
 
 impl App {
@@ -169,6 +186,7 @@ impl App {
             kde_header: None,
             text_scale: None,
             about: false,
+            updater: updater(),
         }
     }
 
@@ -536,7 +554,7 @@ impl App {
         widgets::page_scroll(ui, vino_ui::about::TITLE, widgets::CONTENT_MAX, |ui| {
             let title = widgets::title(ui, vino_ui::about::TITLE);
             a11y::heading(&title, vino_ui::about::TITLE, 2);
-            vino_ui::about::page(ui, vino_ui::App::Speak, env!("CARGO_PKG_VERSION"));
+            vino_ui::about::page_with_updates(ui, &mut self.updater);
         });
     }
 
