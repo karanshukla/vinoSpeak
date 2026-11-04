@@ -548,3 +548,24 @@ fn a_session_without_a_summary_reads_its_transcript_and_says_why() {
     assert!(shows(&h, "Not summarised yet"));
     assert!(!scratch.read("calls").contains("--part summary"));
 }
+
+#[test]
+fn about_shows_the_other_apps_until_a_file_is_picked() {
+    let scratch = Scratch::new();
+    let index = FakeIndex {
+        recent: vec![
+            scratch.file("first.md", "First file."),
+            scratch.file("second.md", "Second file."),
+        ],
+        ..Default::default()
+    };
+    let mut h = window(&scratch, index);
+    wait_for(&mut h, "First file.");
+    h.get_by_label("About vinoSpeak").click();
+    wait_for(&mut h, "Learn more vinoSearch");
+    assert!(shows(&h, "vinopilot.ca"));
+    assert!(!shows(&h, "Learn more vinoSpeak"));
+    h.get_by_label("second.md").click();
+    wait_for(&mut h, "Second file.");
+    assert!(!shows(&h, "Learn more vinoSearch"));
+}
