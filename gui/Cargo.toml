@@ -1,6 +1,6 @@
 [package]
 name = "vinospeak-gui"
-version = "0.0.1"
+version = "0.4.0"
 edition = "2024"
 # egui 0.37 (vino-ui's), as vinoWhisper's gui; CI builds with it
 rust-version = "1.95"
@@ -17,7 +17,7 @@ eframe = { version = "0.37", default-features = false, features = ["accesskit", 
 image = { version = "0.25", default-features = false, features = ["png"] }
 serde_json = "1"
 zbus = "6"
-vino-ui = { package = "vino-user-interface", version = "0.2.4" }
+vino-ui = { package = "vino-user-interface", version = "0.2.6" }
 # A vinoWhisper session's title and whether it has a summary, read as vinoSearch reads them
 zip = { version = "9", default-features = false, features = ["deflate"] }
 

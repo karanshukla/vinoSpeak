@@ -86,6 +86,21 @@ filename = "pyproject.toml"
 search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'
 
+# The window's About page shows its crate version, so it moves with the app.
+[[tool.bumpversion.files]]
+filename = "gui/Cargo.toml"
+search = """name = "vinospeak-gui"
+version = "{current_version}""""
+replace = """name = "vinospeak-gui"
+version = "{new_version}""""
+
+[[tool.bumpversion.files]]
+filename = "gui/Cargo.lock"
+search = """name = "vinospeak-gui"
+version = "{current_version}""""
+replace = """name = "vinospeak-gui"
+version = "{new_version}""""
+
 # ── Tasks ─────────────────────────────────────────────────────────────────────
 
 [tool.poe.tasks]
