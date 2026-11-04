@@ -95,6 +95,8 @@ pub struct App {
     focused: bool,
     kde_header: Option<theme::KdeHeader>,
     text_scale: Option<f32>,
+    /// The About page shows in place of the reader until a file is picked.
+    about: bool,
 }
 
 impl App {
@@ -166,6 +168,7 @@ impl App {
             focused: true,
             kde_header: None,
             text_scale: None,
+            about: false,
         }
     }
 
@@ -240,6 +243,7 @@ impl App {
             _ => Part::Summary,
         };
         self.selected = Some(hit);
+        self.about = false;
         self.load_preview(ctx);
     }
 
@@ -513,6 +517,26 @@ impl App {
             if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 self.edited = Some(Instant::now() - DEBOUNCE);
             }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let about = widgets::icon_button(
+                    ui,
+                    widgets::ButtonKind::Ghost,
+                    Icon::Info,
+                    "About vinoSpeak",
+                );
+                if about.clicked() {
+                    self.about = !self.about;
+                }
+            });
+        });
+    }
+
+    /// This app, vinopilot.ca and the other vinoPilot apps.
+    fn about(&mut self, ui: &mut egui::Ui) {
+        widgets::page_scroll(ui, vino_ui::about::TITLE, widgets::CONTENT_MAX, |ui| {
+            let title = widgets::title(ui, vino_ui::about::TITLE);
+            a11y::heading(&title, vino_ui::about::TITLE, 2);
+            vino_ui::about::page(ui, vino_ui::App::Speak, env!("CARGO_PKG_VERSION"));
         });
     }
 
@@ -1030,7 +1054,20 @@ impl App {
             });
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(p.bg))
-            .show(root, |ui| self.reader(ui));
+            .show(root, |ui| {
+                if self.about {
+                    egui::Frame::NONE
+                        .inner_margin(Margin {
+                            left: widgets::PAGE_INSET as i8,
+                            right: 0,
+                            top: 20,
+                            bottom: 0,
+                        })
+                        .show(ui, |ui| self.about(ui));
+                } else {
+                    self.reader(ui);
+                }
+            });
         self.capture(ctx);
     }
 }
