@@ -89,6 +89,9 @@ brings its own Python and the wheels carry espeak-ng and libsndfile. Only the
 NPU driver (for `--device NPU`) and an audio player, if you lack one, are
 system packages.
 
+**NixOS**: uv's Python and the window need the standard dynamic linker, so
+enable `programs.nix-ld`; without it `install.sh` stops and says so.
+
 **No player?** Install `pw-play` or `paplay`, or use `--output`:
 
 | Distro | `pw-play` | `paplay` |

@@ -17,8 +17,9 @@ installer's `--gui` fetches the release's prebuilt binary
 To build from a checkout there, run `install.sh` inside a toolbox or distrobox
 that has cargo: the binary goes to `~/.cargo/bin` and the menu entry to
 `~/.local/share`, both of which the host sees. Use a container of the host's
-own release (what `toolbox create` gives you), since a binary linked against a
-newer glibc than the host's won't start there.
+own release (what `toolbox create` gives you; on openSUSE Aeon, a distrobox with
+a Tumbleweed image), since a binary linked against a newer glibc than the
+host's won't start there.
 
 Text files are read by vinospeak itself; PDFs and other documents through the
 text vinoSearch extracts. A vinoWhisper session is titled by its summary (or the
