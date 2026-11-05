@@ -140,8 +140,11 @@ main() {
     export PATH="$BIN:$PATH"
 
     say "Installing ${wheel%-py3-none-any.whl}"
-    # --force so an upgrade replaces the tool rather than refusing it.
-    uv tool install --force --python "$PYTHON" "$WORK/$wheel"
+    # --force so an upgrade replaces the tool rather than refusing it. uv's own
+    # Python, not /usr/bin's: on Fedora 43+ that's 3.14 too, and an image
+    # upgrade to 3.15 would leave the tool's venv pointing at nothing. The env
+    # var, not --managed-python, so an older uv already on PATH still runs it.
+    UV_PYTHON_PREFERENCE=only-managed uv tool install --force --python "$PYTHON" "$WORK/$wheel"
 
     if [ "$gui" = 1 ]; then
         say "Installing the window"
