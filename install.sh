@@ -108,6 +108,15 @@ main() {
     if [ "$gui" = 1 ] && [ "$(uname -m)" != x86_64 ]; then
         die "the window's release binary is x86_64 only; build it from a checkout (gui/install.sh)"
     fi
+    # uv's Python and the window are glibc-dynamic: without this (NixOS without nix-ld)
+    # they fail with a bare "No such file or directory" after a half-install.
+    local ld=""
+    case "$(uname -m)" in
+        x86_64) ld=/lib64/ld-linux-x86-64.so.2 ;;
+        aarch64) ld=/lib/ld-linux-aarch64.so.1 ;;
+    esac
+    [ -z "$ld" ] || [ -e "$ld" ] ||
+        die "$ld is missing: this needs a standard dynamic linker (on NixOS, enable programs.nix-ld)"
 
     # Where the assets are: a mirror, or CI's file:// fake release.
     if [ -n "${VINOSPEAK_RELEASE_BASE:-}" ]; then
