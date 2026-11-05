@@ -71,7 +71,8 @@ uv export --locked --no-dev --no-emit-project --no-hashes -o constraints.txt
 uv tool install --constraints constraints.txt .
 ```
 
-**The window** isn't on PyPI, so it's always built from a checkout, with
+**The window** isn't on PyPI. The installer's `--gui` takes the release's
+prebuilt x86_64 binary; from a checkout you build it with
 [Rust](https://rustup.rs). This puts it in your app menu, using the `vinospeak`
 on your `PATH` or in `~/.local/bin`:
 
