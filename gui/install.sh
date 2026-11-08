@@ -37,6 +37,13 @@ if [ "${1:-}" = "--uninstall" ]; then
 fi
 
 cargo install --quiet --path "$here"
+# A release's window in ~/.local/bin would shadow this build on PATH, and
+# end up in the menu entry below.
+release_gui=${XDG_BIN_HOME:-$HOME/.local/bin}/vinospeak-gui
+if [ -e "$release_gui" ]; then
+    rm -f "$release_gui"
+    echo "removed the release window $release_gui"
+fi
 bin=$(command -v vinospeak-gui || echo "$HOME/.cargo/bin/vinospeak-gui")
 exec_line=$(desktop_arg "$bin")
 if [ -n "${VINOSPEAK:-}" ]; then
