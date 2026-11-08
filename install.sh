@@ -103,8 +103,10 @@ main() {
     for tool in curl tar sha256sum awk; do
         command -v "$tool" >/dev/null || die "missing $tool: install it, then run this again"
     done
-    # An upgrade keeps the window where it's installed.
-    [ -x "$BIN/vinospeak-gui" ] && gui=1
+    # An upgrade keeps the window where it's installed, a source build of it
+    # included.
+    local cargo_gui="${CARGO_HOME:-$HOME/.cargo}/bin/vinospeak-gui"
+    [ -x "$BIN/vinospeak-gui" ] || [ -x "$cargo_gui" ] && gui=1
     if [ "$gui" = 1 ] && [ "$(uname -m)" != x86_64 ]; then
         die "the window's release binary is x86_64 only; build it from a checkout (gui/install.sh)"
     fi
@@ -165,6 +167,11 @@ main() {
             "$WORK/vinospeak-gui/dev.vinospeak.Listen.desktop" > "$DESKTOP"
         install -m644 "$WORK/vinospeak-gui/dev.vinospeak.Listen.svg" "$ICON"
         refresh_menu
+        # A source build of the window would shadow this one on PATH.
+        if [ -e "$cargo_gui" ]; then
+            cargo uninstall vinospeak-gui 2>/dev/null || rm -f "$cargo_gui"
+            echo "removed the source build $cargo_gui"
+        fi
     fi
 
     install -Dm755 "$WORK/install.sh" "$BIN/vinospeak-upgrade"
