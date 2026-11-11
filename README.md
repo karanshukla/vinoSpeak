@@ -42,13 +42,17 @@ vinospeak "Hello."
 That checks the latest release's wheel against its `SHA256SUMS` and installs it with
 [uv](https://docs.astral.sh/uv/) (fetching uv itself, hash-pinned, if you don't have it).
 Add `-s -- --gui` after `bash` for the window too. To upgrade, use **Check for updates** on the
-window's About page, or run `vinospeak-upgrade`; `vinospeak-upgrade --uninstall` removes it all.
+window's About page, or run `vinospeak-upgrade`. `vinospeak-upgrade --uninstall` removes it all,
+the downloaded model included (uv stays).
 
 Or with uv directly, Python 3.11 to 3.14:
 
 ```bash
 uv tool install --python 3.14 vinospeak
 ```
+
+`uv tool uninstall vinospeak` leaves the model behind; run `vinospeak --delete-model`
+first.
 
 `--python 3.14` because OpenVINO 2026.4.1 has no 3.15 wheels yet. OpenVINO is
 pinned to the same release as vinoPop and vinoWhisper, so programs sharing one
@@ -129,8 +133,18 @@ lists everything.
 
 The model is fetched from Hugging Face at one pinned commit and every file is
 checked against its sha256 (see [SECURITY.md](SECURITY.md)). It lives in
-`~/.cache/vinospeak/`, along with OpenVINO's compiled-model cache so later runs
-skip the NPU compile.
+`~/.cache/vinospeak/` (`$XDG_CACHE_HOME/vinospeak/`), along with OpenVINO's
+compiled-model cache so later runs skip the NPU compile: about 160 MB plus
+whatever the compile leaves for each device.
+
+```bash
+vinospeak --model-status    # what's there, and its size
+vinospeak --delete-model    # delete both; the next run downloads the model again
+```
+
+The window's About page has the same Delete button. vinoPop's read-aloud uses
+this copy too, so it downloads the model again after a delete. A `--model-dir`
+of your own is never deleted.
 
 ## Check this machine
 
