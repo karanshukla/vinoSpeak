@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from vino_speak import cli
+from vino_speak import cli, model
 
 
 def test_parser_defaults_to_npu():
@@ -127,3 +127,58 @@ def test_extracted_documents_read_as_expected(monkeypatch, capsys, name):
     monkeypatch.setattr("sys.stdin", io.StringIO((DOCUMENTS / f"{name}.txt").read_text()))
     cli.main(["--file", "-", "--kind", "document", "--print-text"])
     assert capsys.readouterr().out == (DOCUMENTS / f"{name}.expected").read_text()
+
+
+@pytest.fixture
+def cache(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    model_dir = tmp_path / "vinospeak" / "kokoro-82m-int8-ov"
+    model_dir.mkdir(parents=True)
+    (model_dir / "openvino_model.bin").write_bytes(b"x" * 2_500_000)
+    return tmp_path / "vinospeak"
+
+
+def test_model_status_lists_what_is_on_disk(cache, capsys):
+    cli.main(["--model-status"])
+    assert capsys.readouterr().out == f"    2 MB  {cache / 'kokoro-82m-int8-ov'}\n"
+
+
+def test_model_status_without_a_model(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    cli.main(["--model-status"])
+    assert "No model downloaded" in capsys.readouterr().out
+
+
+def test_delete_model_deletes_the_cache_and_says_how_much(cache, capsys):
+    cli.main(["--delete-model"])
+    assert "Deleted the model and its compiled cache (2 MB)" in capsys.readouterr().out
+    assert not cache.exists()
+    cli.main(["--delete-model"])
+    assert "Nothing to delete" in capsys.readouterr().out
+
+
+def test_delete_model_leaves_a_model_dir_alone(cache, tmp_path):
+    mine = tmp_path / "mine"
+    mine.mkdir()
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["--delete-model", "--model-dir", str(mine)])
+    assert exit_info.value.code == 2
+    assert mine.is_dir() and cache.is_dir()
+
+
+def test_delete_model_reports_a_download_in_progress(cache, monkeypatch, capsys):
+    def busy():
+        raise model.ModelBusyError("The model is downloading")
+
+    monkeypatch.setattr(model, "delete_cached", busy)
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["--delete-model"])
+    assert exit_info.value.code == 2
+    assert "downloading" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("n", "shown"), [(999, "1 kB"), (163_000_000, "163 MB"), (1_250_000_000, "1.2 GB")]
+)
+def test_sizes_read_as_people_say_them(n, shown):
+    assert cli.size(n) == shown

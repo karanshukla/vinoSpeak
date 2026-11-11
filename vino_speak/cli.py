@@ -6,7 +6,7 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-from . import readable, serve, session
+from . import model, readable, serve, session
 from .model import default_model_dir
 from .tts import DEFAULT_DEVICE, DEFAULT_VOICE, LANGUAGES, Synthesizer, speak, synthesize
 
@@ -40,6 +40,18 @@ def build_parser() -> argparse.ArgumentParser:
         "the protocol is private).",
     )
     parser.add_argument(
+        "--model-status",
+        action="store_true",
+        help=f"Show the downloaded model and OpenVINO's compiled cache in {model.cache_dir()}, "
+        "and their size.",
+    )
+    parser.add_argument(
+        "--delete-model",
+        action="store_true",
+        help="Delete them; the next run downloads the model again. vinoPop's read-aloud "
+        "shares them. A --model-dir is never deleted.",
+    )
+    parser.add_argument(
         "--print-text",
         action="store_true",
         help="Print the text that would be spoken and exit, without loading the model.",
@@ -69,9 +81,49 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def size(n: int) -> str:
+    if n >= 1_000_000_000:
+        return f"{n / 1e9:.1f} GB"
+    if n >= 1_000_000:
+        return f"{n / 1e6:.0f} MB"
+    return f"{n / 1e3:.0f} kB"
+
+
+def model_status() -> None:
+    found = model.cached()
+    if not found:
+        print(f"No model downloaded; the first run fetches ~160 MB into {model.cache_dir()}")
+        return
+    for directory, used in found.items():
+        print(f"{size(used):>8}  {directory}")
+
+
+def delete_model(parser: argparse.ArgumentParser) -> None:
+    try:
+        freed = model.delete_cached()
+    except (OSError, model.ModelBusyError) as error:
+        parser.error(str(error))
+    if not freed:
+        print(f"Nothing to delete in {model.cache_dir()}")
+        return
+    print(
+        f"Deleted the model and its compiled cache ({size(freed)}) from {model.cache_dir()}. "
+        "The next run downloads it again."
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     arguments = parser.parse_args(argv)
+    if arguments.model_status or arguments.delete_model:
+        others = (arguments.text, arguments.file, arguments.output, arguments.model_dir)
+        if any(o is not None for o in others) or arguments.serve or arguments.print_text:
+            parser.error("--model-status and --delete-model take no other options")
+        if arguments.delete_model:
+            delete_model(parser)
+        else:
+            model_status()
+        return
     if arguments.serve:
         others = (arguments.text, arguments.file, arguments.output, arguments.audio_device)
         if any(o is not None for o in others) or arguments.print_text:

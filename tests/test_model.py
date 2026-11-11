@@ -192,3 +192,46 @@ def test_a_download_without_huggingface_hub_says_what_is_missing(fake_hub, tmp_p
     with pytest.raises(RuntimeError, match="huggingface-hub is required"):
         model.ensure_model(tmp_path / "kokoro")
     assert not (tmp_path / "kokoro").exists()
+
+
+@pytest.fixture
+def cache(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    return tmp_path / "vinospeak"
+
+
+def test_delete_cached_removes_the_model_and_the_compile_cache(cache):
+    write(model.default_model_dir(), FILES)
+    write(model.compile_cache_dir(), {"blob.cache": b"x" * 100})
+    expected = sum(len(data) for data in FILES.values()) + 100
+    assert sum(model.cached().values()) == expected
+
+    assert model.delete_cached() == expected
+    assert not cache.exists()
+    assert model.cached() == {}
+    assert model.delete_cached() == 0
+
+
+def test_delete_cached_keeps_what_isnt_ours(cache):
+    write(model.default_model_dir(), FILES)
+    write(cache, {"someone-elses.txt": b"keep"})
+    model.delete_cached()
+    assert [p.name for p in cache.iterdir()] == ["someone-elses.txt"]
+
+
+def test_delete_cached_refuses_during_a_download(cache, fake_hub):
+    def snapshot_download(**kwargs):
+        # The download is under way when someone deletes the model.
+        with pytest.raises(model.ModelBusyError, match="downloading"):
+            model.delete_cached()
+        write(Path(kwargs["local_dir"]), FILES)
+
+    fake_hub.snapshot_download = snapshot_download
+    assert model.ensure_model(model.default_model_dir()) == model.default_model_dir()
+    assert model.delete_cached() > 0
+
+
+def test_a_stale_default_cache_says_how_to_delete_it(cache, fake_hub):
+    write(model.default_model_dir(), {**FILES, "openvino_model.bin": b"an older, longer export"})
+    with pytest.raises(model.ModelIntegrityError, match="vinospeak --delete-model"):
+        model.ensure_model(model.default_model_dir())

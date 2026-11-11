@@ -13,7 +13,7 @@ vino_speak/
               one-shot synthesize() / speak()
   text.py     chunks(): first sentence alone, then chunks that at most double
   playback.py Speech: raw float32 into one pw-play/paplay/aplay process, stop()
-  model.py    cache dir, pinned download, verify(); no OpenVINO import
+  model.py    cache dir, pinned download, verify(), delete_cached(); no OpenVINO import
   cli.py      argparse front end for vinospeak
   doctor.py   vinospeak-doctor: packages, devices, ovfetch notes, model pin check
   ovfetch.py  `ovfetch detect` read into notes (advisory, never a FAIL)
