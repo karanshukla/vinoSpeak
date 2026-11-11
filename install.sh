@@ -7,7 +7,8 @@
 #
 #   vN          that release instead of the newest
 #   --gui       also the window (find a file with vinoSearch, listen to it)
-#   --uninstall remove vinospeak, the window and this script's copy
+#   --uninstall remove vinospeak, the window, this script's copy and the
+#               downloaded model (vinoPop's read-aloud downloads it again)
 #
 # It downloads the release's SHA256SUMS, then the wheel (and the window's
 # tarball) and refuses anything not listed there or not matching. The wheel
@@ -36,6 +37,7 @@ UV_SHA256_X86_64="14114d66a094f1907af0fcbc863f34226bbb7f5e430e13dce6676ba40dcc68
 
 BIN="${XDG_BIN_HOME:-$HOME/.local/bin}"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/vinospeak"
 DESKTOP="$DATA/applications/dev.vinospeak.Listen.desktop"
 ICON="$DATA/icons/hicolor/scalable/apps/dev.vinospeak.Listen.svg"
 
@@ -80,7 +82,7 @@ main() {
             v[0-9]*) tag="$arg" ;;
             --gui) gui=1 ;;
             --uninstall) uninstall=1 ;;
-            -h|--help) sed -n '2,20p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
+            -h|--help) sed -n '2,21p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
             *) die "unknown option: $arg" ;;
         esac
     done
@@ -94,8 +96,10 @@ main() {
         uv="$(command -v uv || echo "$BIN/uv")"
         [ -x "$uv" ] && "$uv" tool uninstall vinospeak 2>/dev/null || true
         rm -f "$BIN/vinospeak-gui" "$BIN/vinospeak-upgrade" "$DESKTOP" "$ICON"
+        # Only the downloaded model and OpenVINO's compiled copy live here.
+        rm -rf "$CACHE"
         refresh_menu
-        echo "vinoSpeak removed (uv and the model cache in ~/.cache/vinospeak are kept)"
+        echo "vinoSpeak removed, with its model in $CACHE (uv is kept)"
         exit 0
     fi
 

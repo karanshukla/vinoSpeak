@@ -389,15 +389,63 @@ pub fn voice(id: &str) -> Option<Voice> {
     })
 }
 
+/// Where vinospeak keeps the model it downloaded and OpenVINO's compiled
+/// copy, as vino_speak/model.py's `cache_dir()` has it.
+pub fn cache_dir() -> Option<PathBuf> {
+    std::env::var_os("XDG_CACHE_HOME")
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".cache")))
+        .map(|c| c.join("vinospeak"))
+}
+
+/// Bytes in the files under `path`, not following links; 0 when it isn't there.
+pub fn disk_usage(path: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .filter_map(Result::ok)
+        .map(|e| match e.file_type() {
+            Ok(t) if t.is_dir() => disk_usage(&e.path()),
+            Ok(t) if t.is_file() => e.metadata().map_or(0, |m| m.len()),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// A size as people say it: 163 MB, 1.2 GB.
+pub fn size(bytes: u64) -> String {
+    match bytes {
+        1_000_000_000.. => format!("{:.1} GB", bytes as f64 / 1e9),
+        1_000_000.. => format!("{} MB", (bytes as f64 / 1e6).round()),
+        _ => format!("{} kB", (bytes as f64 / 1e3).round()),
+    }
+}
+
+/// `vinospeak --delete-model`: what it said it deleted, or why it couldn't.
+pub fn delete_model(vinospeak: &Path) -> Result<String> {
+    let out = Command::new(vinospeak)
+        .arg("--delete-model")
+        .stdin(Stdio::null())
+        .output()
+        .context("running vinospeak (uv tool install vinospeak)")?;
+    if !out.status.success() {
+        bail!("{}", last_line(&String::from_utf8_lossy(&out.stderr)));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+}
+
 /// Kokoro's voices that vinospeak can speak, from the model it downloaded,
 /// grouped by accent, women then men, by name.
 pub fn voices() -> Vec<Voice> {
-    let cache = std::env::var_os("XDG_CACHE_HOME")
-        .filter(|d| !d.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".cache")));
+    voices_in(cache_dir().as_deref())
+}
+
+/// The voices in the model under `cache`, or Heart alone when there's none yet.
+pub fn voices_in(cache: Option<&Path>) -> Vec<Voice> {
     let mut voices: Vec<Voice> = cache
-        .and_then(|c| std::fs::read_dir(c.join("vinospeak/kokoro-82m-int8-ov/voices")).ok())
+        .and_then(|c| std::fs::read_dir(c.join("kokoro-82m-int8-ov/voices")).ok())
         .into_iter()
         .flatten()
         .filter_map(|e| {
@@ -484,6 +532,24 @@ mod tests {
         );
         assert_eq!(event(r#"{"event": "started", "id": 2}"#), None);
         assert_eq!(event("Traceback (most recent call last):"), None);
+    }
+
+    #[test]
+    fn sizes_read_as_people_say_them() {
+        assert_eq!(size(999), "1 kB");
+        assert_eq!(size(163_400_000), "163 MB");
+        assert_eq!(size(1_260_000_000), "1.3 GB");
+    }
+
+    #[test]
+    fn disk_usage_adds_up_a_tree_and_an_absent_one_is_empty() {
+        let dir = std::env::temp_dir().join(format!("vinospeak-du-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("a/b")).unwrap();
+        std::fs::write(dir.join("one"), [0; 10]).unwrap();
+        std::fs::write(dir.join("a/b/two"), [0; 5]).unwrap();
+        assert_eq!(disk_usage(&dir), 15);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(disk_usage(&dir), 0);
     }
 
     #[test]

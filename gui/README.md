@@ -31,6 +31,12 @@ reads one if you want it.
 Checked without anyone at the screen: `VINOSPEAK_GUI_QUERY` searches,
 `VINOSPEAK_GUI_SCREENSHOT=out.png` saves the window once the first hit's text is
 in and exits, and `VINOSPEAK_GUI_SPEAK=1` starts reading first.
+`VINOSPEAK_GUI_ABOUT=1` opens the About page, and `=delete` opens it at the
+model's delete confirmation.
+
+About also shows the downloaded model's size, with Delete… to remove it
+(`vinospeak --delete-model`). It waits for a reading to stop, and stops the
+`vinospeak --serve` worker first; the next reading downloads the model again.
 
 `cargo test` drives the window headless with
 [egui_kittest](https://crates.io/crates/egui_kittest), finding widgets by their

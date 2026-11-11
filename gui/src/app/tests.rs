@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, bail};
 use eframe::egui::{self, accesskit::Role};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 
 use super::App;
 use crate::search::{Hit, Index, Kind};
@@ -20,9 +20,15 @@ use crate::speech::{self, Output};
 use vino_ui::theme;
 
 const FAKE_VINOSPEAK: &str = r#"#!/bin/sh
-# argv: --serve [--device D], or --file PATH|- [--kind document | --part P] --print-text
+# argv: --serve [--device D], --delete-model, or --file PATH|- [--kind document | --part P] --print-text
 dir=$(dirname "$0")
 echo "$*" >> "$dir/calls"
+if [ "$1" = "--delete-model" ]; then
+    [ -f "$dir/fail-delete" ] && { echo "vinospeak: error: The model is downloading." >&2; exit 2; }
+    rm -rf "$dir/cache/kokoro-82m-int8-ov" "$dir/cache/ov-cache"
+    echo "Deleted the model and its compiled cache (2 MB)."
+    exit 0
+fi
 if [ "$1" = "--serve" ]; then
     echo '{"event": "ready"}'
     current=
@@ -115,6 +121,17 @@ impl Scratch {
         std::fs::write(self.0.join(flag), "").unwrap();
     }
 
+    /// A downloaded model with three voices and 2 MB of compiled cache.
+    fn model(&self) {
+        let voices = self.0.join("cache/kokoro-82m-int8-ov/voices");
+        std::fs::create_dir_all(&voices).unwrap();
+        for voice in ["af_heart", "bm_george", "ef_dora"] {
+            std::fs::write(voices.join(format!("{voice}.bin")), "").unwrap();
+        }
+        std::fs::create_dir_all(self.0.join("cache/ov-cache")).unwrap();
+        std::fs::write(self.0.join("cache/ov-cache/blob"), vec![0; 2_000_000]).unwrap();
+    }
+
     fn read(&self, name: &str) -> String {
         std::fs::read_to_string(self.0.join(name)).unwrap_or_default()
     }
@@ -158,6 +175,15 @@ impl Index for FakeIndex {
 }
 
 fn window(scratch: &Scratch, index: FakeIndex) -> Harness<'static, App> {
+    window_sized(scratch, index, 700.0)
+}
+
+/// Tall enough that About's Model row is on screen, where a click reaches it.
+fn tall_window(scratch: &Scratch, index: FakeIndex) -> Harness<'static, App> {
+    window_sized(scratch, index, 1400.0)
+}
+
+fn window_sized(scratch: &Scratch, index: FakeIndex, height: f32) -> Harness<'static, App> {
     let voices = ["af_heart", "bm_george"]
         .into_iter()
         .filter_map(speech::voice)
@@ -166,17 +192,18 @@ fn window(scratch: &Scratch, index: FakeIndex) -> Harness<'static, App> {
         name: "hdmi_sink".to_owned(),
         description: "HDMI 1".to_owned(),
     }];
-    let app = App::with(
+    let mut app = App::with(
         Arc::new(index),
         scratch.0.join("vinospeak"),
         voices,
         (outputs, Some("hdmi_sink".to_owned())),
     );
+    app.cache = Some(scratch.0.join("cache"));
     // Fonts set in a frame apply from the next, and the window's bold face
     // has to exist before it draws.
     let mut styled = false;
     Harness::builder()
-        .with_size(egui::vec2(1100.0, 700.0))
+        .with_size(egui::vec2(1100.0, height))
         .build_ui_state(
             move |ui, app: &mut App| {
                 if !styled {
@@ -568,4 +595,81 @@ fn about_shows_the_other_apps_until_a_file_is_picked() {
     h.get_by_label("second.md").click();
     wait_for(&mut h, "Second file.");
     assert!(!shows(&h, "Learn more vinoSearch"));
+}
+
+#[test]
+fn about_deletes_the_model_after_confirming_in_place() {
+    let scratch = Scratch::new();
+    scratch.model();
+    let index = FakeIndex {
+        recent: vec![scratch.file("notes.md", "Some notes.")],
+        ..Default::default()
+    };
+    let mut h = tall_window(&scratch, index);
+    wait_for(&mut h, "Some notes.");
+    // The preview starts the worker, which holds the model open.
+    wait_until(&mut h, "the worker", |_| {
+        scratch.read("calls").contains("--serve")
+    });
+    h.get_by_label("About vinoSpeak").click();
+    wait_for(&mut h, "2 MB on disk");
+
+    h.get_by_role_and_label(Role::Button, "Delete…").click();
+    wait_for(&mut h, "Deletes 2 MB");
+    h.get_by_role_and_label(Role::Button, "Cancel").click();
+    wait_for(&mut h, "2 MB on disk");
+    assert!(!scratch.read("calls").contains("--delete-model"));
+
+    h.get_by_role_and_label(Role::Button, "Delete…").click();
+    wait_for(&mut h, "Delete the model");
+    h.get_by_role_and_label(Role::Button, "Delete the model")
+        .click();
+    wait_for(&mut h, "Not downloaded");
+    assert!(shows(&h, "Deleted the model and its compiled cache"));
+    assert!(h.state().worker.is_none(), "the worker let go of the model");
+    let delete = h.get_by_role_and_label(Role::Button, "Delete…");
+    assert!(delete.accesskit_node().is_disabled(), "nothing to delete");
+    let voices: Vec<_> = h.state().voices.iter().map(|v| v.id.clone()).collect();
+    assert_eq!(voices, ["af_heart"]);
+
+    // The next reading starts a worker again, which downloads the model.
+    h.get_by_label("notes.md").click();
+    wait_for(&mut h, "Some notes.");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    last_speak(&mut h, &scratch);
+    assert_eq!(scratch.read("calls").matches("--serve").count(), 2);
+}
+
+#[test]
+fn the_model_cant_be_deleted_while_reading() {
+    let scratch = Scratch::new();
+    scratch.model();
+    let index = FakeIndex {
+        recent: vec![scratch.file("notes.md", "A long read.")],
+        ..Default::default()
+    };
+    let mut h = tall_window(&scratch, index);
+    wait_for(&mut h, "A long read.");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "Stop");
+    h.get_by_label("About vinoSpeak").click();
+    wait_for(&mut h, "Stop the reading to delete it.");
+    let delete = h.get_by_role_and_label(Role::Button, "Delete…");
+    assert!(delete.accesskit_node().is_disabled());
+}
+
+#[test]
+fn a_delete_vinospeak_refuses_says_why() {
+    let scratch = Scratch::new();
+    scratch.model();
+    scratch.mode("fail-delete");
+    let mut h = tall_window(&scratch, FakeIndex::default());
+    h.get_by_label("About vinoSpeak").click();
+    wait_for(&mut h, "2 MB on disk");
+    h.get_by_role_and_label(Role::Button, "Delete…").click();
+    wait_for(&mut h, "Delete the model");
+    h.get_by_role_and_label(Role::Button, "Delete the model")
+        .click();
+    wait_for(&mut h, "Couldn't delete it: The model is downloading.");
+    assert!(scratch.0.join("cache/ov-cache/blob").is_file());
 }
