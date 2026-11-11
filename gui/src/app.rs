@@ -12,7 +12,7 @@ use vino_ui::a11y;
 use vino_ui::file_tile::{self, Format};
 use vino_ui::icons::{self, Icon};
 use vino_ui::theme;
-use vino_ui::widgets::{self, Tone};
+use vino_ui::widgets::{self, Button, ChipKind, Row, Tone};
 
 use crate::search::{self, Hit, Index, Kind, VinoSearch};
 use crate::speech::{self, Event, Output, Part, Reading, Source, Voice, Worker};
@@ -38,6 +38,19 @@ enum Reply {
     Recent(anyhow::Result<Vec<Hit>>),
     /// The preview for the `previewed` it was asked for.
     Preview(u64, anyhow::Result<String>),
+    /// What `vinospeak --delete-model` said.
+    Deleted(anyhow::Result<String>),
+}
+
+/// The model on About's Model row.
+#[derive(Default)]
+struct Model {
+    /// Bytes on disk, the model and its compiled copy; None until About shows.
+    bytes: Option<u64>,
+    confirm: bool,
+    deleting: bool,
+    /// Why the last delete failed.
+    error: Option<String>,
 }
 
 /// `VINOSPEAK_GUI_SCREENSHOT=out.png`, with `VINOSPEAK_GUI_QUERY=...` to
@@ -99,6 +112,9 @@ pub struct App {
     about: bool,
     /// About's Updates row.
     updater: vino_ui::update::Updater,
+    /// vinospeak's cache: the model, its voices, and OpenVINO's compiled copy.
+    cache: Option<PathBuf>,
+    model: Model,
 }
 
 /// The release installer leaves itself as `~/.local/bin/vinospeak-upgrade`, which installs a
@@ -137,6 +153,10 @@ impl App {
         });
         if let Ok(query) = std::env::var("VINOSPEAK_GUI_QUERY") {
             app.type_query(&query);
+        }
+        if let Ok(about) = std::env::var("VINOSPEAK_GUI_ABOUT") {
+            app.open_about();
+            app.model.confirm = about == "delete";
         }
         app
     }
@@ -187,6 +207,8 @@ impl App {
             text_scale: None,
             about: false,
             updater: updater(),
+            cache: speech::cache_dir(),
+            model: Model::default(),
         }
     }
 
@@ -319,12 +341,25 @@ impl App {
                 }
                 Reply::Recent(Ok(recent)) => {
                     self.recent = recent;
-                    if self.selected.is_none() && self.query.is_empty() {
+                    // About, opened before they came in, stays open.
+                    if self.selected.is_none() && self.query.is_empty() && !self.about {
                         self.select_first(ctx);
                     }
                 }
                 Reply::Recent(Err(e)) => {
                     self.status = format!("No recent files: {e:#}");
+                }
+                Reply::Deleted(said) => {
+                    self.model.deleting = false;
+                    match said {
+                        Ok(said) => {
+                            self.status = said;
+                            self.model.error = None;
+                        }
+                        Err(e) => self.model.error = Some(format!("{e:#}")),
+                    }
+                    self.refresh_model();
+                    self.refresh_voices();
                 }
                 Reply::Preview(previewed, text) => {
                     if previewed == self.previewed {
@@ -346,7 +381,7 @@ impl App {
 
     /// The worker, loading the model while the user looks at the preview.
     fn start_worker(&mut self, ctx: &egui::Context) {
-        if self.worker.is_some() {
+        if self.worker.is_some() || self.model.deleting {
             return;
         }
         let ctx = ctx.clone();
@@ -357,6 +392,10 @@ impl App {
     }
 
     fn read_aloud(&mut self, ctx: &egui::Context) {
+        if self.model.deleting {
+            self.status = "Deleting the model; read it once that's done.".to_owned();
+            return;
+        }
         self.start_worker(ctx);
         let (Some(hit), Some(Ok(preview)), Some(worker)) =
             (&self.selected, &self.preview, &mut self.worker)
@@ -411,7 +450,14 @@ impl App {
         let current = self.reading.as_ref().map(|r| r.id);
         for event in events {
             let ended = match event {
-                Event::Ready => None,
+                Event::Ready => {
+                    // The model may have been downloaded just now.
+                    self.refresh_model();
+                    if self.voices.len() <= 1 {
+                        self.refresh_voices();
+                    }
+                    None
+                }
                 Event::FirstAudio { id, ms } => {
                     if let Some(r) = self.reading.as_ref().filter(|r| r.id == id)
                         && std::env::var_os("VINOSPEAK_GUI_DEBUG").is_some()
@@ -543,7 +589,11 @@ impl App {
                     "About vinoSpeak",
                 );
                 if about.clicked() {
-                    self.about = !self.about;
+                    if self.about {
+                        self.about = false;
+                    } else {
+                        self.open_about();
+                    }
                 }
             });
         });
@@ -555,6 +605,107 @@ impl App {
             let title = widgets::title(ui, vino_ui::about::TITLE);
             a11y::heading(&title, vino_ui::about::TITLE, 2);
             vino_ui::about::page_with_updates(ui, &mut self.updater);
+            self.model_row(ui);
+        });
+    }
+
+    fn open_about(&mut self) {
+        self.about = true;
+        self.model.confirm = false;
+        self.refresh_model();
+    }
+
+    /// How much is on disk now.
+    fn refresh_model(&mut self) {
+        self.model.bytes = Some(self.cache.as_deref().map_or(0, speech::disk_usage));
+    }
+
+    /// The voices in the model as it is now: Heart alone once it's deleted,
+    /// all of them once it's downloaded again.
+    fn refresh_voices(&mut self) {
+        self.voices = speech::voices_in(self.cache.as_deref());
+        if !self.voices.contains(&self.voice) {
+            self.voice = self.voices[0].clone();
+        }
+    }
+
+    /// The downloaded model, its size, and Delete… with its confirmation in place.
+    fn model_row(&mut self, ui: &mut egui::Ui) {
+        let p = theme::palette(ui.ctx());
+        let bytes = self.model.bytes.unwrap_or(0);
+        let reading = self.reading.is_some();
+        if reading {
+            self.model.confirm = false;
+        }
+        let help = if let Some(e) = &self.model.error {
+            format!("Couldn't delete it: {e}")
+        } else if self.model.confirm {
+            format!(
+                "Deletes {}. The next reading downloads about 160 MB again, \
+                 and so does vinoPop's read-aloud, which shares it.",
+                speech::size(bytes)
+            )
+        } else if bytes == 0 {
+            "Not downloaded. The first reading downloads about 160 MB.".to_owned()
+        } else if reading {
+            format!(
+                "{} on disk. Stop the reading to delete it.",
+                speech::size(bytes)
+            )
+        } else {
+            format!(
+                "{} on disk, with OpenVINO's compiled copy of it.",
+                speech::size(bytes)
+            )
+        };
+        let mut row = Row::new("Kokoro voice model").help(&help);
+        if self.model.confirm {
+            row = row.tint(p.error_tint).tone(Tone::Error);
+        } else if self.model.error.is_some() {
+            row = row.tone(Tone::Error);
+        }
+        let mut delete = false;
+        widgets::group_label(ui, "Model");
+        widgets::group(ui, |ui| {
+            row.show(ui, |ui, _| {
+                if self.model.deleting {
+                    a11y::live(&widgets::chip(ui, ChipKind::Neutral, "Deleting…"));
+                } else if self.model.confirm {
+                    if ui
+                        .add(Button::destructive("Delete the model").small())
+                        .clicked()
+                    {
+                        delete = true;
+                    }
+                    if ui.add(Button::ghost("Cancel").small()).clicked() {
+                        self.model.confirm = false;
+                    }
+                } else if ui
+                    .add_enabled(bytes > 0 && !reading, Button::secondary("Delete…"))
+                    .clicked()
+                {
+                    self.model.confirm = true;
+                    self.model.error = None;
+                }
+            });
+        });
+        if delete {
+            self.delete_model(ui.ctx());
+        }
+    }
+
+    /// Stop the worker, which holds the model open and may be downloading
+    /// it, then have vinospeak delete it. The next reading downloads it again.
+    fn delete_model(&mut self, ctx: &egui::Context) {
+        self.model.confirm = false;
+        self.model.deleting = true;
+        let worker = self.worker.take();
+        let (tx, ctx, vinospeak) = (self.tx.clone(), ctx.clone(), self.vinospeak.clone());
+        std::thread::spawn(move || {
+            // Dropping it waits for it to exit, or kills it.
+            drop(worker);
+            let _ = tx.send(Reply::Deleted(speech::delete_model(&vinospeak)));
+            ctx.request_repaint();
         });
     }
 
