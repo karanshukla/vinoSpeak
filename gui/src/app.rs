@@ -555,21 +555,9 @@ impl App {
         if self.app_title_bar {
             // Before what is in it, so the field and About keep their clicks.
             vino_ui::window::drag(ui, ui.clip_rect(), "header");
-            // Up in the corner, 8 from the window's top and right as in
-            // vinoSearch's settings bar, not centred on the row; the row
-            // stays where it was.
-            let area = ui.max_rect();
-            let corner = egui::Rect::from_min_size(
-                egui::pos2(area.right() - vino_ui::window::controls_width(), area.top()),
-                egui::vec2(vino_ui::window::controls_width(), vino_ui::window::BUTTON),
-            );
-            vino_ui::window::controls(
-                &mut ui.new_child(
-                    egui::UiBuilder::new()
-                        .max_rect(corner)
-                        .layout(Layout::right_to_left(Align::Center)),
-                ),
-            );
+            // Up in the window's corner, as vinoSearch's settings bar puts
+            // them, not centred on the row; the row stays where it was.
+            vino_ui::window::corner(ui);
             ui.add_space(HEADER_TOP - vino_ui::window::BAR_GAP);
         }
         // The window's buttons take the row's right end, with About and the
