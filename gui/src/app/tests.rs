@@ -689,11 +689,9 @@ fn the_window_buttons_sit_in_the_top_right_corner() {
         let scratch = Scratch::new();
         let mut h = window_with(&scratch, FakeIndex::default(), size, true);
         h.run_steps(4);
-        // The harness lays the window out inside a margin of its own.
-        let logo = 32.0 + 10.0;
-        let heading = h.get_by_role_and_label(Role::Heading, "vinoSpeak").rect();
-        let margin = heading.left() - logo - super::HEADER_INSET;
-        let gap = vino_ui::window::BAR_GAP + margin;
+        // From the window's own edges: the harness's margin round the page
+        // doesn't move them.
+        let gap = vino_ui::window::BAR_GAP;
         let close = h.get_by_role_and_label(Role::Button, "Close").rect();
         assert_eq!(close.top(), gap, "{size:?}");
         assert_eq!(close.right(), size.x - gap, "{size:?}");
