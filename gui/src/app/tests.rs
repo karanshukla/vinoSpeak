@@ -178,12 +178,22 @@ fn window(scratch: &Scratch, index: FakeIndex) -> Harness<'static, App> {
     window_sized(scratch, index, 700.0)
 }
 
+fn window_sized(scratch: &Scratch, index: FakeIndex, height: f32) -> Harness<'static, App> {
+    window_with(scratch, index, egui::vec2(1100.0, height), false)
+}
+
 /// Tall enough that About's Model row is on screen, where a click reaches it.
 fn tall_window(scratch: &Scratch, index: FakeIndex) -> Harness<'static, App> {
     window_sized(scratch, index, 1400.0)
 }
 
-fn window_sized(scratch: &Scratch, index: FakeIndex, height: f32) -> Harness<'static, App> {
+/// The window at `size`, drawing its own title bar or not.
+fn window_with(
+    scratch: &Scratch,
+    index: FakeIndex,
+    size: egui::Vec2,
+    app_title_bar: bool,
+) -> Harness<'static, App> {
     let voices = ["af_heart", "bm_george"]
         .into_iter()
         .filter_map(speech::voice)
@@ -199,23 +209,22 @@ fn window_sized(scratch: &Scratch, index: FakeIndex, height: f32) -> Harness<'st
         (outputs, Some("hdmi_sink".to_owned())),
     );
     app.cache = Some(scratch.0.join("cache"));
+    app.app_title_bar = app_title_bar;
     // Fonts set in a frame apply from the next, and the window's bold face
     // has to exist before it draws.
     let mut styled = false;
-    Harness::builder()
-        .with_size(egui::vec2(1100.0, height))
-        .build_ui_state(
-            move |ui, app: &mut App| {
-                if !styled {
-                    theme::apply(ui.ctx());
-                    styled = true;
-                    ui.ctx().request_repaint();
-                    return;
-                }
-                app.show(ui);
-            },
-            app,
-        )
+    Harness::builder().with_size(size).build_ui_state(
+        move |ui, app: &mut App| {
+            if !styled {
+                theme::apply(ui.ctx());
+                styled = true;
+                ui.ctx().request_repaint();
+                return;
+            }
+            app.show(ui);
+        },
+        app,
+    )
 }
 
 fn shows(h: &Harness<'_, App>, text: &str) -> bool {
@@ -672,4 +681,46 @@ fn a_delete_vinospeak_refuses_says_why() {
         .click();
     wait_for(&mut h, "Couldn't delete it: The model is downloading.");
     assert!(scratch.0.join("cache/ov-cache/blob").is_file());
+}
+
+#[test]
+fn the_window_buttons_sit_in_the_top_right_corner() {
+    for size in [egui::vec2(1100.0, 700.0), egui::vec2(600.0, 700.0)] {
+        let scratch = Scratch::new();
+        let mut h = window_with(&scratch, FakeIndex::default(), size, true);
+        h.run_steps(4);
+        // The harness lays the window out inside a margin of its own.
+        let logo = 32.0 + 10.0;
+        let heading = h.get_by_role_and_label(Role::Heading, "vinoSpeak").rect();
+        let margin = heading.left() - logo - super::HEADER_INSET;
+        let gap = vino_ui::window::BAR_GAP + margin;
+        let close = h.get_by_role_and_label(Role::Button, "Close").rect();
+        assert_eq!(close.top(), gap, "{size:?}");
+        assert_eq!(close.right(), size.x - gap, "{size:?}");
+        let minimise = h.get_by_role_and_label(Role::Button, "Minimise").rect();
+        for name in ["Minimise", "Maximise"] {
+            let button = h.get_by_role_and_label(Role::Button, name).rect();
+            assert_eq!(button.top(), gap, "{name} {size:?}");
+        }
+        // The search field and About stay clear of them.
+        let about = h
+            .get_by_role_and_label(Role::Button, "About vinoSpeak")
+            .rect();
+        assert!(about.right() < minimise.left(), "{size:?}");
+        let field = h.get_by_role(Role::TextInput).rect();
+        assert!(field.right() < about.left(), "{size:?}");
+    }
+}
+
+#[test]
+fn without_the_app_title_bar_the_desktop_keeps_its_buttons() {
+    let scratch = Scratch::new();
+    let mut h = window(&scratch, FakeIndex::default());
+    h.run_steps(4);
+    for name in ["Close", "Maximise", "Minimise"] {
+        assert!(
+            h.query_by_role_and_label(Role::Button, name).is_none(),
+            "{name}"
+        );
+    }
 }

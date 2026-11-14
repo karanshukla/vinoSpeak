@@ -21,6 +21,12 @@ use crate::speech::{self, Event, Output, Part, Reading, Source, Voice, Worker};
 const MIN_QUERY_CHARS: usize = 3;
 /// Search once typing pauses this long, not on every key.
 const DEBOUNCE: Duration = Duration::from_millis(300);
+/// The header's content, from the window's left and right edges.
+const HEADER_INSET: f32 = 20.0;
+/// The header's content, from the window's top edge.
+const HEADER_TOP: f32 = 10.0;
+/// The room About takes beside the search field.
+const ABOUT_ROOM: f32 = 36.0;
 /// The reading column's widest: about 80 characters of body text.
 const MEASURE: f32 = 680.0;
 /// How many recent files fill the list before a search.
@@ -107,6 +113,9 @@ pub struct App {
     capture: Option<Capture>,
     focused: bool,
     kde_header: Option<theme::KdeHeader>,
+    /// The window's buttons and edges are drawn here, not by the desktop
+    /// (vino-ui's `window`).
+    pub app_title_bar: bool,
     text_scale: Option<f32>,
     /// The About page shows in place of the reader until a file is picked.
     about: bool,
@@ -204,6 +213,7 @@ impl App {
             capture: None,
             focused: true,
             kde_header: None,
+            app_title_bar: false,
             text_scale: None,
             about: false,
             updater: updater(),
@@ -542,6 +552,33 @@ impl App {
     }
 
     fn header(&mut self, ui: &mut egui::Ui, header: theme::Header) {
+        if self.app_title_bar {
+            // Before what is in it, so the field and About keep their clicks.
+            vino_ui::window::drag(ui, ui.clip_rect(), "header");
+            // Up in the corner, 8 from the window's top and right as in
+            // vinoSearch's settings bar, not centred on the row; the row
+            // stays where it was.
+            let area = ui.max_rect();
+            let corner = egui::Rect::from_min_size(
+                egui::pos2(area.right() - vino_ui::window::controls_width(), area.top()),
+                egui::vec2(vino_ui::window::controls_width(), vino_ui::window::BUTTON),
+            );
+            vino_ui::window::controls(
+                &mut ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(corner)
+                        .layout(Layout::right_to_left(Align::Center)),
+                ),
+            );
+            ui.add_space(HEADER_TOP - vino_ui::window::BAR_GAP);
+        }
+        // The window's buttons take the row's right end, with About and the
+        // gaps before each.
+        let right = if self.app_title_bar {
+            vino_ui::window::controls_width() + 12.0 + ABOUT_ROOM + 16.0
+        } else {
+            0.0
+        };
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 16.0;
             ui.allocate_ui_with_layout(
@@ -552,22 +589,29 @@ impl App {
                     vino_ui::logo::speak(ui, 32.0);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        let title = ui.label(
-                            RichText::new("vinoSpeak")
-                                .size(17.0)
-                                .family(theme::bold())
-                                .color(header.text),
+                        // Not selectable: a press on them drags the window.
+                        let title = ui.add(
+                            egui::Label::new(
+                                RichText::new("vinoSpeak")
+                                    .size(17.0)
+                                    .family(theme::bold())
+                                    .color(header.text),
+                            )
+                            .selectable(false),
                         );
                         a11y::heading(&title, "vinoSpeak", 1);
-                        ui.label(
-                            RichText::new("Find it, then listen.")
-                                .size(12.5)
-                                .color(header.muted),
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new("Find it, then listen.")
+                                    .size(12.5)
+                                    .color(header.muted),
+                            )
+                            .selectable(false),
                         );
                     });
                 },
             );
-            let width = ui.available_width().clamp(160.0, 560.0);
+            let width = (ui.available_width() - right).clamp(160.0, 560.0);
             let response = widgets::search_field(
                 ui,
                 &mut self.query,
@@ -582,6 +626,10 @@ impl App {
                 self.edited = Some(Instant::now() - DEBOUNCE);
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if self.app_title_bar {
+                    // The window's buttons are in the corner above.
+                    ui.add_space(vino_ui::window::controls_width() + 12.0);
+                }
                 let about = widgets::icon_button(
                     ui,
                     widgets::ButtonKind::Ghost,
@@ -1136,6 +1184,10 @@ fn round_button(
 }
 
 impl eframe::App for App {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        vino_ui::input::faster_touchpad(raw);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = &ui.ctx().clone();
         let focused = ctx.input(|input| input.focused);
@@ -1146,6 +1198,9 @@ impl eframe::App for App {
         }
         self.focused = focused;
         self.show(ui);
+        if self.app_title_bar {
+            vino_ui::window::edges(ui);
+        }
     }
 }
 
@@ -1179,9 +1234,18 @@ impl App {
         egui::Panel::top("header")
             .show_separator_line(false)
             .frame(widgets::header_frame(header, p).inner_margin(Margin {
-                left: 20,
-                right: 20,
-                top: 10,
+                left: HEADER_INSET as i8,
+                // The window's buttons go up in the corner.
+                right: if self.app_title_bar {
+                    vino_ui::window::BAR_GAP as i8
+                } else {
+                    HEADER_INSET as i8
+                },
+                top: if self.app_title_bar {
+                    vino_ui::window::BAR_GAP as i8
+                } else {
+                    HEADER_TOP as i8
+                },
                 bottom: 12,
             }))
             .show(root, |ui| self.header(ui, header));

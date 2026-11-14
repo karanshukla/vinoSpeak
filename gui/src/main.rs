@@ -23,12 +23,16 @@ fn size() -> [f32; 2] {
 }
 
 fn main() -> ExitCode {
+    let app_title_bar = vino_ui::window::app_title_bar();
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("vinoSpeak")
-            .with_app_id(APP_ID)
-            .with_inner_size(size())
-            .with_min_inner_size([560.0, 360.0]),
+        viewport: vino_ui::window::viewport(
+            egui::ViewportBuilder::default()
+                .with_title("vinoSpeak")
+                .with_app_id(APP_ID)
+                .with_inner_size(size())
+                .with_min_inner_size([560.0, 360.0]),
+            app_title_bar,
+        ),
         // As in vinoSearch's settings: with vsync, KWin can stall a hidden window.
         glow_options: eframe::egui_glow::GlowConfiguration {
             vsync: false,
@@ -41,7 +45,9 @@ fn main() -> ExitCode {
         options,
         Box::new(|cc| {
             vino_ui::theme::install(&cc.egui_ctx);
-            Ok(Box::new(app::App::new()))
+            let mut app = app::App::new();
+            app.app_title_bar = app_title_bar;
+            Ok(Box::new(app))
         }),
     );
     match result {
