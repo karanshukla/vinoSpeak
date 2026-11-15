@@ -109,11 +109,26 @@ fn string(meta: &HashMap<String, OwnedVariant>, key: &str) -> String {
         .unwrap_or_default()
 }
 
+async fn session_bus() -> Result<zbus::Connection> {
+    zbus::Connection::session()
+        .await
+        .context("connecting to the session bus")
+}
+
+/// A hit from the metadata the search provider gives for it.
+fn hit_from_meta(meta: &HashMap<String, OwnedVariant>) -> Hit {
+    let path = PathBuf::from(string(meta, "id"));
+    Hit {
+        kind: kind_of(&path, &string(meta, "gicon")),
+        name: string(meta, "name"),
+        description: string(meta, "description"),
+        path,
+    }
+}
+
 fn search(query: &str) -> Result<Vec<Hit>> {
     zbus::block_on(async {
-        let conn = zbus::Connection::session()
-            .await
-            .context("connecting to the session bus")?;
+        let conn = session_bus().await?;
         let ids: Vec<String> = conn
             .call_method(
                 Some(SERVICE),
@@ -140,29 +155,38 @@ fn search(query: &str) -> Result<Vec<Hit>> {
             .await?
             .body()
             .deserialize()?;
-        Ok(metas
-            .iter()
-            .map(|meta| {
-                let path = PathBuf::from(string(meta, "id"));
-                Hit {
-                    kind: kind_of(&path, &string(meta, "gicon")),
-                    name: string(meta, "name"),
-                    description: string(meta, "description"),
-                    path,
-                }
-            })
-            .collect())
+        Ok(metas.iter().map(hit_from_meta).collect())
     })
+}
+
+/// A recent file as the list shows it: named by its file name, described by
+/// its directory and how long ago it changed. `kind` is vinoSearch's word
+/// for it, `mtime` and `now` seconds since the epoch.
+fn recent_hit(path: PathBuf, kind: &str, mtime: i64, now: i64) -> Hit {
+    let dir = path
+        .parent()
+        .map(|d| d.display().to_string())
+        .unwrap_or_default();
+    Hit {
+        name: path
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+        description: format!("{dir}  Changed {}", ago(now - mtime)),
+        kind: if kind == "document" {
+            Kind::Document
+        } else {
+            kind_of(&path, "")
+        },
+        path,
+    }
 }
 
 /// The indexed text files and documents changed most recently, for a window
 /// that has nothing searched yet.
 fn recent(limit: u32) -> Result<Vec<Hit>> {
     zbus::block_on(async {
-        let conn = zbus::Connection::session()
-            .await
-            .context("connecting to the session bus")?;
-        let files: Vec<(String, String, i64)> = conn
+        let files: Vec<(String, String, i64)> = session_bus()
+            .await?
             .call_method(
                 Some(SERVICE),
                 CONTROL_PATH,
@@ -179,25 +203,7 @@ fn recent(limit: u32) -> Result<Vec<Hit>> {
             .map_or(0, |d| d.as_secs() as i64);
         Ok(files
             .into_iter()
-            .map(|(path, kind, mtime)| {
-                let path = PathBuf::from(path);
-                let dir = path
-                    .parent()
-                    .map(|d| d.display().to_string())
-                    .unwrap_or_default();
-                Hit {
-                    name: path
-                        .file_name()
-                        .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
-                    description: format!("{dir}  Changed {}", ago(now - mtime)),
-                    kind: if kind == "document" {
-                        Kind::Document
-                    } else {
-                        kind_of(&path, "")
-                    },
-                    path,
-                }
-            })
+            .map(|(path, kind, mtime)| recent_hit(PathBuf::from(path), &kind, mtime, now))
             .collect())
     })
 }
@@ -205,10 +211,8 @@ fn recent(limit: u32) -> Result<Vec<Hit>> {
 /// A document's text, extracted by vinoSearch as it does for indexing.
 fn file_text(path: &Path) -> Result<String> {
     zbus::block_on(async {
-        let conn = zbus::Connection::session()
-            .await
-            .context("connecting to the session bus")?;
-        let text: String = conn
+        let text: String = session_bus()
+            .await?
             .call_method(
                 Some(SERVICE),
                 CONTROL_PATH,
@@ -295,14 +299,21 @@ fn recorded(path: &Path) -> Option<String> {
     Some(format!("{day} {month} {year}, {hour:02}:{minute:02}"))
 }
 
+const MINUTE: i64 = 60;
+const HOUR: i64 = 60 * MINUTE;
+const DAY: i64 = 24 * HOUR;
+/// A month for this purpose; days are counted up to two of them.
+const MONTH: i64 = 30 * DAY;
+
+/// How long ago, in the largest unit that fits: "just now", "3 days ago".
 fn ago(secs: i64) -> String {
     let plural = |n: i64, unit: &str| format!("{n} {unit}{} ago", if n == 1 { "" } else { "s" });
     match secs.max(0) {
-        s if s < 60 => "just now".to_owned(),
-        s if s < 3600 => plural(s / 60, "minute"),
-        s if s < 86_400 => plural(s / 3600, "hour"),
-        s if s < 86_400 * 60 => plural(s / 86_400, "day"),
-        s => plural(s / (86_400 * 30), "month"),
+        s if s < MINUTE => "just now".to_owned(),
+        s if s < HOUR => plural(s / MINUTE, "minute"),
+        s if s < DAY => plural(s / HOUR, "hour"),
+        s if s < 2 * MONTH => plural(s / DAY, "day"),
+        s => plural(s / MONTH, "month"),
     }
 }
 
@@ -427,6 +438,88 @@ mod tests {
         for ext in DOCUMENTS {
             assert_ne!(Format::from_extension(ext), Format::Plain, "{ext}");
         }
+    }
+
+    #[test]
+    fn each_unit_starts_exactly_at_its_boundary() {
+        assert_eq!(ago(59), "just now");
+        assert_eq!(ago(60), "1 minute ago");
+        assert_eq!(ago(3599), "59 minutes ago");
+        assert_eq!(ago(3600), "1 hour ago");
+        assert_eq!(ago(86_399), "23 hours ago");
+        assert_eq!(ago(86_400), "1 day ago");
+    }
+
+    #[test]
+    fn days_are_counted_up_to_two_months() {
+        assert_eq!(ago(86_400 * 60 - 1), "59 days ago");
+        assert_eq!(ago(86_400 * 60), "2 months ago");
+    }
+
+    #[test]
+    fn a_file_changed_in_the_future_changed_just_now() {
+        assert_eq!(ago(-5), "just now");
+    }
+
+    #[test]
+    fn a_session_is_dated_from_its_file_name_only_in_a_real_month() {
+        let when = |name: &str| recorded(Path::new(name));
+        assert_eq!(
+            when("/t/2026-12-01-090000.vwsession").as_deref(),
+            Some("1 December 2026, 09:00")
+        );
+        assert_eq!(
+            when("/t/2026-01-31-235959.vwsession").as_deref(),
+            Some("31 January 2026, 23:59")
+        );
+        assert_eq!(when("/t/2026-13-01-000000.vwsession"), None);
+        assert_eq!(when("/t/2026-00-01-000000.vwsession"), None);
+        assert_eq!(when("/t/notes.vwsession"), None);
+    }
+
+    #[test]
+    fn a_recent_file_is_named_and_described_as_the_list_shows_it() {
+        let hit = recent_hit(
+            PathBuf::from("/home/k/notes/todo.md"),
+            "text",
+            1000,
+            1000 + 7200,
+        );
+        assert_eq!(hit.name, "todo.md");
+        assert_eq!(hit.description, "/home/k/notes  Changed 2 hours ago");
+        assert_eq!(hit.kind, Kind::Text);
+    }
+
+    #[test]
+    fn a_recent_file_is_a_document_when_vinosearch_says_so() {
+        let odd = recent_hit(PathBuf::from("/a/scan.bin"), "document", 0, 0);
+        assert_eq!(odd.kind, Kind::Document);
+        let session = recent_hit(PathBuf::from("/a/x.vwsession"), "text", 0, 0);
+        assert_eq!(session.kind, Kind::Session { summarised: false });
+    }
+
+    #[test]
+    fn a_search_hit_is_read_from_the_providers_metadata() {
+        let meta: HashMap<String, OwnedVariant> = [
+            ("id", "/a/report.pdf"),
+            ("name", "report.pdf"),
+            ("description", "/a:3  quarterly"),
+            ("gicon", ". GThemedIcon application-pdf"),
+        ]
+        .into_iter()
+        .map(|(key, value)| {
+            (
+                key.to_owned(),
+                zbus::Variant::from(value).try_into().unwrap(),
+            )
+        })
+        .collect();
+        let hit = hit_from_meta(&meta);
+        assert_eq!(hit.path, PathBuf::from("/a/report.pdf"));
+        assert_eq!(hit.name, "report.pdf");
+        assert_eq!(hit.description, "/a:3  quarterly");
+        assert_eq!(hit.kind, Kind::Document);
+        assert_eq!(hit_from_meta(&HashMap::new()).name, "");
     }
 
     #[test]
