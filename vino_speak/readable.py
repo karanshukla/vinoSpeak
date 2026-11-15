@@ -76,40 +76,63 @@ def _sentence(line: str) -> str:
     return line if not line or SENTENCE_END.search(line) else f"{line}."
 
 
-def _lines(text: str) -> list[str]:
-    out: list[str] = []
-    in_item = False  # a list item's lines run until a blank line or the next block
+class _SpokenLines:
+    """Markdown read a line at a time, each block's markup taken off and each
+    heading, list item and table row ended as a sentence."""
 
-    def end_item() -> None:
-        nonlocal in_item
-        if in_item:
-            out[-1] = _sentence(out[-1])
-            in_item = False
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+        # A list item's lines run until a blank line or the next block.
+        self._in_list_item = False
 
-    for line in text.split("\n"):
-        if UNDERLINE.match(line) and out and out[-1].strip() and not in_item:
-            out[-1] = _sentence(out[-1])  # the line above is a setext heading
-            out.append("")
-            continue
-        if not line.strip() or RULE.match(line) or HEADING.match(line):
-            end_item()
-        if RULE.match(line):
-            out.append("")
+    def add(self, line: str) -> None:
+        if self._underlines_a_heading(line):
+            self.lines[-1] = _sentence(self.lines[-1])
+            self.lines.append("")
+        elif RULE.match(line):
+            self._end_list_item()
+            self.lines.append("")
         elif heading := HEADING.match(line):
-            out.extend(["", _sentence(heading.group(1)), ""])
+            self._end_list_item()
+            self.lines.extend(["", _sentence(heading.group(1)), ""])
         elif TABLE_ROW.match(line):
-            end_item()
+            self._end_list_item()
             if not TABLE_RULE.match(line):
-                cells = [c.strip() for c in line.strip().strip("|").split("|")]
-                out.append(_sentence(", ".join(c for c in cells if c)))
+                self.lines.append(_table_row(line))
         elif LIST_ITEM.match(line):
-            end_item()
-            out.append(LIST_ITEM.sub("", line, count=1))
-            in_item = True
+            self._end_list_item()
+            self.lines.append(LIST_ITEM.sub("", line, count=1))
+            self._in_list_item = True
         else:
-            out.append(QUOTE.sub("", line, count=1))
-    end_item()
-    return out
+            if not line.strip():
+                self._end_list_item()
+            self.lines.append(QUOTE.sub("", line, count=1))
+
+    def finish(self) -> list[str]:
+        self._end_list_item()
+        return self.lines
+
+    def _underlines_a_heading(self, line: str) -> bool:
+        """A setext underline, with the heading's text on the line above."""
+        above = self.lines[-1].strip() if self.lines else ""
+        return bool(UNDERLINE.match(line)) and bool(above) and not self._in_list_item
+
+    def _end_list_item(self) -> None:
+        if self._in_list_item:
+            self.lines[-1] = _sentence(self.lines[-1])
+            self._in_list_item = False
+
+
+def _table_row(line: str) -> str:
+    cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+    return _sentence(", ".join(cell for cell in cells if cell))
+
+
+def _lines(text: str) -> list[str]:
+    spoken = _SpokenLines()
+    for line in text.split("\n"):
+        spoken.add(line)
+    return spoken.finish()
 
 
 def markdown(text: str) -> str:
