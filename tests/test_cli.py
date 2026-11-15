@@ -186,6 +186,6 @@ def test_sizes_read_as_people_say_them(n, shown):
 
 
 def test_sizes_are_shown_as_the_window_shows_them():
-    """The shared table gui/src/speech.rs is tested against too."""
-    rules = json.loads((Path(__file__).parent / "fixtures/model_cache.json").read_text())
+    """The shared table gui/src/model_cache.rs is tested against too."""
+    rules = json.loads((Path(__file__).parent / "fixtures/shared_with_window.json").read_text())
     assert [cli.size(n) for n, _ in rules["sizes"]] == [shown for _, shown in rules["sizes"]]

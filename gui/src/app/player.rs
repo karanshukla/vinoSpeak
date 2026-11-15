@@ -8,8 +8,8 @@ use vino_ui::theme;
 use vino_ui::widgets;
 
 use super::App;
+use crate::outputs::Output;
 use crate::search::Hit;
-use crate::speech::Output;
 
 /// The speed presets, as the player offers them.
 const SPEEDS: [(f32, &str); 4] = [(0.8, "0.8×"), (1.0, "1.0×"), (1.25, "1.25×"), (1.5, "1.5×")];

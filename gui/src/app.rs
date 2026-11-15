@@ -35,8 +35,11 @@ use vino_ui::widgets;
 
 use self::capture::Capture;
 use self::model::Model;
+use crate::model_cache;
+use crate::outputs::{self, Output};
 use crate::search::{Hit, Index, VinoSearch};
-use crate::speech::{self, Output, Part, Reading, Voice, Worker};
+use crate::speech::{self, Part, Reading, Worker};
+use crate::voices::{self, Voice};
 
 /// The voice picked until the user picks another.
 const DEFAULT_VOICE: &str = "af_heart";
@@ -114,8 +117,8 @@ impl App {
         let mut app = Self::with(
             Arc::new(VinoSearch),
             speech::binary(),
-            speech::voices(),
-            speech::outputs(),
+            voices::voices(),
+            outputs::outputs(),
         );
         app.kde_header = theme::kde_header();
         app.capture = Capture::from_env();
@@ -176,7 +179,7 @@ impl App {
             text_scale: None,
             about: false,
             updater: about::updater(),
-            cache: speech::cache_dir(),
+            cache: model_cache::dir(),
             model: Model::default(),
         }
     }

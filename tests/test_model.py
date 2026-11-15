@@ -51,12 +51,12 @@ def test_default_model_dir_follows_xdg_cache_home(monkeypatch, tmp_path):
     assert model.default_model_dir() == tmp_path / "vinospeak" / "kokoro-82m-int8-ov"
 
 
-CACHE_RULES = json.loads((Path(__file__).parent / "fixtures/model_cache.json").read_text())
+CACHE_RULES = json.loads((Path(__file__).parent / "fixtures/shared_with_window.json").read_text())
 
 
 @pytest.mark.parametrize("case", CACHE_RULES["cache_dirs"])
 def test_the_cache_is_where_the_window_looks_for_it(monkeypatch, case):
-    """The shared table gui/src/speech.rs is tested against too."""
+    """The shared table gui/src/model_cache.rs is tested against too."""
     monkeypatch.setenv("HOME", case["home"])
     if case["xdg_cache_home"] is None:
         monkeypatch.delenv("XDG_CACHE_HOME", raising=False)

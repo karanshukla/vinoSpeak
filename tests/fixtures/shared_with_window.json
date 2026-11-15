@@ -1,5 +1,5 @@
 {
-  "about": "The model cache as vino_speak/model.py and gui/src/speech.rs must both see it (docs/architecture.md, \"The model cache, in two languages\"). Read by tests/test_model.py, tests/test_cli.py and gui/src/speech.rs's tests.",
+  "about": "What vino_speak (Python) and gui/ (Rust) must agree on, since they can't share code (docs/architecture.md, \"Shared with the window\"). Read by tests/test_model.py, tests/test_cli.py, tests/test_readable.py and the tests in gui/src/model_cache.rs and gui/src/app/reader.rs.",
   "model_dir": "kokoro-82m-int8-ov",
   "cache_dirs": [
     {"xdg_cache_home": "/x/cache", "home": "/home/k", "cache_dir": "/x/cache/vinospeak"},
@@ -15,5 +15,6 @@
     [999999999, "1000 MB"],
     [1000000000, "1.0 GB"],
     [1260000000, "1.3 GB"]
-  ]
+  ],
+  "code_skipped": "Code skipped."
 }

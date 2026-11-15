@@ -4,7 +4,7 @@
 use eframe::egui;
 
 use super::{App, Reply};
-use crate::speech;
+use crate::{model_cache, voices};
 
 /// The model on About's Model row.
 #[derive(Default)]
@@ -26,19 +26,19 @@ impl Model {
             format!(
                 "Deletes {}. The next reading downloads about 160 MB again, \
                  and so does vinoPop's read-aloud, which shares it.",
-                speech::size(bytes)
+                model_cache::size(bytes)
             )
         } else if bytes == 0 {
             "Not downloaded. The first reading downloads about 160 MB.".to_owned()
         } else if reading {
             format!(
                 "{} on disk. Stop the reading to delete it.",
-                speech::size(bytes)
+                model_cache::size(bytes)
             )
         } else {
             format!(
                 "{} on disk, with OpenVINO's compiled copy of it.",
-                speech::size(bytes)
+                model_cache::size(bytes)
             )
         }
     }
@@ -47,13 +47,13 @@ impl Model {
 impl App {
     /// How much is on disk now.
     pub(super) fn refresh_model(&mut self) {
-        self.model.bytes = Some(self.cache.as_deref().map_or(0, speech::disk_usage));
+        self.model.bytes = Some(self.cache.as_deref().map_or(0, model_cache::disk_usage));
     }
 
     /// The voices in the model as it is now: Heart alone once it's deleted,
     /// all of them once it's downloaded again.
     fn refresh_voices(&mut self) {
-        self.voices = speech::voices_in(self.cache.as_deref());
+        self.voices = voices::voices_in(self.cache.as_deref());
         if !self.voices.contains(&self.voice) {
             self.voice = self.voices[0].clone();
         }
@@ -78,7 +78,7 @@ impl App {
         std::thread::spawn(move || {
             // Dropping it waits for it to exit, or kills it.
             drop(worker);
-            let _ = tx.send(Reply::Deleted(speech::delete_model(&vinospeak)));
+            let _ = tx.send(Reply::Deleted(model_cache::delete(&vinospeak)));
             ctx.request_repaint();
         });
     }

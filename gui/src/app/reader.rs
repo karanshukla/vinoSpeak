@@ -159,3 +159,18 @@ fn title(ui: &mut egui::Ui, hit: &Hit) {
     ui.add(egui::Label::new(RichText::new(&path).monospace().color(p.muted)).truncate())
         .on_hover_text(path);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The same file tests/test_readable.py checks readable.py's CODE_SKIPPED against.
+    #[test]
+    fn the_code_stand_in_is_what_vinospeak_prints_for_a_code_block() {
+        let table = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures/shared_with_window.json");
+        let shared: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(table).unwrap()).unwrap();
+        assert_eq!(shared["code_skipped"], CODE_SKIPPED);
+    }
+}
