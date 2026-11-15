@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
+use humansize::{DECIMAL, FixedAt, format_size};
 use walkdir::WalkDir;
 
 use crate::speech;
@@ -40,13 +41,18 @@ pub fn disk_usage(path: &Path) -> u64 {
         .sum()
 }
 
-/// A size as people say it: 163 MB, 1.2 GB.
+/// A size as people say it: 163 MB, 1.3 GB. Never in bytes, and a decimal only for GB.
 pub fn size(bytes: u64) -> String {
-    match bytes {
-        1_000_000_000.. => format!("{:.1} GB", bytes as f64 / 1e9),
-        1_000_000.. => format!("{} MB", (bytes as f64 / 1e6).round()),
-        _ => format!("{} kB", (bytes as f64 / 1e3).round()),
-    }
+    let (unit, decimals) = match bytes {
+        1_000_000_000.. => (FixedAt::Giga, 1),
+        1_000_000.. => (FixedAt::Mega, 0),
+        _ => (FixedAt::Kilo, 0),
+    };
+    let shown = DECIMAL
+        .fixed_at(Some(unit))
+        .decimal_places(decimals)
+        .decimal_zeroes(decimals);
+    format_size(bytes, shown)
 }
 
 /// `vinospeak --delete-model`: what it said it deleted, or why it couldn't.
