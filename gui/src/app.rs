@@ -2,74 +2,54 @@
 //! recently) down the left, and the chosen file as vinoSpeak will say it,
 //! with Read aloud and Stop. Its look is vino-ui's, shared with vinoSearch
 //! and vinoWhisper (vinoSpeak#32).
+//!
+//! This file is the window's state and one frame of it. Each part of the
+//! frame, and the state changes behind it, is a module:
+//!
+//! - `files`: the search, the recent files, the chosen file's preview
+//! - `reading`: the worker and the reading under way
+//! - `model`: the downloaded model's size, voices and deletion
+//! - `header`, `results`, `reader`, `player`, `about`: what is drawn
+//! - `capture`: the screenshot taken with nobody at the screen
+
+mod about;
+mod capture;
+mod files;
+mod header;
+mod model;
+mod player;
+mod reader;
+mod reading;
+mod results;
+#[cfg(test)]
+mod tests;
 
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use eframe::egui::{self, Align, Color32, Layout, Margin, RichText, Sense, Stroke};
+use eframe::egui::{self, Margin, RichText, Stroke};
 use vino_ui::a11y;
-use vino_ui::file_tile::{self, Format};
-use vino_ui::icons::{self, Icon};
 use vino_ui::theme;
-use vino_ui::widgets::{self, Button, ChipKind, Row, Tone};
+use vino_ui::widgets;
 
-use crate::search::{self, Hit, Index, Kind, VinoSearch};
-use crate::speech::{self, Event, Output, Part, Reading, Source, Voice, Worker};
+use self::capture::Capture;
+use self::model::Model;
+use crate::search::{Hit, Index, VinoSearch};
+use crate::speech::{self, Output, Part, Reading, Voice, Worker};
 
-/// vinoSearch answers nothing under three characters, as KRunner does.
-const MIN_QUERY_CHARS: usize = 3;
-/// Search once typing pauses this long, not on every key.
-const DEBOUNCE: Duration = Duration::from_millis(300);
-/// The header's content, from the window's left and right edges.
-const HEADER_INSET: f32 = 20.0;
-/// The header's content, from the window's top edge.
-const HEADER_TOP: f32 = 10.0;
-/// The room About takes beside the search field.
-const ABOUT_ROOM: f32 = 36.0;
-/// The reading column's widest: about 80 characters of body text.
-const MEASURE: f32 = 680.0;
-/// How many recent files fill the list before a search.
-const RECENT: usize = 20;
-/// How many vinoSearch is asked for (its most, recent::MAX), so a folder of
-/// spreadsheets changed last doesn't leave the list empty.
-const RECENT_ASKED: u32 = 50;
-/// A session's parts, as the reader's toggle offers them.
-const PARTS: [(Part, &str); 2] = [(Part::Summary, "Summary"), (Part::Transcript, "Transcript")];
-/// The speed presets, as the player offers them.
-const SPEEDS: [(f32, &str); 4] = [(0.8, "0.8×"), (1.0, "1.0×"), (1.25, "1.25×"), (1.5, "1.5×")];
+/// The voice picked until the user picks another.
+const DEFAULT_VOICE: &str = "af_heart";
 
+/// What a background thread sends back to the window.
 enum Reply {
+    /// The hits for the search with this `generation`.
     Results(u64, anyhow::Result<Vec<Hit>>),
     Recent(anyhow::Result<Vec<Hit>>),
     /// The preview for the `previewed` it was asked for.
     Preview(u64, anyhow::Result<String>),
     /// What `vinospeak --delete-model` said.
     Deleted(anyhow::Result<String>),
-}
-
-/// The model on About's Model row.
-#[derive(Default)]
-struct Model {
-    /// Bytes on disk, the model and its compiled copy; None until About shows.
-    bytes: Option<u64>,
-    confirm: bool,
-    deleting: bool,
-    /// Why the last delete failed.
-    error: Option<String>,
-}
-
-/// `VINOSPEAK_GUI_SCREENSHOT=out.png`, with `VINOSPEAK_GUI_QUERY=...` to
-/// search first: save the window once the first file's text is in, and exit.
-/// `VINOSPEAK_GUI_PICK=n` picks the nth file instead, and
-/// `VINOSPEAK_GUI_SPEAK=1` starts reading it. How the proof of concept is
-/// checked without someone at the screen.
-struct Capture {
-    out: PathBuf,
-    pick: usize,
-    speak: bool,
-    requested: bool,
-    deadline: Instant,
 }
 
 /// The chosen file's text, as vinospeak gives it: what the worker is sent
@@ -83,8 +63,10 @@ pub struct App {
     index: Arc<dyn Index>,
     vinospeak: PathBuf,
     query: String,
+    /// When the query was last typed in; None once that has been searched.
     edited: Option<Instant>,
     searched: String,
+    /// Counts the searches asked for, so a late answer to an older one is dropped.
     generation: u64,
     searching: bool,
     hits: Vec<Hit>,
@@ -119,29 +101,15 @@ pub struct App {
     text_scale: Option<f32>,
     /// The About page shows in place of the reader until a file is picked.
     about: bool,
-    /// About's Updates row.
     updater: vino_ui::update::Updater,
     /// vinospeak's cache: the model, its voices, and OpenVINO's compiled copy.
     cache: Option<PathBuf>,
     model: Model,
 }
 
-/// The release installer leaves itself as `~/.local/bin/vinospeak-upgrade`, which installs a
-/// release of vinospeak and this window; without it (a build from a checkout) About links to
-/// the release instead.
-fn updater() -> vino_ui::update::Updater {
-    let updater = vino_ui::update::Updater::new(vino_ui::App::Speak, env!("CARGO_PKG_VERSION"));
-    match std::env::var_os("HOME")
-        .map(|home| PathBuf::from(home).join(".local/bin/vinospeak-upgrade"))
-    {
-        Some(upgrade) if upgrade.is_file() => {
-            updater.with_command([upgrade.to_string_lossy().into_owned()])
-        }
-        _ => updater,
-    }
-}
-
 impl App {
+    /// The window as it runs: the real vinoSearch and vinospeak, and the
+    /// `VINOSPEAK_GUI_*` variables gui/README.md lists.
     pub fn new() -> Self {
         let mut app = Self::with(
             Arc::new(VinoSearch),
@@ -150,16 +118,7 @@ impl App {
             speech::outputs(),
         );
         app.kde_header = theme::kde_header();
-        app.capture = std::env::var_os("VINOSPEAK_GUI_SCREENSHOT").map(|out| Capture {
-            out: out.into(),
-            pick: std::env::var("VINOSPEAK_GUI_PICK")
-                .ok()
-                .and_then(|n| n.parse().ok())
-                .unwrap_or(0),
-            speak: std::env::var_os("VINOSPEAK_GUI_SPEAK").is_some(),
-            requested: false,
-            deadline: Instant::now() + Duration::from_secs(30),
-        });
+        app.capture = Capture::from_env();
         if let Ok(query) = std::env::var("VINOSPEAK_GUI_QUERY") {
             app.type_query(&query);
         }
@@ -180,7 +139,7 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let voice = voices
             .iter()
-            .find(|v| v.id == "af_heart")
+            .find(|v| v.id == DEFAULT_VOICE)
             .unwrap_or(&voices[0])
             .clone();
         Self {
@@ -216,7 +175,7 @@ impl App {
             app_title_bar: false,
             text_scale: None,
             about: false,
-            updater: updater(),
+            updater: about::updater(),
             cache: speech::cache_dir(),
             model: Model::default(),
         }
@@ -231,968 +190,17 @@ impl App {
         }
     }
 
-    /// Set the search box as if typed, searching once the debounce is over.
-    fn type_query(&mut self, query: &str) {
-        self.query = query.to_owned();
-        self.edited = Some(Instant::now() - DEBOUNCE);
-    }
-
-    /// Search results once there's a query that found something, else the
-    /// recent files.
-    fn showing_hits(&self) -> bool {
-        self.query.trim().chars().count() >= MIN_QUERY_CHARS && !self.hits.is_empty()
-    }
-
-    fn listed(&self) -> &[Hit] {
-        if self.showing_hits() {
-            &self.hits
-        } else {
-            &self.recent
-        }
-    }
-
-    fn search(&mut self, ctx: &egui::Context) {
-        self.generation += 1;
-        self.searched = self.query.trim().to_owned();
-        self.searching = true;
-        let (tx, ctx, generation, query) = (
-            self.tx.clone(),
-            ctx.clone(),
-            self.generation,
-            self.searched.clone(),
-        );
-        let index = self.index.clone();
-        std::thread::spawn(move || {
-            let hits = index.search(&query).map(|hits| {
-                search::title_sessions(hits.into_iter().filter(search::worth_hearing).collect())
-            });
-            let _ = tx.send(Reply::Results(generation, hits));
-            ctx.request_repaint();
-        });
-    }
-
-    fn load_recent(&mut self, ctx: &egui::Context) {
-        self.recent_asked = true;
-        let (tx, ctx, index) = (self.tx.clone(), ctx.clone(), self.index.clone());
-        std::thread::spawn(move || {
-            let _ = tx.send(Reply::Recent(index.recent(RECENT_ASKED).map(|hits| {
-                search::title_sessions(
-                    hits.into_iter()
-                        .filter(search::worth_hearing)
-                        .take(RECENT)
-                        .collect(),
-                )
-            })));
-            ctx.request_repaint();
-        });
-    }
-
-    fn select(&mut self, ctx: &egui::Context, hit: Hit) {
-        self.part = match hit.kind {
-            Kind::Session { summarised: false } => Part::Transcript,
-            _ => Part::Summary,
-        };
-        self.selected = Some(hit);
-        self.about = false;
-        self.load_preview(ctx);
-    }
-
-    /// The selected file's text, as vinospeak will say it.
-    fn load_preview(&mut self, ctx: &egui::Context) {
-        self.preview = None;
-        self.previewed += 1;
-        let Some(hit) = self.selected.clone().filter(|h| h.kind != Kind::Image) else {
-            return;
-        };
-        let (tx, ctx, previewed, part) = (self.tx.clone(), ctx.clone(), self.previewed, self.part);
-        let (index, vinospeak) = (self.index.clone(), self.vinospeak.clone());
-        std::thread::spawn(move || {
-            let text = match hit.kind {
-                Kind::Document => index.file_text(&hit.path).map(Source::Text),
-                Kind::Session { .. } => Ok(Source::Session(hit.path.clone(), part)),
-                _ => Ok(Source::File(hit.path.clone())),
-            }
-            .and_then(|source| speech::preview(&vinospeak, &source));
-            let _ = tx.send(Reply::Preview(previewed, text));
-            ctx.request_repaint();
-        });
-    }
-
-    /// The first file worth hearing in what's listed (the capture's pick).
-    fn select_first(&mut self, ctx: &egui::Context) {
-        let pick = self.capture.as_ref().map_or(0, |c| c.pick);
-        let first = self
-            .listed()
-            .iter()
-            .filter(|h| h.kind != Kind::Image)
-            .nth(pick)
-            .cloned();
-        if let Some(hit) = first {
-            self.select(ctx, hit);
-        }
-    }
-
     fn receive(&mut self, ctx: &egui::Context) {
         while let Ok(reply) = self.rx.try_recv() {
             match reply {
-                Reply::Results(generation, _) if generation != self.generation => {}
-                Reply::Results(_, Ok(hits)) => {
-                    self.searching = false;
-                    self.error = None;
-                    self.hits = hits;
-                    if self.showing_hits() {
-                        self.select_first(ctx);
-                    }
-                }
-                Reply::Results(_, Err(e)) => {
-                    self.searching = false;
-                    self.hits.clear();
-                    self.error = Some(format!("{e:#}"));
-                }
-                Reply::Recent(Ok(recent)) => {
-                    self.recent = recent;
-                    // About, opened before they came in, stays open.
-                    if self.selected.is_none() && self.query.is_empty() && !self.about {
-                        self.select_first(ctx);
-                    }
-                }
-                Reply::Recent(Err(e)) => {
-                    self.status = format!("No recent files: {e:#}");
-                }
-                Reply::Deleted(said) => {
-                    self.model.deleting = false;
-                    match said {
-                        Ok(said) => {
-                            self.status = said;
-                            self.model.error = None;
-                        }
-                        Err(e) => self.model.error = Some(format!("{e:#}")),
-                    }
-                    self.refresh_model();
-                    self.refresh_voices();
-                }
-                Reply::Preview(previewed, text) => {
-                    if previewed == self.previewed {
-                        self.preview = Some(
-                            text.map(|text| Preview {
-                                paragraphs: speech::paragraphs(&text),
-                                text,
-                            })
-                            .map_err(|e| format!("{e:#}")),
-                        );
-                        if matches!(self.preview, Some(Ok(_))) {
-                            self.start_worker(ctx);
-                        }
-                    }
-                }
+                Reply::Results(generation, hits) => self.on_results(ctx, generation, hits),
+                Reply::Recent(recent) => self.on_recent(ctx, recent),
+                Reply::Preview(previewed, text) => self.on_preview(ctx, previewed, text),
+                Reply::Deleted(said) => self.on_deleted(said),
             }
         }
     }
 
-    /// The worker, loading the model while the user looks at the preview.
-    fn start_worker(&mut self, ctx: &egui::Context) {
-        if self.worker.is_some() || self.model.deleting {
-            return;
-        }
-        let ctx = ctx.clone();
-        match Worker::start(&self.vinospeak, move || ctx.request_repaint()) {
-            Ok(worker) => self.worker = Some(worker),
-            Err(e) => self.status = format!("{e:#}"),
-        }
-    }
-
-    fn read_aloud(&mut self, ctx: &egui::Context) {
-        if self.model.deleting {
-            self.status = "Deleting the model; read it once that's done.".to_owned();
-            return;
-        }
-        self.start_worker(ctx);
-        let (Some(hit), Some(Ok(preview)), Some(worker)) =
-            (&self.selected, &self.preview, &mut self.worker)
-        else {
-            return;
-        };
-        // The worker stops the reading before this one itself.
-        match worker.speak(
-            &preview.text,
-            &self.voice,
-            self.speed,
-            self.output.as_deref(),
-        ) {
-            Ok(id) => {
-                self.status = format!("Speaking {}", hit.name);
-                self.reading = Some(Reading {
-                    id,
-                    file: hit.path.clone(),
-                    started: Instant::now(),
-                    stop_sent: None,
-                });
-            }
-            Err(e) => {
-                self.status = format!("{e:#}");
-                self.worker = None;
-            }
-        }
-    }
-
-    fn stop_reading(&mut self) {
-        if let (Some(reading), Some(worker)) = (&mut self.reading, &mut self.worker)
-            && reading.stop_sent.is_none()
-        {
-            reading.stop_sent = Some(Instant::now());
-            if worker.stop().is_err() {
-                self.worker = None;
-            }
-        }
-    }
-
-    fn name(reading: &Reading) -> String {
-        reading
-            .file
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned()
-    }
-
-    fn poll_reading(&mut self, ctx: &egui::Context) {
-        let events = self.worker.as_ref().map(Worker::events).unwrap_or_default();
-        let current = self.reading.as_ref().map(|r| r.id);
-        for event in events {
-            let ended = match event {
-                Event::Ready => {
-                    // The model may have been downloaded just now.
-                    self.refresh_model();
-                    if self.voices.len() <= 1 {
-                        self.refresh_voices();
-                    }
-                    None
-                }
-                Event::FirstAudio { id, ms } => {
-                    if let Some(r) = self.reading.as_ref().filter(|r| r.id == id)
-                        && std::env::var_os("VINOSPEAK_GUI_DEBUG").is_some()
-                    {
-                        let since = r.started.elapsed().as_millis();
-                        eprintln!("first audio {since} ms after Read aloud ({ms} ms in vinospeak)");
-                    }
-                    None
-                }
-                Event::Done { id } if Some(id) == current => Some(None),
-                Event::Error { id, message } if id.is_none() || id == current => {
-                    Some(Some(message))
-                }
-                Event::Exited(message) => {
-                    self.worker = None;
-                    // A worker that died idle is started again by the next Read aloud.
-                    current.map(|_| Some(message))
-                }
-                Event::Done { .. } | Event::Error { .. } => None,
-            };
-            if let Some(failed) = ended {
-                let name = self.reading.as_ref().map(Self::name);
-                self.status = match (name, failed) {
-                    (Some(name), None) => format!("Finished {name}"),
-                    (Some(name), Some(e)) => format!("Couldn't read {name}: {e}"),
-                    (None, Some(e)) => format!("vinospeak: {e}"),
-                    (None, None) => String::new(),
-                };
-                self.reading = None;
-            }
-        }
-        let Some(reading) = &self.reading else {
-            return;
-        };
-        // A worker that doesn't answer a stop is killed, and the next Read
-        // aloud starts another.
-        if reading
-            .stop_sent
-            .is_some_and(|sent| sent.elapsed() > speech::STOP_GRACE)
-        {
-            self.status = format!("Finished {}", Self::name(reading));
-            self.reading = None;
-            self.worker = None;
-            return;
-        }
-        ctx.request_repaint_after(Duration::from_millis(250));
-    }
-
-    fn capture(&mut self, ctx: &egui::Context) {
-        let Some(capture) = &mut self.capture else {
-            return;
-        };
-        let ready = self.preview.is_some() || Instant::now() > capture.deadline;
-        if ready && !capture.requested {
-            if capture.speak && self.reading.is_none() && self.preview.is_some() {
-                capture.speak = false;
-                capture.deadline = Instant::now() + Duration::from_secs(4);
-                self.read_aloud(ctx);
-                return;
-            }
-            if self.reading.is_some() && Instant::now() < capture.deadline {
-                ctx.request_repaint_after(Duration::from_millis(100));
-                return;
-            }
-            capture.requested = true;
-            let (out, done) = (capture.out.clone(), ctx.clone());
-            let save = egui::ScreenshotCallback::new(move |image| {
-                let [w, h] = image.size;
-                let saved = image::RgbaImage::from_raw(w as u32, h as u32, image.as_raw().to_vec())
-                    .map(|img| img.save(&out));
-                match saved {
-                    Some(Ok(())) => eprintln!("saved {}", out.display()),
-                    _ => eprintln!("couldn't save {}", out.display()),
-                }
-                // Dropping the window stops any reading.
-                done.send_viewport_cmd(egui::ViewportCommand::Close);
-                done.request_repaint();
-            });
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(save));
-        }
-        ctx.request_repaint_after(Duration::from_millis(100));
-    }
-
-    fn header(&mut self, ui: &mut egui::Ui, header: theme::Header) {
-        if self.app_title_bar {
-            // Before what is in it, so the field and About keep their clicks.
-            vino_ui::window::drag(ui, ui.clip_rect(), "header");
-            // Up in the window's corner, as vinoSearch's settings bar puts
-            // them, not centred on the row; the row stays where it was.
-            vino_ui::window::corner(ui);
-            ui.add_space(HEADER_TOP - vino_ui::window::BAR_GAP);
-        }
-        // The window's buttons take the row's right end, with About and the
-        // gaps before each.
-        let right = if self.app_title_bar {
-            vino_ui::window::controls_width() + 12.0 + ABOUT_ROOM + 16.0
-        } else {
-            0.0
-        };
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 16.0;
-            ui.allocate_ui_with_layout(
-                egui::vec2(290.0, 36.0),
-                Layout::left_to_right(Align::Center),
-                |ui| {
-                    ui.spacing_mut().item_spacing.x = 10.0;
-                    vino_ui::logo::speak(ui, 32.0);
-                    ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 0.0;
-                        // Not selectable: a press on them drags the window.
-                        let title = ui.add(
-                            egui::Label::new(
-                                RichText::new("vinoSpeak")
-                                    .size(17.0)
-                                    .family(theme::bold())
-                                    .color(header.text),
-                            )
-                            .selectable(false),
-                        );
-                        a11y::heading(&title, "vinoSpeak", 1);
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new("Find it, then listen.")
-                                    .size(12.5)
-                                    .color(header.muted),
-                            )
-                            .selectable(false),
-                        );
-                    });
-                },
-            );
-            let width = (ui.available_width() - right).clamp(160.0, 560.0);
-            let response = widgets::search_field(
-                ui,
-                &mut self.query,
-                "Search your files by what's in them…",
-                "Search",
-                width,
-            );
-            if response.changed() {
-                self.edited = Some(Instant::now());
-            }
-            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                self.edited = Some(Instant::now() - DEBOUNCE);
-            }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if self.app_title_bar {
-                    // The window's buttons are in the corner above.
-                    ui.add_space(vino_ui::window::controls_width() + 12.0);
-                }
-                let about = widgets::icon_button(
-                    ui,
-                    widgets::ButtonKind::Ghost,
-                    Icon::Info,
-                    "About vinoSpeak",
-                );
-                if about.clicked() {
-                    if self.about {
-                        self.about = false;
-                    } else {
-                        self.open_about();
-                    }
-                }
-            });
-        });
-    }
-
-    /// This app, vinopilot.ca and the other vinoPilot apps.
-    fn about(&mut self, ui: &mut egui::Ui) {
-        widgets::page_scroll(ui, vino_ui::about::TITLE, widgets::CONTENT_MAX, |ui| {
-            let title = widgets::title(ui, vino_ui::about::TITLE);
-            a11y::heading(&title, vino_ui::about::TITLE, 2);
-            vino_ui::about::page_with_updates(ui, &mut self.updater);
-            self.model_row(ui);
-        });
-    }
-
-    fn open_about(&mut self) {
-        self.about = true;
-        self.model.confirm = false;
-        self.refresh_model();
-    }
-
-    /// How much is on disk now.
-    fn refresh_model(&mut self) {
-        self.model.bytes = Some(self.cache.as_deref().map_or(0, speech::disk_usage));
-    }
-
-    /// The voices in the model as it is now: Heart alone once it's deleted,
-    /// all of them once it's downloaded again.
-    fn refresh_voices(&mut self) {
-        self.voices = speech::voices_in(self.cache.as_deref());
-        if !self.voices.contains(&self.voice) {
-            self.voice = self.voices[0].clone();
-        }
-    }
-
-    /// The downloaded model, its size, and Delete… with its confirmation in place.
-    fn model_row(&mut self, ui: &mut egui::Ui) {
-        let p = theme::palette(ui.ctx());
-        let bytes = self.model.bytes.unwrap_or(0);
-        let reading = self.reading.is_some();
-        if reading {
-            self.model.confirm = false;
-        }
-        let help = if let Some(e) = &self.model.error {
-            format!("Couldn't delete it: {e}")
-        } else if self.model.confirm {
-            format!(
-                "Deletes {}. The next reading downloads about 160 MB again, \
-                 and so does vinoPop's read-aloud, which shares it.",
-                speech::size(bytes)
-            )
-        } else if bytes == 0 {
-            "Not downloaded. The first reading downloads about 160 MB.".to_owned()
-        } else if reading {
-            format!(
-                "{} on disk. Stop the reading to delete it.",
-                speech::size(bytes)
-            )
-        } else {
-            format!(
-                "{} on disk, with OpenVINO's compiled copy of it.",
-                speech::size(bytes)
-            )
-        };
-        let mut row = Row::new("Kokoro voice model").help(&help);
-        if self.model.confirm {
-            row = row.tint(p.error_tint).tone(Tone::Error);
-        } else if self.model.error.is_some() {
-            row = row.tone(Tone::Error);
-        }
-        let mut delete = false;
-        widgets::group_label(ui, "Model");
-        widgets::group(ui, |ui| {
-            row.show(ui, |ui, _| {
-                if self.model.deleting {
-                    a11y::live(&widgets::chip(ui, ChipKind::Neutral, "Deleting…"));
-                } else if self.model.confirm {
-                    if ui
-                        .add(Button::destructive("Delete the model").small())
-                        .clicked()
-                    {
-                        delete = true;
-                    }
-                    if ui.add(Button::ghost("Cancel").small()).clicked() {
-                        self.model.confirm = false;
-                    }
-                } else if ui
-                    .add_enabled(bytes > 0 && !reading, Button::secondary("Delete…"))
-                    .clicked()
-                {
-                    self.model.confirm = true;
-                    self.model.error = None;
-                }
-            });
-        });
-        if delete {
-            self.delete_model(ui.ctx());
-        }
-    }
-
-    /// Stop the worker, which holds the model open and may be downloading
-    /// it, then have vinospeak delete it. The next reading downloads it again.
-    fn delete_model(&mut self, ctx: &egui::Context) {
-        self.model.confirm = false;
-        self.model.deleting = true;
-        let worker = self.worker.take();
-        let (tx, ctx, vinospeak) = (self.tx.clone(), ctx.clone(), self.vinospeak.clone());
-        std::thread::spawn(move || {
-            // Dropping it waits for it to exit, or kills it.
-            drop(worker);
-            let _ = tx.send(Reply::Deleted(speech::delete_model(&vinospeak)));
-            ctx.request_repaint();
-        });
-    }
-
-    fn results(&mut self, ui: &mut egui::Ui) {
-        let p = theme::palette(ui.ctx());
-        let typed = self.query.trim().chars().count() >= MIN_QUERY_CHARS;
-        let note = if let Some(e) = &self.error {
-            Some(format!("vinoSearch didn't answer: {e}"))
-        } else if typed && self.searching {
-            Some("Searching…".to_owned())
-        } else if typed && self.hits.is_empty() && self.edited.is_none() {
-            Some("Nothing close enough.".to_owned())
-        } else {
-            None
-        };
-        if let Some(note) = note {
-            ui.add_space(10.0);
-            a11y::live(&widgets::muted(ui, note));
-        }
-        let heading = if self.showing_hits() {
-            "Results"
-        } else {
-            "Recently changed"
-        };
-        widgets::group_label(ui, heading);
-        if !self.showing_hits() && self.recent.is_empty() {
-            widgets::muted(ui, "Nothing indexed yet.");
-            return;
-        }
-        let selected = self.selected.as_ref().map(|h| h.path.clone());
-        let mut clicked = None;
-        widgets::page_scroll(ui, "the files", f32::INFINITY, |ui| {
-            a11y::list_box(ui, "Files");
-            ui.spacing_mut().item_spacing.y = 2.0;
-            for (i, hit) in self.listed().iter().enumerate() {
-                let chosen = selected.as_ref() == Some(&hit.path);
-                let faded = hit.kind == Kind::Image;
-                // vinoSearch describes a hit as "dir:line  snippet"; a recent file is
-                // "dir  Changed ... ago".
-                let sub = match hit.kind {
-                    Kind::Image => "Image · nothing to read".to_owned(),
-                    _ => hit
-                        .description
-                        .split_once("  ")
-                        .map_or(hit.description.clone(), |(place, detail)| {
-                            format!("{place} · {}", detail.trim())
-                        }),
-                };
-                let bg = ui.painter().add(egui::Shape::Noop);
-                let shown = egui::Frame::new()
-                    .inner_margin(Margin::symmetric(10, 9))
-                    .corner_radius(10.0)
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal_top(|ui| {
-                            ui.spacing_mut().item_spacing.x = 10.0;
-                            match hit.kind {
-                                Kind::Text | Kind::Document => {
-                                    file_tile::file(ui, Format::of(&hit.path), 30.0)
-                                }
-                                Kind::Image => widgets::file_tile(ui, Icon::Image, 30.0),
-                                // As vinoSearch shows one; Icon::Sessions is drawn as FileText.
-                                Kind::Session { .. } => vino_ui::logo::whisper(ui, 30.0),
-                            };
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = 1.0;
-                                let name = RichText::new(&hit.name).family(if faded {
-                                    theme::medium()
-                                } else {
-                                    theme::semibold()
-                                });
-                                ui.add(
-                                    egui::Label::new(if faded {
-                                        name.color(p.muted)
-                                    } else {
-                                        name
-                                    })
-                                    .truncate()
-                                    .selectable(false),
-                                );
-                                ui.add(
-                                    egui::Label::new(RichText::new(&sub).size(12.5).color(p.muted))
-                                        .truncate()
-                                        .selectable(false),
-                                );
-                            });
-                        });
-                    });
-                let rect = shown.response.rect;
-                let response = ui.interact(rect, ui.scope_id().with(i), Sense::click());
-                if chosen {
-                    ui.painter()
-                        .set(bg, egui::Shape::rect_filled(rect, 10.0, p.tint));
-                    ui.painter().rect_stroke(
-                        rect,
-                        10.0,
-                        Stroke::new(1.0_f32, p.accent),
-                        egui::StrokeKind::Inside,
-                    );
-                } else if response.hovered() {
-                    ui.painter()
-                        .set(bg, egui::Shape::rect_filled(rect, 10.0, p.field));
-                }
-                if response.has_focus() {
-                    ui.painter().rect_stroke(
-                        rect,
-                        10.0,
-                        Stroke::new(2.0_f32, p.accent),
-                        egui::StrokeKind::Inside,
-                    );
-                }
-                a11y::list_box_option(&response, &format!("{}, {sub}", hit.name), chosen);
-                if response.clicked() {
-                    clicked = Some(hit.clone());
-                }
-            }
-        });
-        if let Some(hit) = clicked {
-            self.select(ui.ctx(), hit);
-        }
-    }
-
-    /// Voices by name, under a heading per accent.
-    fn voice_picker(&mut self, ui: &mut egui::Ui) {
-        let p = theme::palette(ui.ctx());
-        let v = self.voice.clone();
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
-            icons::icon(ui, Icon::Voice, 14.0, p.muted);
-            let shown = widgets::combo(ui, "voice", format!("{} · {}", v.name, v.gender), 170.0)
-                .show_ui(ui, |ui| {
-                    ui.set_min_width(220.0);
-                    let mut accent = "";
-                    for voice in &self.voices {
-                        if voice.accent != accent {
-                            accent = voice.accent;
-                            ui.add_space(4.0);
-                            ui.label(
-                                RichText::new(accent.to_uppercase())
-                                    .size(11.0)
-                                    .family(theme::semibold())
-                                    .color(p.muted),
-                            );
-                        }
-                        let label = format!("{}  ·  {}", voice.name, voice.gender);
-                        ui.selectable_value(&mut self.voice, voice.clone(), label);
-                    }
-                });
-            ui.ctx()
-                .accesskit_node_builder(shown.response.id, |node| node.set_label("Voice"));
-            shown
-                .response
-                .on_hover_text(format!("{}, {} ({})", v.accent, v.gender, v.id));
-        });
-    }
-
-    /// Where speech plays. A change applies from the next Read aloud.
-    fn output_picker(&mut self, ui: &mut egui::Ui) {
-        let p = theme::palette(ui.ctx());
-        let describe = |name: &str| {
-            self.outputs
-                .iter()
-                .find(|o| o.name == name)
-                .map_or_else(|| name.to_owned(), |o| o.description.clone())
-        };
-        let default = match &self.default_output {
-            Some(name) => format!("Default ({})", describe(name)),
-            None => "Default output".to_owned(),
-        };
-        let selected = self.output.as_deref().map_or(default.clone(), describe);
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
-            icons::icon(ui, Icon::Speaker, 14.0, p.muted);
-            let shown = widgets::combo(ui, "output", selected, 200.0).show_ui(ui, |ui| {
-                ui.selectable_value(&mut self.output, None, default);
-                for o in &self.outputs {
-                    ui.selectable_value(&mut self.output, Some(o.name.clone()), &o.description);
-                }
-            });
-            ui.ctx()
-                .accesskit_node_builder(shown.response.id, |node| node.set_label("Output"));
-            shown
-                .response
-                .on_hover_text("Where speech plays, from the next Read aloud");
-        });
-    }
-
-    /// The player: the round button, what it is doing, and the voice, speed
-    /// and output choices after it.
-    fn player(&mut self, ui: &mut egui::Ui, hit: &Hit) {
-        let p = theme::palette(ui.ctx());
-        let readable = matches!(self.preview, Some(Ok(_)));
-        let speaking_this = self.reading.as_ref().is_some_and(|r| r.file == hit.path);
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(12.0, 8.0);
-            if speaking_this {
-                if round_button(ui, Icon::Stop, "Stop", p.text, p.bg, true).clicked() {
-                    self.stop_reading();
-                }
-                let secs = self
-                    .reading
-                    .as_ref()
-                    .map_or(0, |r| r.started.elapsed().as_secs());
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    let shown = ui.label(RichText::new("Speaking").family(theme::semibold()));
-                    a11y::decorative(ui, shown.id);
-                    let elapsed = ui.label(
-                        RichText::new(format!("{}:{:02}", secs / 60, secs % 60))
-                            .size(12.5)
-                            .color(p.muted),
-                    );
-                    a11y::decorative(ui, elapsed.id);
-                });
-            } else {
-                if round_button(
-                    ui,
-                    Icon::Play,
-                    "Read aloud",
-                    p.primary_fill,
-                    p.primary_text,
-                    readable,
-                )
-                .clicked()
-                {
-                    let ctx = ui.ctx().clone();
-                    self.read_aloud(&ctx);
-                }
-                let shown = ui.label(RichText::new("Read aloud").family(theme::semibold()));
-                a11y::decorative(ui, shown.id);
-            }
-            ui.add_space(8.0);
-            self.voice_picker(ui);
-            let mut speed = self.speed;
-            if widgets::segmented(ui, "Speed", &mut speed, &SPEEDS) {
-                self.speed = speed;
-            }
-            self.output_picker(ui);
-        });
-    }
-
-    fn reader(&mut self, ui: &mut egui::Ui) {
-        let p = theme::palette(ui.ctx());
-        let Some(hit) = self.selected.clone() else {
-            ui.add_space(60.0);
-            ui.vertical_centered(|ui| {
-                widgets::muted(ui, "Pick a file to hear it.");
-            });
-            return;
-        };
-        egui::Frame::NONE
-            .inner_margin(Margin {
-                left: 32,
-                right: 32,
-                top: 20,
-                bottom: 16,
-            })
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.spacing_mut().item_spacing.y = 2.0;
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 10.0;
-                    let title = ui.add(
-                        egui::Label::new(RichText::new(&hit.name).size(22.0).family(theme::bold()))
-                            .truncate(),
-                    );
-                    a11y::heading(&title, &hit.name, 2);
-                    match hit.kind {
-                        Kind::Document => drop(widgets::tag(ui, Tone::Neutral, "Document")),
-                        Kind::Session { .. } => drop(widgets::tag(ui, Tone::Neutral, "Session")),
-                        _ => {}
-                    }
-                });
-                ui.add(
-                    egui::Label::new(
-                        RichText::new(hit.path.display().to_string())
-                            .monospace()
-                            .color(p.muted),
-                    )
-                    .truncate(),
-                )
-                .on_hover_text(hit.path.display().to_string());
-                ui.add_space(12.0);
-                self.player(ui, &hit);
-            });
-        let rect = ui.max_rect();
-        ui.painter().hline(
-            rect.x_range(),
-            ui.cursor().top(),
-            Stroke::new(1.0_f32, p.rule),
-        );
-
-        egui::Frame::NONE
-            .inner_margin(Margin {
-                left: 32,
-                right: 0,
-                top: 20,
-                bottom: 0,
-            })
-            .show(ui, |ui| {
-                if let Kind::Session { summarised } = hit.kind {
-                    self.part_toggle(ui, summarised);
-                    ui.add_space(12.0);
-                }
-                self.text(ui, &hit);
-            });
-    }
-
-    /// Summary or Transcript, for a session. Without a summary the toggle
-    /// stays on Transcript, disabled: vino-ui's segmented can't disable one
-    /// option alone.
-    fn part_toggle(&mut self, ui: &mut egui::Ui, summarised: bool) {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 10.0;
-            let mut part = self.part;
-            let changed = ui
-                .add_enabled_ui(summarised, |ui| {
-                    widgets::segmented(ui, "Part", &mut part, &PARTS)
-                })
-                .inner;
-            if !summarised {
-                widgets::muted(ui, "Not summarised yet");
-            }
-            if changed {
-                self.part = part;
-                self.load_preview(ui.ctx());
-            }
-        });
-    }
-
-    fn text(&self, ui: &mut egui::Ui, hit: &Hit) {
-        let p = theme::palette(ui.ctx());
-        match (&hit.kind, &self.preview) {
-            (Kind::Image, _) => {
-                widgets::muted(ui, "An image has no text to read.");
-            }
-            (Kind::Document, None) => {
-                a11y::live(&widgets::muted(ui, "Getting the text from vinoSearch…"));
-            }
-            (_, None) => {
-                a11y::live(&widgets::muted(ui, "Preparing the text…"));
-            }
-            (_, Some(Err(e))) => {
-                a11y::live(&widgets::muted(ui, format!("Can't read this file: {e}")));
-            }
-            (_, Some(Ok(preview))) if preview.paragraphs.is_empty() => {
-                widgets::muted(ui, "This file has no text to read (a scan?).");
-            }
-            (_, Some(Ok(preview))) => {
-                widgets::page_scroll(ui, "the text", MEASURE, |ui| {
-                    ui.spacing_mut().item_spacing.y = 12.0;
-                    for para in &preview.paragraphs {
-                        let mut job = egui::text::LayoutJob::default();
-                        job.wrap.max_width = ui.available_width();
-                        let (color, italics) = if para == "Code skipped." {
-                            (p.muted, true)
-                        } else {
-                            (p.text, false)
-                        };
-                        job.append(
-                            para,
-                            0.0,
-                            egui::TextFormat {
-                                font_id: egui::FontId::proportional(15.0),
-                                color,
-                                italics,
-                                line_height: Some(25.0),
-                                ..Default::default()
-                            },
-                        );
-                        ui.add(egui::Label::new(job).wrap());
-                    }
-                });
-            }
-        }
-    }
-}
-
-/// A round 44 px button with an icon, named for a screen reader.
-fn round_button(
-    ui: &mut egui::Ui,
-    icon: Icon,
-    name: &str,
-    fill: Color32,
-    color: Color32,
-    enabled: bool,
-) -> egui::Response {
-    let p = theme::palette(ui.ctx());
-    let (rect, response) = ui.allocate_exact_size(
-        egui::vec2(44.0, 44.0),
-        if enabled {
-            Sense::click()
-        } else {
-            Sense::hover()
-        },
-    );
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, name));
-    if ui.is_rect_visible(rect) {
-        let fade = |c: Color32| if enabled { c } else { c.gamma_multiply(0.45) };
-        let fill = if response.hovered() && enabled {
-            fill.lerp_to_gamma(p.text, 0.08)
-        } else {
-            fill
-        };
-        let painter = ui.painter();
-        painter.circle_filled(rect.center(), 22.0, fade(fill));
-        // Filled, as the board draws them: the play triangle and the stop square.
-        let k = 18.0 / 24.0;
-        let at = |x: f32, y: f32| rect.center() + egui::vec2((x - 12.0) * k, (y - 12.0) * k);
-        let shape = match icon {
-            Icon::Play => egui::Shape::convex_polygon(
-                vec![at(9.0, 5.0), at(20.0, 12.0), at(9.0, 19.0)],
-                fade(color),
-                Stroke::NONE,
-            ),
-            _ => egui::Shape::rect_filled(
-                egui::Rect::from_min_max(at(6.5, 6.5), at(17.5, 17.5)),
-                2.0,
-                fade(color),
-            ),
-        };
-        painter.add(shape);
-        if response.has_focus() {
-            painter.circle_stroke(rect.center(), 25.0, Stroke::new(2.0_f32, p.accent));
-        }
-    }
-    response.on_hover_text(name)
-}
-
-impl eframe::App for App {
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
-        vino_ui::input::faster_touchpad(raw);
-    }
-
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = &ui.ctx().clone();
-        let focused = ctx.input(|input| input.focused);
-        if focused && !self.focused {
-            theme::follow_desktop(ctx);
-            self.kde_header = theme::kde_header();
-            self.follow_text_scale(ctx, theme::desktop_text_scale());
-        }
-        self.focused = focused;
-        self.show(ui);
-        if self.app_title_bar {
-            vino_ui::window::edges(ui);
-        }
-    }
-}
-
-impl App {
     /// One frame of the window; the tests drive this without eframe.
     pub fn show(&mut self, root: &mut egui::Ui) {
         let ctx = &root.ctx().clone();
@@ -1200,43 +208,22 @@ impl App {
             self.load_recent(ctx);
         }
         self.receive(ctx);
-        if let Some(edited) = self.edited {
-            let ready = edited.elapsed() >= DEBOUNCE;
-            if ready {
-                self.edited = None;
-                let query = self.query.trim();
-                if query.chars().count() >= MIN_QUERY_CHARS && query != self.searched {
-                    self.search(ctx);
-                }
-            } else {
-                ctx.request_repaint_after(DEBOUNCE - edited.elapsed());
-            }
-        }
+        self.search_when_typing_pauses(ctx);
         self.poll_reading(ctx);
         ctx.accesskit_node_builder(egui::accesskit_root_id(), |node| {
             node.set_label("vinoSpeak")
         });
 
-        let p = theme::palette(ctx);
-        let header = theme::header(ctx, self.kde_header.as_ref(), self.focused);
-        egui::Panel::top("header")
-            .show_separator_line(false)
-            .frame(widgets::header_frame(header, p).inner_margin(Margin {
-                left: HEADER_INSET as i8,
-                // The window's buttons go up in the corner.
-                right: if self.app_title_bar {
-                    vino_ui::window::BAR_GAP as i8
-                } else {
-                    HEADER_INSET as i8
-                },
-                top: if self.app_title_bar {
-                    vino_ui::window::BAR_GAP as i8
-                } else {
-                    HEADER_TOP as i8
-                },
-                bottom: 12,
-            }))
-            .show(root, |ui| self.header(ui, header));
+        self.header_panel(root);
+        self.status_bar(root);
+        self.results_panel(root);
+        self.reader_or_about(root);
+        self.capture(ctx);
+    }
+
+    /// The line along the bottom: what last happened, or which vinospeak speaks.
+    fn status_bar(&self, root: &mut egui::Ui) {
+        let p = theme::palette(root.ctx());
         egui::Panel::bottom("status")
             .show_separator_line(false)
             .frame(
@@ -1258,21 +245,10 @@ impl App {
                 };
                 a11y::live(&shown);
             });
-        egui::Panel::left("results")
-            .resizable(true)
-            .show_separator_line(false)
-            .default_size(320.0)
-            .size_range(260.0..=560.0)
-            .frame(egui::Frame::NONE.fill(p.surface).inner_margin(Margin {
-                left: 10,
-                right: 0,
-                top: 0,
-                bottom: 12,
-            }))
-            .show(root, |ui| {
-                self.results(ui);
-                widgets::panel_rule(ui, widgets::Edge::Left);
-            });
+    }
+
+    fn reader_or_about(&mut self, root: &mut egui::Ui) {
+        let p = theme::palette(root.ctx());
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(p.bg))
             .show(root, |ui| {
@@ -1289,9 +265,27 @@ impl App {
                     self.reader(ui);
                 }
             });
-        self.capture(ctx);
     }
 }
 
-#[cfg(test)]
-mod tests;
+impl eframe::App for App {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        vino_ui::input::faster_touchpad(raw);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = &ui.ctx().clone();
+        let focused = ctx.input(|input| input.focused);
+        let regained_focus = focused && !self.focused;
+        if regained_focus {
+            theme::follow_desktop(ctx);
+            self.kde_header = theme::kde_header();
+            self.follow_text_scale(ctx, theme::desktop_text_scale());
+        }
+        self.focused = focused;
+        self.show(ui);
+        if self.app_title_bar {
+            vino_ui::window::edges(ui);
+        }
+    }
+}
