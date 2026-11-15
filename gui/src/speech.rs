@@ -3,11 +3,16 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+
+use crate::voices::Voice;
+
+/// What a failure to start vinospeak is put down to.
+pub const NOT_RUNNABLE: &str = "running vinospeak (uv tool install vinospeak)";
 
 /// How long the worker has to stop a reading, or to exit, before it is killed.
 pub const STOP_GRACE: Duration = Duration::from_secs(2);
@@ -87,7 +92,7 @@ pub fn preview(vinospeak: &Path, source: &Source) -> Result<String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("running vinospeak (uv tool install vinospeak)")?;
+        .context(NOT_RUNNABLE)?;
     feed(&mut child, source);
     let out = child.wait_with_output()?;
     if !out.status.success() {
@@ -121,7 +126,8 @@ pub fn paragraphs(text: &str) -> Vec<String> {
     out
 }
 
-fn last_line(stderr: &str) -> String {
+/// The last thing vinospeak said on stderr, without argparse's prefix.
+pub fn last_line(stderr: &str) -> String {
     let line = stderr
         .lines()
         .rev()
@@ -174,6 +180,37 @@ fn event(line: &str) -> Option<Event> {
     })
 }
 
+/// Send each event the worker prints, then `Exited` with its last words on
+/// stderr once stdout closes; `wake` is called after each.
+fn forward_events(
+    stdout: Option<ChildStdout>,
+    mut stderr: Option<ChildStderr>,
+    tx: mpsc::Sender<Event>,
+    wake: impl Fn() + Send + 'static,
+) {
+    // Read whole, so a chatty stderr can't fill its pipe and stall the worker.
+    let stderr = std::thread::spawn(move || {
+        let mut text = String::new();
+        if let Some(pipe) = &mut stderr {
+            let _ = pipe.read_to_string(&mut text);
+        }
+        text
+    });
+    std::thread::spawn(move || {
+        if let Some(stdout) = stdout {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if let Some(event) = event(&line) {
+                    let _ = tx.send(event);
+                    wake();
+                }
+            }
+        }
+        let stderr = stderr.join().unwrap_or_default();
+        let _ = tx.send(Event::Exited(last_line(&stderr)));
+        wake();
+    });
+}
+
 /// `vinospeak --serve`: one process for the window's lifetime that keeps
 /// the model loaded, so only the first reading pays for loading and
 /// compiling it (vinoSpeak#39).
@@ -198,30 +235,9 @@ impl Worker {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .context("running vinospeak (uv tool install vinospeak)")?;
-        let (stdout, mut stderr) = (child.stdout.take(), child.stderr.take());
+            .context(NOT_RUNNABLE)?;
         let (tx, events) = mpsc::channel();
-        // Read whole, so a chatty stderr can't fill its pipe and stall the worker.
-        let stderr = std::thread::spawn(move || {
-            let mut text = String::new();
-            if let Some(pipe) = &mut stderr {
-                let _ = pipe.read_to_string(&mut text);
-            }
-            text
-        });
-        std::thread::spawn(move || {
-            if let Some(stdout) = stdout {
-                for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                    if let Some(event) = event(&line) {
-                        let _ = tx.send(event);
-                        wake();
-                    }
-                }
-            }
-            let stderr = stderr.join().unwrap_or_default();
-            let _ = tx.send(Event::Exited(last_line(&stderr)));
-            wake();
-        });
+        forward_events(child.stdout.take(), child.stderr.take(), tx, wake);
         Ok(Self {
             stdin: child.stdin.take(),
             child,
@@ -291,176 +307,6 @@ pub struct Reading {
     pub stop_sent: Option<Instant>,
 }
 
-/// A sound output, as PipeWire (through pipewire-pulse) or PulseAudio
-/// names it.
-#[derive(Clone, PartialEq)]
-pub struct Output {
-    /// The sink name vinospeak's `--audio-device` takes.
-    pub name: String,
-    pub description: String,
-}
-
-/// The desktop's sound outputs, and the default one's name. Empty when
-/// `pactl` isn't there, which leaves only the default.
-pub fn outputs() -> (Vec<Output>, Option<String>) {
-    let run = |args: &[&str]| {
-        Command::new("pactl")
-            .args(args)
-            .stderr(Stdio::null())
-            .output()
-            .ok()
-            .filter(|out| out.status.success())
-            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-    };
-    let sinks = run(&["-f", "json", "list", "sinks"])
-        .map(|json| parse_sinks(&json))
-        .unwrap_or_default();
-    let default = run(&["get-default-sink"]).map(|name| name.trim().to_owned());
-    (sinks, default)
-}
-
-fn parse_sinks(json: &str) -> Vec<Output> {
-    let Ok(serde_json::Value::Array(sinks)) = serde_json::from_str(json) else {
-        return Vec::new();
-    };
-    sinks
-        .iter()
-        .filter_map(|sink| {
-            let name = sink.get("name")?.as_str()?.to_owned();
-            let description = sink
-                .get("description")
-                .and_then(|d| d.as_str())
-                .unwrap_or(&name)
-                .to_owned();
-            Some(Output { name, description })
-        })
-        .collect()
-}
-
-/// A Kokoro voice. Its id says the rest: `af_heart` is an American English
-/// (a) female (f) voice called Heart.
-#[derive(Clone, PartialEq)]
-pub struct Voice {
-    pub id: String,
-    pub name: String,
-    pub accent: &'static str,
-    pub gender: &'static str,
-    /// What vinospeak's `--language` takes for it.
-    pub language: &'static str,
-}
-
-/// Kokoro's language letters, in the order the picker groups them. Japanese
-/// (j) and Mandarin (z) are left out: vinospeak has no language for them.
-const ACCENTS: &[(char, &str, &str)] = &[
-    ('a', "American English", "en-us"),
-    ('b', "British English", "en-gb"),
-    ('e', "Spanish", "es"),
-    ('f', "French", "fr-fr"),
-    ('h', "Hindi", "hi"),
-    ('i', "Italian", "it"),
-    ('p', "Brazilian Portuguese", "pt-br"),
-];
-
-pub fn voice(id: &str) -> Option<Voice> {
-    let mut letters = id.chars();
-    let (accent, gender) = (letters.next()?, letters.next()?);
-    let name = id.get(3..).filter(|_| id.get(2..3) == Some("_"))?;
-    let &(_, accent, language) = ACCENTS.iter().find(|(c, _, _)| *c == accent)?;
-    let gender = match gender {
-        'f' => "female",
-        'm' => "male",
-        _ => return None,
-    };
-    let name = name
-        .split('_')
-        .map(|word| {
-            let mut c = word.chars();
-            c.next()
-                .map_or_else(String::new, |first| first.to_uppercase().chain(c).collect())
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
-    Some(Voice {
-        id: id.to_owned(),
-        name,
-        accent,
-        gender,
-        language,
-    })
-}
-
-/// Where vinospeak keeps the model it downloaded and OpenVINO's compiled
-/// copy, as vino_speak/model.py's `cache_dir()` has it.
-pub fn cache_dir() -> Option<PathBuf> {
-    std::env::var_os("XDG_CACHE_HOME")
-        .filter(|d| !d.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".cache")))
-        .map(|c| c.join("vinospeak"))
-}
-
-/// Bytes in the files under `path`, not following links; 0 when it isn't there.
-pub fn disk_usage(path: &Path) -> u64 {
-    let Ok(entries) = std::fs::read_dir(path) else {
-        return 0;
-    };
-    entries
-        .filter_map(Result::ok)
-        .map(|e| match e.file_type() {
-            Ok(t) if t.is_dir() => disk_usage(&e.path()),
-            Ok(t) if t.is_file() => e.metadata().map_or(0, |m| m.len()),
-            _ => 0,
-        })
-        .sum()
-}
-
-/// A size as people say it: 163 MB, 1.2 GB.
-pub fn size(bytes: u64) -> String {
-    match bytes {
-        1_000_000_000.. => format!("{:.1} GB", bytes as f64 / 1e9),
-        1_000_000.. => format!("{} MB", (bytes as f64 / 1e6).round()),
-        _ => format!("{} kB", (bytes as f64 / 1e3).round()),
-    }
-}
-
-/// `vinospeak --delete-model`: what it said it deleted, or why it couldn't.
-pub fn delete_model(vinospeak: &Path) -> Result<String> {
-    let out = Command::new(vinospeak)
-        .arg("--delete-model")
-        .stdin(Stdio::null())
-        .output()
-        .context("running vinospeak (uv tool install vinospeak)")?;
-    if !out.status.success() {
-        bail!("{}", last_line(&String::from_utf8_lossy(&out.stderr)));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
-}
-
-/// Kokoro's voices that vinospeak can speak, from the model it downloaded,
-/// grouped by accent, women then men, by name.
-pub fn voices() -> Vec<Voice> {
-    voices_in(cache_dir().as_deref())
-}
-
-/// The voices in the model under `cache`, or Heart alone when there's none yet.
-pub fn voices_in(cache: Option<&Path>) -> Vec<Voice> {
-    let mut voices: Vec<Voice> = cache
-        .and_then(|c| std::fs::read_dir(c.join("kokoro-82m-int8-ov/voices")).ok())
-        .into_iter()
-        .flatten()
-        .filter_map(|e| {
-            let file = e.ok()?.file_name().into_string().ok()?;
-            voice(file.strip_suffix(".bin")?)
-        })
-        .collect();
-    let rank = |v: &Voice| ACCENTS.iter().position(|a| a.1 == v.accent);
-    voices.sort_by(|a, b| (rank(a), a.gender, &a.name).cmp(&(rank(b), b.gender, &b.name)));
-    if voices.is_empty() {
-        voices.extend(voice("af_heart"));
-    }
-    voices
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -469,44 +315,6 @@ mod tests {
     fn paragraphs_join_their_lines_and_drop_blank_runs() {
         let text = "\n\nTitle.\n\n\nOne line\nand the next.\n\n";
         assert_eq!(paragraphs(text), ["Title.", "One line and the next."]);
-    }
-
-    #[test]
-    fn voice_ids_become_names() {
-        let v = voice("af_heart").unwrap();
-        assert_eq!(
-            (v.name.as_str(), v.accent, v.gender, v.language),
-            ("Heart", "American English", "female", "en-us")
-        );
-        let v = voice("bm_george").unwrap();
-        assert_eq!(
-            (v.accent, v.gender, v.language),
-            ("British English", "male", "en-gb")
-        );
-        assert_eq!(voice("pm_alex").unwrap().language, "pt-br");
-        assert_eq!(voice("af_two_words").unwrap().name, "Two Words");
-        assert!(voice("jf_alpha").is_none(), "no Japanese in vinospeak");
-        assert!(voice("zm_yunxi").is_none(), "no Mandarin in vinospeak");
-        assert!(voice("ax_odd").is_none());
-        assert!(voice("af").is_none());
-    }
-
-    #[test]
-    fn sinks_come_from_pactl_json() {
-        let json =
-            r#"[{"index":1,"name":"hdmi_sink","description":"HDMI 1"},{"name":"bare"},{"x":1}]"#;
-        let names: Vec<_> = parse_sinks(json)
-            .into_iter()
-            .map(|o| (o.name, o.description))
-            .collect();
-        assert_eq!(
-            names,
-            [
-                ("hdmi_sink".to_owned(), "HDMI 1".to_owned()),
-                ("bare".to_owned(), "bare".to_owned())
-            ]
-        );
-        assert!(parse_sinks("not json").is_empty());
     }
 
     #[test]
@@ -532,24 +340,6 @@ mod tests {
         );
         assert_eq!(event(r#"{"event": "started", "id": 2}"#), None);
         assert_eq!(event("Traceback (most recent call last):"), None);
-    }
-
-    #[test]
-    fn sizes_read_as_people_say_them() {
-        assert_eq!(size(999), "1 kB");
-        assert_eq!(size(163_400_000), "163 MB");
-        assert_eq!(size(1_260_000_000), "1.3 GB");
-    }
-
-    #[test]
-    fn disk_usage_adds_up_a_tree_and_an_absent_one_is_empty() {
-        let dir = std::env::temp_dir().join(format!("vinospeak-du-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("a/b")).unwrap();
-        std::fs::write(dir.join("one"), [0; 10]).unwrap();
-        std::fs::write(dir.join("a/b/two"), [0; 5]).unwrap();
-        assert_eq!(disk_usage(&dir), 15);
-        std::fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(disk_usage(&dir), 0);
     }
 
     #[test]

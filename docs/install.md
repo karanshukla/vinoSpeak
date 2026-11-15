@@ -13,6 +13,12 @@ It checks the latest release's wheel against its `SHA256SUMS` and installs it
 with [uv](https://docs.astral.sh/uv/), fetching uv itself (hash-pinned) if you
 don't have it. Add `-s -- --gui` after `bash` for the window too.
 
+It installs with uv's own Python (`UV_PYTHON_PREFERENCE=only-managed`), not
+`/usr/bin`'s: on Fedora 43+ the system Python is 3.14 too, and an image
+upgrade to 3.15 would leave the tool's venv pointing at nothing. It is the
+environment variable, not `--managed-python`, so an older uv already on your
+`PATH` still runs it.
+
 | To | Run |
 |---|---|
 | Upgrade | `vinospeak-upgrade`, or **Check for updates** on the window's About page |

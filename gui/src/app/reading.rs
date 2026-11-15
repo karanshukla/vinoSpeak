@@ -1,0 +1,184 @@
+//! Reading aloud: the `vinospeak --serve` worker, the one reading it has
+//! under way, and what its events do to the window.
+
+use std::time::{Duration, Instant};
+
+use eframe::egui;
+
+use super::App;
+use crate::speech::{self, Event, Reading, Worker};
+
+/// How a reading ended.
+#[derive(Debug, PartialEq)]
+enum Ended {
+    Finished,
+    Failed(String),
+}
+
+/// The status line for a reading that ended; `file` is None when the worker
+/// reported with no reading under way.
+fn ended_status(file: Option<String>, ended: Ended) -> String {
+    match (file, ended) {
+        (Some(file), Ended::Finished) => format!("Finished {file}"),
+        (Some(file), Ended::Failed(why)) => format!("Couldn't read {file}: {why}"),
+        (None, Ended::Failed(why)) => format!("vinospeak: {why}"),
+        (None, Ended::Finished) => String::new(),
+    }
+}
+
+fn file_name(reading: &Reading) -> String {
+    reading
+        .file
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn debug_first_audio(reading: &Reading, ms_in_vinospeak: u64) {
+    if std::env::var_os("VINOSPEAK_GUI_DEBUG").is_some() {
+        let since = reading.started.elapsed().as_millis();
+        eprintln!("first audio {since} ms after Read aloud ({ms_in_vinospeak} ms in vinospeak)");
+    }
+}
+
+impl App {
+    /// The worker, loading the model while the user looks at the preview.
+    pub(super) fn start_worker(&mut self, ctx: &egui::Context) {
+        if self.worker.is_some() || self.model.deleting {
+            return;
+        }
+        let ctx = ctx.clone();
+        match Worker::start(&self.vinospeak, move || ctx.request_repaint()) {
+            Ok(worker) => self.worker = Some(worker),
+            Err(e) => self.status = format!("{e:#}"),
+        }
+    }
+
+    /// Read the previewed text; the worker stops whatever it was reading first.
+    pub(super) fn read_aloud(&mut self, ctx: &egui::Context) {
+        if self.model.deleting {
+            self.status = "Deleting the model; read it once that's done.".to_owned();
+            return;
+        }
+        self.start_worker(ctx);
+        let (Some(hit), Some(Ok(preview)), Some(worker)) =
+            (&self.selected, &self.preview, &mut self.worker)
+        else {
+            return;
+        };
+        match worker.speak(
+            &preview.text,
+            &self.voice,
+            self.speed,
+            self.output.as_deref(),
+        ) {
+            Ok(id) => {
+                self.status = format!("Speaking {}", hit.name);
+                self.reading = Some(Reading {
+                    id,
+                    file: hit.path.clone(),
+                    started: Instant::now(),
+                    stop_sent: None,
+                });
+            }
+            Err(e) => {
+                self.status = format!("{e:#}");
+                self.worker = None;
+            }
+        }
+    }
+
+    pub(super) fn stop_reading(&mut self) {
+        if let (Some(reading), Some(worker)) = (&mut self.reading, &mut self.worker)
+            && reading.stop_sent.is_none()
+        {
+            reading.stop_sent = Some(Instant::now());
+            if worker.stop().is_err() {
+                self.worker = None;
+            }
+        }
+    }
+
+    pub(super) fn poll_reading(&mut self, ctx: &egui::Context) {
+        let events = self.worker.as_ref().map(Worker::events).unwrap_or_default();
+        let current = self.reading.as_ref().map(|r| r.id);
+        for event in events {
+            if let Some(ended) = self.take_event(event, current) {
+                let file = self.reading.take().as_ref().map(file_name);
+                self.status = ended_status(file, ended);
+            }
+        }
+        self.drop_a_worker_that_ignores_stop();
+        if self.reading.is_some() {
+            ctx.request_repaint_after(Duration::from_millis(250));
+        }
+    }
+
+    /// Apply one worker event; how the reading with id `current` ended, if
+    /// this event ends it.
+    fn take_event(&mut self, event: Event, current: Option<u64>) -> Option<Ended> {
+        match event {
+            Event::Ready => {
+                self.model_may_have_been_downloaded();
+                None
+            }
+            Event::FirstAudio { id, ms } => {
+                if let Some(reading) = self.reading.as_ref().filter(|r| r.id == id) {
+                    debug_first_audio(reading, ms);
+                }
+                None
+            }
+            Event::Done { id } if Some(id) == current => Some(Ended::Finished),
+            Event::Error { id, message } if id.is_none() || id == current => {
+                Some(Ended::Failed(message))
+            }
+            Event::Exited(message) => {
+                self.worker = None;
+                // A worker that died idle is started again by the next Read aloud.
+                current.map(|_| Ended::Failed(message))
+            }
+            Event::Done { .. } | Event::Error { .. } => None,
+        }
+    }
+
+    /// A stop not answered within `STOP_GRACE` ends the reading here; dropping
+    /// the worker kills it, and the next Read aloud starts another.
+    fn drop_a_worker_that_ignores_stop(&mut self) {
+        let Some(reading) = &self.reading else {
+            return;
+        };
+        if reading
+            .stop_sent
+            .is_some_and(|sent| sent.elapsed() > speech::STOP_GRACE)
+        {
+            self.status = format!("Finished {}", file_name(reading));
+            self.reading = None;
+            self.worker = None;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_reading_that_ended_is_named_in_the_status() {
+        let file = || Some("notes.md".to_owned());
+        assert_eq!(ended_status(file(), Ended::Finished), "Finished notes.md");
+        assert_eq!(
+            ended_status(file(), Ended::Failed("boom".to_owned())),
+            "Couldn't read notes.md: boom"
+        );
+    }
+
+    #[test]
+    fn a_failure_with_no_reading_under_way_is_vinospeaks_own() {
+        assert_eq!(
+            ended_status(None, Ended::Failed("no NPU".to_owned())),
+            "vinospeak: no NPU"
+        );
+        assert_eq!(ended_status(None, Ended::Finished), "");
+    }
+}

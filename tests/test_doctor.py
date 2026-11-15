@@ -113,6 +113,12 @@ def test_ovfetch_notes_become_results_and_never_fail(monkeypatch):
     assert all(r.status != doctor.FAIL for r in results)
 
 
+def test_an_ovfetch_note_with_nothing_to_judge_by_is_unknown(monkeypatch):
+    monkeypatch.setattr(ovfetch, "detect", lambda: {"devices": []})
+    (result,) = doctor._ovfetch(has_npu=True)
+    assert result.status == doctor.UNKNOWN
+
+
 def test_json_output_and_exit_status(capsys, monkeypatch):
     monkeypatch.setattr(doctor, "_ovfetch", lambda has_npu: [])
     code = doctor.main(["--json"])

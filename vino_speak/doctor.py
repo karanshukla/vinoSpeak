@@ -86,11 +86,17 @@ def _ovfetch(has_npu: bool) -> list[Result]:
                 f"not installed; `{ovfetch.INSTALL_HINT}` adds Intel's per-platform NPU driver data",
             )
         ]
-    # Its bounds are pessimistic on purpose, so nothing it says is a FAIL.
     return [
-        Result(OK if n.ok else (UNKNOWN if n.ok is None else WARN), n.label, n.detail)
-        for n in ovfetch.notes(status, _distribution("openvino"))
+        Result(_advisory_status(note), note.label, note.detail)
+        for note in ovfetch.notes(status, _distribution("openvino"))
     ]
+
+
+def _advisory_status(note: ovfetch.Note) -> str:
+    """ovfetch's bounds are pessimistic on purpose, so its worst is a WARN."""
+    if note.ok is None:
+        return UNKNOWN
+    return OK if note.ok else WARN
 
 
 def _playback() -> list[Result]:

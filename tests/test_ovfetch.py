@@ -66,6 +66,27 @@ def test_older_than_the_floor_is_a_warning():
     assert "older than 2025.4" in note.detail
 
 
+def test_exactly_the_floor_is_inside_the_range_and_one_minor_under_is_not():
+    at_floor = labelled(ovfetch.notes(status(), "2025.4.0"), "npu: openvino range")
+    assert at_floor.ok is True
+    under = labelled(ovfetch.notes(status(), "2025.3.9"), "npu: openvino range")
+    assert under.ok is False
+
+
+def test_exactly_the_ceiling_is_inside_the_range_and_one_minor_over_is_not():
+    at_ceiling = labelled(ovfetch.notes(status(), "2026.4.9"), "npu: openvino range")
+    assert at_ceiling.ok is True
+    over = labelled(ovfetch.notes(status(), "2026.5.0"), "npu: openvino range")
+    assert over.ok is False
+
+
+def test_a_platform_with_no_floor_is_judged_by_the_ceiling_alone():
+    no_floor = status(platforms=[{"pci_id": "0xfd3e", "codename": "Wildcat Lake"}])
+    note = labelled(ovfetch.notes(no_floor, "2024.1.0"), "npu: openvino range")
+    assert note.ok is True
+    assert "inside up to 2026.4" in note.detail
+
+
 def test_no_recorded_ceiling_is_unknown_not_bad():
     note = labelled(ovfetch.notes(status(openvino_ceiling=None), "2026.4.1"), "npu: openvino range")
     assert note.ok is None

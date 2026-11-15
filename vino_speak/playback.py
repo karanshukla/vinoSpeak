@@ -163,37 +163,43 @@ class Speech:
         return None
 
     def _play(self) -> None:
-        stdin: IO[bytes] | None = None
-        rate = self._sample_rate
         try:
-            if rate is not None and (stdin := self._start(rate)) is None:
-                return
-            first = True
-            while (chunk := self._next()) is not None:
-                if stdin is None:
-                    rate = chunk.sample_rate
-                    stdin = self._start(rate)
-                    if stdin is None:
-                        return
-                if chunk.sample_rate != rate:
-                    raise RuntimeError(
-                        f"Speech came at {chunk.sample_rate} Hz to a player started at {rate} Hz."
-                    )
-                stdin.write(chunk.samples.astype("<f4", copy=False).tobytes())
-                stdin.flush()
-                if first and self._on_first_audio is not None:
-                    self._on_first_audio()
-                first = False
+            self._write_chunks()
         except BrokenPipeError:
             pass  # stop() killed the player
         except BaseException as error:  # noqa: BLE001 - raised again from wait()
             self._error = self._error or error
         finally:
-            self._finish(stdin)
+            self._finish()
             # Releases the synthesis thread from a full queue when no stop() comes.
             self._stopped.set()
 
+    def _write_chunks(self) -> None:
+        """Each chunk into the player, started at the known sample rate or
+        else at the first chunk's, until the audio ends or stop() is called."""
+        rate = self._sample_rate
+        stdin = self._start(rate) if rate is not None else None
+        if rate is not None and stdin is None:
+            return
+        heard = False
+        while (chunk := self._next()) is not None:
+            if stdin is None:
+                rate = chunk.sample_rate
+                stdin = self._start(rate)
+                if stdin is None:
+                    return
+            if chunk.sample_rate != rate:
+                raise RuntimeError(
+                    f"Speech came at {chunk.sample_rate} Hz to a player started at {rate} Hz."
+                )
+            stdin.write(chunk.samples.astype("<f4", copy=False).tobytes())
+            stdin.flush()
+            if not heard and self._on_first_audio is not None:
+                self._on_first_audio()
+            heard = True
+
     def _start(self, sample_rate: int) -> IO[bytes] | None:
+        """The player's stdin, or None when stop() got there first."""
         with self._process_lock:
             if self._stopped.is_set():
                 return None
@@ -202,12 +208,12 @@ class Speech:
             )
             return self._process.stdin
 
-    def _finish(self, stdin: IO[bytes] | None) -> None:
-        if stdin is not None:
-            with contextlib.suppress(BrokenPipeError):
-                stdin.close()
+    def _finish(self) -> None:
         if self._process is None:
             return
+        if self._process.stdin is not None:
+            with contextlib.suppress(BrokenPipeError):
+                self._process.stdin.close()
         status = self._process.wait()
         if status != 0 and not self._stopped.is_set() and self._error is None:
             self._error = RuntimeError(f"{Path(self._player).name} exited with status {status}.")

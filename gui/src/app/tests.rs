@@ -15,8 +15,9 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 
 use super::App;
+use crate::outputs::Output;
 use crate::search::{Hit, Index, Kind};
-use crate::speech::{self, Output};
+use crate::voices;
 use vino_ui::theme;
 
 const FAKE_VINOSPEAK: &str = r#"#!/bin/sh
@@ -196,7 +197,7 @@ fn window_with(
 ) -> Harness<'static, App> {
     let voices = ["af_heart", "bm_george"]
         .into_iter()
-        .filter_map(speech::voice)
+        .filter_map(voices::voice)
         .collect();
     let outputs = vec![Output {
         name: "hdmi_sink".to_owned(),
@@ -411,7 +412,7 @@ fn read_aloud_passes_the_voice_its_language_the_speed_and_the_output() {
     let mut h = window(&scratch, index);
     wait_for(&mut h, "Read me.");
     let state = h.state_mut();
-    state.voice = speech::voice("bm_george").unwrap();
+    state.voice = voices::voice("bm_george").unwrap();
     state.speed = 1.5;
     state.output = Some("hdmi_sink".to_owned());
     h.get_by_role_and_label(Role::Button, "Read aloud").click();

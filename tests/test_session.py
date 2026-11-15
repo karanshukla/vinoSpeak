@@ -107,6 +107,74 @@ def test_an_oversized_part_is_refused_whatever_its_header_claims(tmp_path, monke
         session.load(path)
 
 
+def test_a_part_at_the_cap_is_read_and_one_byte_over_is_refused(tmp_path, monkeypatch):
+    cap = len(json.dumps({"format": session.FORMAT})) + 5
+    monkeypatch.setattr(session, "MAX_PART_BYTES", cap)
+    at_cap = bundle(tmp_path / "at.vwsession", parts={"transcript.txt": "x" * cap})
+    assert session.load(at_cap).transcript == "x" * cap
+    over = bundle(tmp_path / "over.vwsession", parts={"transcript.txt": "x" * (cap + 1)})
+    with pytest.raises(ValueError, match=r"transcript\.txt is too large"):
+        session.load(over)
+
+
+def test_parts_adding_up_to_the_total_are_read_and_one_byte_over_is_refused(tmp_path, monkeypatch):
+    path = bundle(
+        tmp_path / "x.vwsession", parts={"transcript.txt": "x" * 6, "summary.md": "y" * 4}
+    )
+    attestation = len(json.dumps({"format": session.FORMAT}))
+    monkeypatch.setattr(session, "MAX_TOTAL_BYTES", 10 + attestation)
+    assert session.load(path).summary == "y" * 4
+    monkeypatch.setattr(session, "MAX_TOTAL_BYTES", 10 + attestation - 1)
+    with pytest.raises(ValueError, match="too large for a session"):
+        session.load(path)
+
+
+def test_the_total_counts_only_the_parts_a_session_is_read_from(tmp_path, monkeypatch):
+    path = bundle(tmp_path / "x.vwsession", parts={"transcript.txt": "x", "notes.bin": "z" * 500})
+    monkeypatch.setattr(session, "MAX_TOTAL_BYTES", 100)
+    assert session.load(path).transcript == "x"
+
+
+def test_sixteen_entries_are_read_and_seventeen_are_refused(tmp_path):
+    def with_entries(count):
+        extras = {f"extra{i}": "" for i in range(count - 3)}
+        return bundle(tmp_path / f"{count}.vwsession", parts={"transcript.txt": "x", **extras})
+
+    assert session.MAX_ENTRIES == 16
+    assert session.load(with_entries(16)).transcript == "x"
+    with pytest.raises(ValueError, match="too many entries"):
+        session.load(with_entries(17))
+
+
+def test_a_wrong_mimetype_is_reported_before_the_entry_count(tmp_path):
+    path = bundle(
+        tmp_path / "x.vwsession",
+        mimetype=b"application/zip",
+        parts={f"extra{i}": "" for i in range(20)},
+    )
+    with pytest.raises(ValueError, match=r"is not a vinoWhisper session\.$"):
+        session.load(path)
+
+
+def test_an_attestation_that_is_not_an_object_is_refused(tmp_path):
+    path = tmp_path / "x.vwsession"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("mimetype", session.MIMETYPE)
+        archive.writestr("transcript.txt", "x")
+        archive.writestr("attestation.json", "[1]")
+    with pytest.raises(ValueError, match="is a None session"):
+        session.load(path)
+
+
+def test_a_bundle_without_an_attestation_says_so(tmp_path):
+    path = tmp_path / "x.vwsession"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("mimetype", session.MIMETYPE)
+        archive.writestr("transcript.txt", "x")
+    with pytest.raises(ValueError, match=r"has no attestation\.json"):
+        session.load(path)
+
+
 def test_cli_prints_the_part_asked_for(capsys):
     cli.main(["--file", str(SESSION), "--part", "summary", "--print-text"])
     assert capsys.readouterr().out == (FIXTURES / "session_v1.summary.expected").read_text()

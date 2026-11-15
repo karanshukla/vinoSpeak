@@ -1,4 +1,6 @@
+import json
 import time
+from pathlib import Path
 
 import pytest
 
@@ -139,3 +141,9 @@ def test_a_wrapped_text_file_carries_its_sentences_over_lines():
 def test_read_picks_the_kind_by_suffix_unless_told(tmp_path, name, kind, spoken):
     (tmp_path / name).write_text("# Title")
     assert read(tmp_path / name, kind).strip() == spoken
+
+
+def test_a_skipped_code_block_is_said_as_the_window_expects():
+    """gui/src/app/reader.rs sets this paragraph apart, and is tested against the same file."""
+    shared = json.loads((Path(__file__).parent / "fixtures/shared_with_window.json").read_text())
+    assert shared["code_skipped"] == CODE_SKIPPED

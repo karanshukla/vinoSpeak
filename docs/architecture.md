@@ -70,6 +70,18 @@ Zero loader crashed (ovfetch's README, 2026-10-24). A prefix that won't load
 is fatal only when the device asked for is the NPU. `ovfetch.py` is the same
 code as vinoWhisper's on purpose.
 
+## ovfetch
+
+ovfetch's `detect` reports the OpenVINO range Intel records as working with
+this machine's NPU driver. Like vinoWhisper and vinoPop, vinoSpeak only
+reports that range. The bounds are pessimistic on purpose ("untested", not
+"known to fail"), so `vinospeak-doctor` shows them as warnings and nothing
+stops the NPU from being tried.
+
+vinoSpeak runs OpenVINO GenAI from pip (pinned in `pyproject.toml`), not ONNX
+Runtime, so it never runs `ovfetch install`. The one thing pip can't provide
+is the NPU compiler above.
+
 ## The compile cache
 
 Every pipeline is given `CACHE_DIR` (`ov-cache/` beside the model). Without it
@@ -136,6 +148,48 @@ what that does and doesn't protect against.
 - A `--model-dir` that already holds the model files is used as given and
   never deleted.
 
+## Shared with the window
+
+The window (Rust) and `vinospeak` (Python) both look at the model cache, and
+they can't share code. The rule both follow:
+
+- The cache is `$XDG_CACHE_HOME/vinospeak`, or `~/.cache/vinospeak` when that
+  variable is unset or empty. The model is `kokoro-82m-int8-ov/` in it, with
+  its voices in `voices/*.bin`, and OpenVINO's compiled copy is `ov-cache/`.
+- A size on disk is the bytes of the regular files at any depth. A symlink is
+  not followed and not counted.
+- A size is shown in decimal units: one decimal from 1 GB up, whole megabytes
+  from 1 MB up, whole kilobytes under that (`163 MB`, `1.3 GB`, `1 kB`).
+- A fenced code block is read as "Code skipped." (`readable.CODE_SKIPPED`),
+  which the window's reader sets apart from the text around it.
+
+`tests/fixtures/shared_with_window.json` holds the paths, the sizes and that
+sentence, and both sides are tested against it:
+`test_the_cache_is_where_the_window_looks_for_it`,
+`test_sizes_are_shown_as_the_window_shows_them` and
+`test_a_skipped_code_block_is_said_as_the_window_expects` in Python,
+`the_cache_is_where_vinospeak_keeps_it` and
+`sizes_are_shown_as_vinospeak_shows_them` in `gui/src/model_cache.rs`, and
+`the_code_stand_in_is_what_vinospeak_prints_for_a_code_block` in
+`gui/src/app/reader.rs`. The size table has a pair either side of each unit's
+boundary.
+
+The two differ in what they add up. `vinospeak --model-status` lists the
+model and the compiled copy separately; the window's About page shows one
+figure for everything under the cache directory. They also round an exact
+half megabyte differently (Rust away from zero, Python to even), which the
+table stays clear of.
+
+The window walks the cache with `walkdir`, which doesn't follow links unless
+asked. It was already in `Cargo.lock` for another platform's build, so the
+lock gains no package;
+`disk_usage_counts_neither_a_link_nor_what_it_points_to` pins that.
+
+Both size formatters are five lines written by hand. `humansize` (Rust) and
+`humanize` (Python) were looked at on 2026-11-15 and left out: neither gives
+"one decimal for GB, none below" without a branch per unit around the call,
+which is the whole function, and `import vino_speak` has to stay light.
+
 ## Reading markdown
 
 The inline patterns in `readable.py` stop at the next opening delimiter, so
@@ -157,3 +211,13 @@ needn't be installed. The format is vinoWhisper's `docs/sessions.md`. A bundle
 can come from anywhere a file manager opens one, so the sizes in its header
 aren't trusted: reads stop at vinoWhisper's own limits (64 MiB a part, 128 MiB
 in all, 16 entries) whatever the header claims.
+
+`session.load()` checks in this order: the `mimetype` entry is first, stored
+and correct; the entry count; the total of the three parts it reads; then each
+part as it is read. `tests/test_session.py` has a pair either side of each
+limit.
+
+The transcript's "Recorded on 27 October 2026" uses a month list written out
+in `session.py`. `calendar.month_name` would follow the process's locale, and
+a program that embeds vinoSpeak (vinoPop's window) sets one; a German month
+name read by an English voice is worse than twelve literals.
