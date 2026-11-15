@@ -28,7 +28,7 @@ MODEL_FILES = (
     "data/us_gold.json",
 )
 
-_CHUNK = 1 << 20
+_HASH_CHUNK_BYTES = 1 << 20
 
 
 class ModelIntegrityError(RuntimeError):
@@ -66,8 +66,7 @@ def compile_cache_dir() -> Path:
     return cache_dir() / "ov-cache"
 
 
-# Held shared while the default model downloads, and exclusively while it is
-# deleted, so a delete can't pull the files out from under a download.
+# Shared while the default model downloads, exclusive while it is deleted.
 _LOCK = ".lock"
 
 
@@ -114,14 +113,13 @@ def delete_cached() -> int:
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
-        while chunk := handle.read(_CHUNK):
+        while chunk := handle.read(_HASH_CHUNK_BYTES):
             digest.update(chunk)
     return digest.hexdigest()
 
 
-# Written once every file has matched its pinned sha256. Until then a run hashes
-# the whole model, so a download that failed verification is never used just
-# because its files have the right sizes.
+# Written once every file has matched its pinned sha256; without it a run
+# hashes the whole model instead of comparing sizes.
 STAMP = ".vinospeak-verified"
 
 
@@ -170,32 +168,33 @@ def verify(model_dir: Path, pins: Pins | None = None, *, full: bool = True) -> l
     return problems
 
 
-def ensure_model(model_dir: Path, *, trusted: bool = False) -> Path:
-    """Return a usable model directory, downloading the pinned model if needed.
+def _redownload_hint(model_dir: Path) -> str:
+    if model_dir == default_model_dir():
+        return "Run vinospeak --delete-model to download it again."
+    return "Delete the directory to download it again."
 
-    trusted=True is a directory the caller supplied: it only has to hold
-    MODEL_FILES, and its contents are not compared with the pins.
-    """
-    if trusted and model_is_ready(model_dir):
-        return model_dir
 
-    pins = load_pins()
-    if not trusted and model_is_ready(model_dir):
-        stamped = _is_stamped(model_dir, pins)
-        problems = verify(model_dir, pins, full=not stamped)
-        if problems:
-            raise ModelIntegrityError(
-                f"The model in {model_dir} is not the pinned revision ({problems[0]}). "
-                + (
-                    "Run vinospeak --delete-model to download it again."
-                    if model_dir == default_model_dir()
-                    else "Delete the directory to download it again."
-                )
-            )
-        if not stamped:
-            _stamp(model_dir, pins)
-        return model_dir
+def _check_against_pins(model_dir: Path, pins: Pins) -> None:
+    """Sizes only for a stamped model, every hash for one not yet stamped."""
+    stamped = _is_stamped(model_dir, pins)
+    problems = verify(model_dir, pins, full=not stamped)
+    if problems:
+        raise ModelIntegrityError(
+            f"The model in {model_dir} is not the pinned revision ({problems[0]}). "
+            + _redownload_hint(model_dir)
+        )
+    if not stamped:
+        _stamp(model_dir, pins)
 
+
+def _remove_mismatched(model_dir: Path, pins: Pins) -> None:
+    for name, pin in pins.files.items():
+        path = model_dir / name
+        if path.is_file() and _mismatches(path, pin):
+            path.unlink()
+
+
+def _download(model_dir: Path, pins: Pins) -> None:
     try:
         from huggingface_hub import snapshot_download
     except ImportError as error:
@@ -211,15 +210,26 @@ def ensure_model(model_dir: Path, *, trusted: bool = False) -> Path:
         )
     problems = verify(model_dir, pins)
     if problems:
-        # Remove what failed, so the next run downloads it again rather than
-        # finding a model of the right sizes.
-        for name in pins.files:
-            path = model_dir / name
-            if path.is_file() and _mismatches(path, pins.files[name]):
-                path.unlink()
+        _remove_mismatched(model_dir, pins)
         raise ModelIntegrityError(
             f"The download in {model_dir} failed verification: {'; '.join(problems[:3])}. "
             "The files that failed were removed; run again to download them again."
         )
     _stamp(model_dir, pins)
+
+
+def ensure_model(model_dir: Path, *, trusted: bool = False) -> Path:
+    """Return a usable model directory, downloading the pinned model if needed.
+
+    trusted=True is a directory the caller supplied: it only has to hold
+    MODEL_FILES, and its contents are not compared with the pins.
+    """
+    present = model_is_ready(model_dir)
+    if trusted and present:
+        return model_dir
+    pins = load_pins()
+    if present:
+        _check_against_pins(model_dir, pins)
+    else:
+        _download(model_dir, pins)
     return model_dir
