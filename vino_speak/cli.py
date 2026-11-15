@@ -81,12 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def size(n: int) -> str:
-    if n >= 1_000_000_000:
-        return f"{n / 1e9:.1f} GB"
-    if n >= 1_000_000:
-        return f"{n / 1e6:.0f} MB"
-    return f"{n / 1e3:.0f} kB"
+def size(byte_count: int) -> str:
+    if byte_count >= 1_000_000_000:
+        return f"{byte_count / 1e9:.1f} GB"
+    if byte_count >= 1_000_000:
+        return f"{byte_count / 1e6:.0f} MB"
+    return f"{byte_count / 1e3:.0f} kB"
 
 
 def model_status() -> None:
@@ -112,24 +112,25 @@ def delete_model(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    parser = build_parser()
-    arguments = parser.parse_args(argv)
-    if arguments.model_status or arguments.delete_model:
-        others = (arguments.text, arguments.file, arguments.output, arguments.model_dir)
-        if any(o is not None for o in others) or arguments.serve or arguments.print_text:
-            parser.error("--model-status and --delete-model take no other options")
-        if arguments.delete_model:
-            delete_model(parser)
-        else:
-            model_status()
-        return
-    if arguments.serve:
-        others = (arguments.text, arguments.file, arguments.output, arguments.audio_device)
-        if any(o is not None for o in others) or arguments.print_text:
-            parser.error("--serve takes its text on stdin; give it only --device and --model-dir")
-        serve.main(lambda: Synthesizer(arguments.device, arguments.model_dir))
-        return
+def manage_model(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> None:
+    others = (arguments.text, arguments.file, arguments.output, arguments.model_dir)
+    if any(o is not None for o in others) or arguments.serve or arguments.print_text:
+        parser.error("--model-status and --delete-model take no other options")
+    if arguments.delete_model:
+        delete_model(parser)
+    else:
+        model_status()
+
+
+def serve_requests(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> None:
+    others = (arguments.text, arguments.file, arguments.output, arguments.audio_device)
+    if any(o is not None for o in others) or arguments.print_text:
+        parser.error("--serve takes its text on stdin; give it only --device and --model-dir")
+    serve.main(lambda: Synthesizer(arguments.device, arguments.model_dir))
+
+
+def text_to_speak(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> str:
+    """The positional text, or --file read as its kind or as a session's part."""
     if (arguments.text is None) == (arguments.file is None):
         parser.error("give the text to speak or --file, not both")
     if arguments.kind and arguments.file is None:
@@ -141,18 +142,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("a vinoWhisper session is read as one; --kind doesn't apply")
     try:
         if arguments.file is None:
-            text = arguments.text
+            text: str = arguments.text
         elif is_session:
             text = session.read(arguments.file, arguments.part)
         else:
             text = readable.read(arguments.file, arguments.kind)
     except (OSError, ValueError) as error:
         parser.error(str(error))
-    if arguments.audio_device and arguments.output is not None:
-        parser.error("--audio-device is where speech plays; it can't go with --output")
-    if arguments.print_text:
-        print(text)
-        return
+    return text
+
+
+def play_or_save(parser: argparse.ArgumentParser, arguments: argparse.Namespace, text: str) -> None:
     options = {
         "voice": arguments.voice,
         "language": arguments.language,
@@ -170,6 +170,24 @@ def main(argv: Sequence[str] | None = None) -> None:
     except KeyboardInterrupt:
         raise SystemExit(130) from None
     print(f"Speech saved to {arguments.output}")
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = build_parser()
+    arguments = parser.parse_args(argv)
+    if arguments.model_status or arguments.delete_model:
+        manage_model(parser, arguments)
+        return
+    if arguments.serve:
+        serve_requests(parser, arguments)
+        return
+    text = text_to_speak(parser, arguments)
+    if arguments.audio_device and arguments.output is not None:
+        parser.error("--audio-device is where speech plays; it can't go with --output")
+    if arguments.print_text:
+        print(text)
+        return
+    play_or_save(parser, arguments, text)
 
 
 if __name__ == "__main__":
