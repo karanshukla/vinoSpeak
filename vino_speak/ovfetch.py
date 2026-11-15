@@ -1,15 +1,7 @@
-"""NPU diagnosis through ovfetch, the vino apps' version authority.
+"""`ovfetch detect` read into doctor notes, and the NPU compiler preload.
 
-ovfetch's `detect` reports the OpenVINO range Intel records as working with
-this machine's NPU driver. Like vinoWhisper and vinoPop, vinoSpeak only
-reports that range: the bounds are pessimistic on purpose ("untested", not
-"known to fail"), so nothing here stops the NPU from being tried.
-
-vinoSpeak runs OpenVINO GenAI, not ONNX Runtime, so it never uses
-`ovfetch install`: pip provides OpenVINO (pinned in pyproject.toml). The one
-thing pip cannot provide is the NPU compiler a distro's driver package may
-lack (Fedora's 1.32.0 rpm): `ovfetch npu install` (0.6.0) puts it in
-~/.local/lib/ovfetch-npu, and preload() loads it from there.
+Advisory: ovfetch's bounds mean "untested", never "known to fail", so nothing
+here stops the NPU from being tried (docs/architecture.md, "ovfetch").
 """
 
 from __future__ import annotations
@@ -124,14 +116,8 @@ def detect() -> dict[str, Any] | None:
     return payload
 
 
-def notes(status: dict[str, Any], openvino_version: str | None) -> list[Note]:
-    """What ovfetch's data says about this machine's NPU and OpenVINO."""
-    if "openvino_ceiling" not in status:
-        return [Note(None, "ovfetch", "this ovfetch predates platform data in `detect`")]
-    if not any(d.get("kind") == "npu" for d in status.get("devices", [])):
-        return [Note(True, "ovfetch", "no Intel NPU, so no driver bounds apply")]
-
-    driver = status.get("npu_driver") or "none"
+def _platform_notes(status: dict[str, Any]) -> list[Note]:
+    """The NPU platforms ovfetch recognised, its own warnings and its prefix."""
     result = [
         Note(
             True,
@@ -151,48 +137,57 @@ def notes(status: dict[str, Any], openvino_version: str | None) -> list[Note]:
                 "libraries before OpenVINO opens the NPU",
             )
         )
+    return result
 
-    installed_v = _minor(openvino_version)
-    if installed_v is None:
-        return result
+
+RANGE_LABEL = "npu: openvino range"
+
+
+def _range_note(status: dict[str, Any], installed_openvino: tuple[int, int]) -> Note:
+    """Where the installed OpenVINO sits in the range recorded as working with
+    this NPU driver: the platforms' newest floor up to ovfetch's ceiling."""
+    driver = status.get("npu_driver") or "none"
     ceiling = _minor(status.get("openvino_ceiling"))
     floors = [_minor(p.get("min_openvino")) for p in status.get("platforms", [])]
     floor = max((f for f in floors if f is not None), default=None)
     if ceiling is None:
-        result.append(
-            Note(
-                None,
-                "npu: openvino range",
-                f"no OpenVINO is recorded as working with NPU driver {driver}",
-            )
+        return Note(
+            None,
+            RANGE_LABEL,
+            f"no OpenVINO is recorded as working with NPU driver {driver}",
         )
-    elif installed_v > ceiling:
-        result.append(
-            Note(
-                False,
-                "npu: openvino range",
-                f"OpenVINO {_dotted(installed_v)} is newer than {_dotted(ceiling)}, the newest "
-                f"recorded as working with NPU driver {driver}. Untested rather than known "
-                "to fail; if NPU compiles fail, suspect this first.",
-            )
+    if installed_openvino > ceiling:
+        return Note(
+            False,
+            RANGE_LABEL,
+            f"OpenVINO {_dotted(installed_openvino)} is newer than {_dotted(ceiling)}, the newest "
+            f"recorded as working with NPU driver {driver}. Untested rather than known "
+            "to fail; if NPU compiles fail, suspect this first.",
         )
-    elif floor is not None and installed_v < floor:
-        result.append(
-            Note(
-                False,
-                "npu: openvino range",
-                f"OpenVINO {_dotted(installed_v)} is older than {_dotted(floor)}, the oldest "
-                "recorded as working on this platform",
-            )
+    if floor is not None and installed_openvino < floor:
+        return Note(
+            False,
+            RANGE_LABEL,
+            f"OpenVINO {_dotted(installed_openvino)} is older than {_dotted(floor)}, the oldest "
+            "recorded as working on this platform",
         )
-    else:
-        low = f"{_dotted(floor)} to " if floor else "up to "
-        result.append(
-            Note(
-                True,
-                "npu: openvino range",
-                f"OpenVINO {_dotted(installed_v)} is inside {low}{_dotted(ceiling)}, "
-                f"recorded as working with NPU driver {driver}",
-            )
-        )
+    low = f"{_dotted(floor)} to " if floor else "up to "
+    return Note(
+        True,
+        RANGE_LABEL,
+        f"OpenVINO {_dotted(installed_openvino)} is inside {low}{_dotted(ceiling)}, "
+        f"recorded as working with NPU driver {driver}",
+    )
+
+
+def notes(status: dict[str, Any], openvino_version: str | None) -> list[Note]:
+    """What ovfetch's data says about this machine's NPU and OpenVINO."""
+    if "openvino_ceiling" not in status:
+        return [Note(None, "ovfetch", "this ovfetch predates platform data in `detect`")]
+    if not any(d.get("kind") == "npu" for d in status.get("devices", [])):
+        return [Note(True, "ovfetch", "no Intel NPU, so no driver bounds apply")]
+    result = _platform_notes(status)
+    installed_openvino = _minor(openvino_version)
+    if installed_openvino is not None:
+        result.append(_range_note(status, installed_openvino))
     return result
