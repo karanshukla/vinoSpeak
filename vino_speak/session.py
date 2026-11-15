@@ -20,8 +20,7 @@ TRANSCRIPT = "transcript.txt"
 SUMMARY = "summary.md"
 ATTESTATION = "attestation.json"
 PARTS = ("summary", "transcript")
-# vinoWhisper's own read limits: a bundle can come from anywhere a file
-# manager opens one, so the sizes in it aren't trusted.
+# vinoWhisper's own read limits; a bundle's sizes aren't trusted.
 MAX_PART_BYTES = 64 << 20
 MAX_TOTAL_BYTES = 128 << 20
 MAX_ENTRIES = 16

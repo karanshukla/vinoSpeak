@@ -28,11 +28,11 @@ from collections.abc import Callable, Iterable
 from typing import IO, Any, Protocol
 
 from .playback import Speech
-from .tts import DEFAULT_VOICE
+from .tts import DEFAULT_LANGUAGE, DEFAULT_VOICE
 
-# Said once after loading and thrown away: the first generate() costs
-# ~2.5 s more than a warm one (VM, CPU, 2026-10-29).
+# Synthesized once after loading and thrown away, so the first reading is warm.
 WARM_UP = "Ready."
+OPS = ("speak", "stop")
 
 Emit = Callable[[dict[str, Any]], None]
 
@@ -88,7 +88,7 @@ class Reading:
         self.speech = synthesizer.speak(
             text,
             voice if isinstance(voice, str) else DEFAULT_VOICE,
-            language if isinstance(language, str) else "en-us",
+            language if isinstance(language, str) else DEFAULT_LANGUAGE,
             float(speed),
             audio_device if isinstance(audio_device, str) else None,
             on_first_audio=lambda: emit({"event": "first-audio", "id": self.id, "ms": _ms(asked)}),
@@ -110,22 +110,31 @@ class Reading:
         self.watcher.join()
 
 
+def _parse_request(line: str, emit: Emit) -> dict[str, Any] | None:
+    """The request on this line, or None once its error event is sent."""
+    request: Any = None
+    try:
+        request = json.loads(line)
+        op = request["op"]
+    except (ValueError, TypeError, KeyError):
+        emit({"event": "error", "id": None, "message": f"Not a request: {line.strip()[:80]}"})
+        return None
+    if op not in OPS:
+        emit({"event": "error", "id": request.get("id"), "message": f"Unknown op {op!r}."})
+        return None
+    return request  # type: ignore[no-any-return]
+
+
 def serve(synthesizer: Speaker, lines: Iterable[str], emit: Emit) -> None:
     """Answer requests until `lines` ends, then stop whatever is playing."""
     reading: Reading | None = None
     for line in lines:
         if not line.strip():
             continue
-        request: Any = None
-        try:
-            request = json.loads(line)
-            op = request["op"]
-        except (ValueError, TypeError, KeyError):
-            emit({"event": "error", "id": None, "message": f"Not a request: {line.strip()[:80]}"})
+        request = _parse_request(line, emit)
+        if request is None:
             continue
-        if op not in ("speak", "stop"):
-            emit({"event": "error", "id": request.get("id"), "message": f"Unknown op {op!r}."})
-            continue
+        op = request["op"]
         if reading is not None:
             reading.stop()
             reading = None

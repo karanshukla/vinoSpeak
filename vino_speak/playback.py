@@ -16,15 +16,31 @@ from typing import IO, TYPE_CHECKING
 if TYPE_CHECKING:
     from .tts import Audio
 
-# PipeWire first: it is the sound server Wayland desktops run. PulseAudio and
-# bare ALSA cover the rest.
-PLAYERS = ("pw-play", "paplay", "aplay")
+
+def _pw_play(player: str, sample_rate: int, audio_device: str | None) -> list[str]:
+    target = [f"--target={audio_device}"] if audio_device else []
+    return [player, "--raw", "--format=f32", "--channels=1", f"--rate={sample_rate}", *target, "-"]
+
+
+def _paplay(player: str, sample_rate: int, audio_device: str | None) -> list[str]:
+    target = [f"--device={audio_device}"] if audio_device else []
+    return [player, "--raw", "--format=float32le", "--channels=1", f"--rate={sample_rate}", *target]
+
+
+def _aplay(player: str, sample_rate: int, audio_device: str | None) -> list[str]:
+    target = ["-D", audio_device] if audio_device else []
+    return [player, "-q", "-t", "raw", "-f", "FLOAT_LE", "-c", "1", "-r", str(sample_rate), *target]
+
+
+# In order of preference: PipeWire, then PulseAudio, then bare ALSA.
+RAW_COMMANDS = {"pw-play": _pw_play, "paplay": _paplay, "aplay": _aplay}
+PLAYERS = tuple(RAW_COMMANDS)
 
 
 @functools.cache
 def streams_raw(player: str) -> bool:
-    """Whether this player can take headerless samples on stdin. pw-play only
-    learned --raw after PipeWire 1.0 (Ubuntu 24.04 ships 1.0.5, Debian 12 0.3.65)."""
+    """Whether this player can take headerless samples on stdin: every one
+    but a pw-play without --raw (docs/architecture.md, "Playback")."""
     if Path(player).name != "pw-play":
         return True
     try:
@@ -56,43 +72,13 @@ def raw_command(player: str, sample_rate: int, audio_device: str | None = None) 
     """Mono float32 samples on stdin, to `audio_device` (a PipeWire or
     PulseAudio sink name, or an ALSA device) or else the default output."""
     name = Path(player).name
-    if name == "pw-play":
-        target = [f"--target={audio_device}"] if audio_device else []
-        return [
-            player,
-            "--raw",
-            "--format=f32",
-            "--channels=1",
-            f"--rate={sample_rate}",
-            *target,
-            "-",
-        ]
-    if name == "paplay":
-        target = [f"--device={audio_device}"] if audio_device else []
-        return [
-            player,
-            "--raw",
-            "--format=float32le",
-            "--channels=1",
-            f"--rate={sample_rate}",
-            *target,
-        ]
-    if name == "aplay":
-        target = ["-D", audio_device] if audio_device else []
-        return [
-            player,
-            "-q",
-            "-t",
-            "raw",
-            "-f",
-            "FLOAT_LE",
-            "-c",
-            "1",
-            "-r",
-            str(sample_rate),
-            *target,
-        ]
-    raise ValueError(f"Don't know how to stream to {name}.")
+    if name not in RAW_COMMANDS:
+        raise ValueError(f"Don't know how to stream to {name}.")
+    return RAW_COMMANDS[name](player, sample_rate, audio_device)
+
+
+# One chunk waits while the next is synthesized, so a stop() wastes little.
+CHUNKS_SYNTHESIZED_AHEAD = 1
 
 
 class Speech:
@@ -120,9 +106,7 @@ class Speech:
         self._sample_rate = sample_rate
         self._on_first_audio = on_first_audio
         self._stopped = threading.Event()
-        # One chunk waiting while the next is synthesized: enough to keep
-        # playback fed without spending energy far ahead of a stop()
-        self._ready: queue.Queue[Audio | None] = queue.Queue(maxsize=1)
+        self._ready: queue.Queue[Audio | None] = queue.Queue(maxsize=CHUNKS_SYNTHESIZED_AHEAD)
         self._process: subprocess.Popen[bytes] | None = None
         self._process_lock = threading.Lock()
         self._error: BaseException | None = None
@@ -203,14 +187,10 @@ class Speech:
         except BrokenPipeError:
             pass  # stop() killed the player
         except BaseException as error:  # noqa: BLE001 - raised again from wait()
-            # A player that won't start (gone, not executable, or one
-            # raw_command can't drive) would otherwise end this thread
-            # silently, and wait() would report speech that never played.
             self._error = self._error or error
         finally:
             self._finish(stdin)
-            # Release the synthesis thread, which otherwise waits on a full
-            # queue for a stop() that a library caller may never send.
+            # Releases the synthesis thread from a full queue when no stop() comes.
             self._stopped.set()
 
     def _start(self, sample_rate: int) -> IO[bytes] | None:

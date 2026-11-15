@@ -6,8 +6,7 @@ from __future__ import annotations
 import re
 
 SENTENCE_BREAK = re.compile(r"(?<=[.!?…])\s+|\n\s*\n")
-# A full stop that ends an abbreviation or an initial, not a sentence: a
-# chunk cut after `e.g.` falls in pitch mid-sentence.
+# A full stop that ends an abbreviation or an initial, not a sentence.
 ABBREVIATION = re.compile(
     r"(?<![^\s(\[\"'“‘])(?:[eE]\.g|[iI]\.e|etc|vs|Dr|Mr|Mrs|Ms|St|No|pp?|[fF]ig|(?:[A-Z]\.)*[A-Z])\.\Z"
 )
@@ -35,7 +34,6 @@ def _pieces(sentence: str, max_chars: int) -> list[str]:
             continue
         piece = ""
         for word in clause.split(" "):
-            # A single word longer than max_chars is cut too.
             while len(word) > max_chars:
                 if piece:
                     out.append(piece)
@@ -79,10 +77,8 @@ def _first(sentence: str) -> list[str]:
 
 def chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
     """The first sentence alone, or its first clause if it is long, so
-    speech starts quickly, then chunks that at most double in length. Synthesis runs at roughly a third of real time
-    (2026-10-17, NPU), so each chunk is ready before the one before it has
-    finished playing, and the rest of the text goes in as few calls as that
-    allows."""
+    speech starts quickly, then chunks that at most double in length
+    (docs/architecture.md, "Chunking")."""
     out: list[str] = []
     budget = 0
     sentences = (" ".join(piece.split()) for piece in _sentences(text))

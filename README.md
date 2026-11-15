@@ -39,71 +39,27 @@ curl -fsSL https://github.com/karanshukla/vinoSpeak/releases/latest/download/ins
 vinospeak "Hello."
 ```
 
-That checks the latest release's wheel against its `SHA256SUMS` and installs it with
-[uv](https://docs.astral.sh/uv/) (fetching uv itself, hash-pinned, if you don't have it).
-Add `-s -- --gui` after `bash` for the window too. To upgrade, use **Check for updates** on the
-window's About page, or run `vinospeak-upgrade`. `vinospeak-upgrade --uninstall` removes it all,
-the downloaded model included (uv stays).
+Add `-s -- --gui` after `bash` for the window too. `vinospeak-upgrade` upgrades
+it, and `vinospeak-upgrade --uninstall` removes it all, the downloaded model
+included.
 
-Or with uv directly, Python 3.11 to 3.14:
+Or with [uv](https://docs.astral.sh/uv/), Python 3.11 to 3.14:
 
 ```bash
 uv tool install --python 3.14 vinospeak
 ```
 
-`uv tool uninstall vinospeak` leaves the model behind; run `vinospeak --delete-model`
-first.
+From source, the window, Fedora Atomic, NixOS and which package has an audio
+player: [docs/install.md](docs/install.md).
 
-`--python 3.14` because OpenVINO 2026.4.1 has no 3.15 wheels yet. OpenVINO is
-pinned to the same release as vinoPop and vinoWhisper, so programs sharing one
-NPU never run mismatched runtimes.
+## What it needs
 
-**From source**, for the exact versions in `uv.lock`, hashes included. `--locked`
-fails if the lock is out of date:
-
-```bash
-git clone https://github.com/karanshukla/vinoSpeak && cd vinoSpeak
-uv sync --locked
-uv run vinospeak "Hello."
-```
-
-To put that checkout's `vinospeak` on your `PATH` with the lock's versions as
-constraints (`uv tool install` doesn't read `uv.lock` by itself):
-
-```bash
-uv export --locked --no-dev --no-emit-project --no-hashes -o constraints.txt
-uv tool install --constraints constraints.txt .
-```
-
-**The window** isn't on PyPI. The installer's `--gui` takes the release's
-prebuilt x86_64 binary; from a checkout you build it with
-[Rust](https://rustup.rs). This puts it in your app menu, using the `vinospeak`
-on your `PATH` or in `~/.local/bin`:
-
-```bash
-gui/install.sh                                             # --uninstall removes it
-VINOSPEAK=.venv/bin/vinospeak gui/install.sh               # or the checkout's vinospeak
-```
-
-Finding files in it needs [vinoSearch](https://github.com/karanshukla/vinoSearch)
-running. See [gui/README.md](gui/README.md).
-
-**Fedora Atomic / openSUSE Aeon**: nothing to layer for vinoSpeak itself. uv
-brings its own Python and the wheels carry espeak-ng and libsndfile. Only the
-NPU driver (for `--device NPU`) and an audio player, if you lack one, are
-system packages.
-
-**NixOS**: uv's Python and the window need the standard dynamic linker, so
-enable `programs.nix-ld`; without it `install.sh` stops and says so.
-
-**No player?** Install `pw-play` or `paplay`, or use `--output`:
-
-| Distro | `pw-play` | `paplay` |
-|---|---|---|
-| Fedora | `pipewire-utils` | `pulseaudio-utils` |
-| Ubuntu / Debian | `pipewire-bin` | `pulseaudio-utils` |
-| Arch | `pipewire` | `libpulse` |
-| openSUSE | `pipewire-tools` | `pulseaudio-utils` |
+| | |
+|---|---|
+| Linux | Python comes with uv; espeak-ng and libsndfile come in the wheels |
+| An audio player | `pw-play`, `paplay` or `aplay`, or use `--output` |
+| For `--device NPU` | An Intel NPU and its driver. `--device CPU` needs no driver at all |
+| Disk | About 160 MB for the model, downloaded once into `~/.cache/vinospeak/` |
 
 ## Use
 
@@ -114,7 +70,6 @@ vinospeak --file notes.md                          # read a file aloud
 vinospeak --file notes.md --print-text             # see what it would say, no model load
 some-command | vinospeak --file -                  # plain text from stdin
 vinospeak --file 2026-10-27-140512.vwsession       # a vinoWhisper summary
-vinospeak --file 2026-10-27-140512.vwsession --part transcript
 vinospeak "Hola." --voice ef_dora --language es --speed 1.2 --device CPU
 ```
 
@@ -123,54 +78,30 @@ vinospeak "Hola." --voice ef_dora --language es --speed 1.2 --device CPU
 | `--voice`, `--language`, `--speed` | Kokoro voice (default `af_heart`), language, 0.5 to 2.0 |
 | `--device` | `NPU` (default), `GPU` or `CPU` |
 | `--audio-device` | A sink from `pactl list short sinks`, or an ALSA device |
-| `--kind` | Read `--file` as `plain`, `markdown` or `document` (one paragraph or cell a line, as vinoSearch extracts) |
+| `--kind` | Read `--file` as `plain`, `markdown` or `document` |
+| `--part` | `summary` or `transcript` of a vinoWhisper session |
+| `--model-status`, `--delete-model` | Show or delete the downloaded model |
 | `--model-dir` | Use your own model directory, unchecked |
 
-In markdown, headings, list items and table rows become sentences, links keep
-their text, URLs are said as their host and code blocks are skipped.
-Abbreviations like `e.g.` and `Dr.` don't end a sentence. `vinospeak --help`
-lists everything.
+`vinospeak --help` lists everything, and `vinospeak-doctor` checks what this
+machine has (`--json` for a bug report).
 
-The model is fetched from Hugging Face at one pinned commit and every file is
-checked against its sha256 (see [SECURITY.md](SECURITY.md)). It lives in
-`~/.cache/vinospeak/` (`$XDG_CACHE_HOME/vinospeak/`), along with OpenVINO's
-compiled-model cache so later runs skip the NPU compile: about 160 MB plus
-whatever the compile leaves for each device.
-
-```bash
-vinospeak --model-status    # what's there, and its size
-vinospeak --delete-model    # delete both; the next run downloads the model again
-```
-
-The window's About page has the same Delete button. vinoPop's read-aloud uses
-this copy too, so it downloads the model again after a delete. A `--model-dir`
-of your own is never deleted.
-
-## Check this machine
-
-```bash
-vinospeak-doctor          # --json for a bug report
-```
-
-Shows the OpenVINO packages and devices, the audio player it picked, and
-whether the cached model still matches its pins. With
-[ovfetch](https://github.com/karanshukla/ovfetch) on your `PATH` it also checks
-your OpenVINO version against your NPU driver. If your distro's driver has no
-NPU compiler (Fedora's `intel-npu-driver` 1.32.0), `ovfetch npu install`
-fetches Intel's into your home directory and vinoSpeak loads it from there.
-
-## Python
+From Python:
 
 ```python
 from vino_speak import Synthesizer
 
 synth = Synthesizer("NPU")  # compiles once; reuse it
 audio = synth.synthesize("Hello.")  # audio.samples (float32), audio.sample_rate
-speech = synth.speak("A long passage.")  # plays in the background
-speech.stop()  # or speech.wait()
 ```
 
-## Development
+## Docs
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). `uv run poe check` runs everything CI
-does; none of it needs OpenVINO or an NPU.
+| | |
+|---|---|
+| [docs/install.md](docs/install.md) | Every way to install it, the window, distro notes |
+| [docs/usage.md](docs/usage.md) | How files are read, sessions, the model on disk, the doctor, the Python API |
+| [docs/architecture.md](docs/architecture.md) | Why it is built this way, with the measurements |
+| [gui/README.md](gui/README.md) | The window |
+| [SECURITY.md](SECURITY.md) | What leaves your machine (nothing), and how the model download is verified |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Setup, tests, releasing. `uv run poe check` runs what CI does; none of it needs OpenVINO or an NPU |

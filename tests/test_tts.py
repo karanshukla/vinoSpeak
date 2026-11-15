@@ -180,6 +180,24 @@ def test_speak_checks_for_a_player_before_loading_the_model(monkeypatch, tmp_pat
     assert not (tmp_path / "never-created").exists()
 
 
+def test_speak_validates_before_looking_for_a_player(monkeypatch, tmp_path):
+    monkeypatch.setattr(tts, "require_player", lambda: pytest.fail("looked for a player"))
+    with pytest.raises(ValueError, match="empty"):
+        tts.speak(" ", model_dir=tmp_path / "never-created")
+    assert not (tmp_path / "never-created").exists()
+
+
+@pytest.mark.parametrize("speed", [tts.MIN_SPEED, tts.MAX_SPEED])
+def test_the_slowest_and_fastest_speeds_are_accepted(speed):
+    tts.validate_inputs("Hello", "af_heart", speed)
+
+
+@pytest.mark.parametrize("speed", [0.49, 2.01])
+def test_a_speed_just_outside_the_range_is_refused(speed):
+    with pytest.raises(ValueError, match="between 0.5 and 2.0"):
+        tts.validate_inputs("Hello", "af_heart", speed)
+
+
 def fail_with_override(monkeypatch, method):
     """Make FakePipeline's `method` raise while the vocoder pin is overridden."""
     real = getattr(FakePipeline, method)

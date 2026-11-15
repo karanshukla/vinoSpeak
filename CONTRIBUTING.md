@@ -30,7 +30,8 @@ uv run poe check    # ruff, ruff format --check, mypy, pytest
   `subprocess` call to ovfetch are faked. If a change can only be verified on
   hardware, say so in the PR instead of faking a test.
 - Keep code comments to one line, and only where the code would invite a wrong
-  "fix".
+  "fix". A rule gets a test instead; the why and any measurement go in
+  [docs/architecture.md](docs/architecture.md).
 - Measured claims carry a date.
 - Commits are conventional (`feat:`, `fix:`, `docs:`, ...); the changelog is
   generated from them with `git cliff`.

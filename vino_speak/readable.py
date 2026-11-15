@@ -28,10 +28,8 @@ LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?")
 TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
 TABLE_RULE = re.compile(r"^[\s|:-]*-[\s|:-]*$")
 
-# Inline patterns stop at the next opening delimiter, so an unclosed `[` or
-# `**` costs a scan to the next one instead of to the end of the line. With
-# `.+?`, a line of 5,000 unclosed `**a ` took 3.3 s, growing with the square
-# of its length (2026-10-25).
+# Inline patterns stop at the next opening delimiter, never `.+?`, so unclosed
+# markup stays linear (test_unclosed_inline_markup_is_linear; docs/architecture.md).
 # A link target may hold one level of parentheses, as Wikipedia URLs do.
 TARGET = r"\((?:[^()]|\([^()]*\))*\)"
 IMAGE = re.compile(r"!\[[^\[\]]*\]" + TARGET)
@@ -55,9 +53,7 @@ ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|<>~])")
 # markup around it is stripped, so `\*` is never taken for emphasis.
 ESCAPED = re.compile("[\ue000-\ue0ff]")
 
-# A word broken over a line end: `infor-\nmation` loses the hyphen, but
-# `COVID-\n19` and `Jean-\nPaul` keep it, as only lowercase halves can be
-# typesetting.
+# A word broken over a line end; only two lowercase halves are rejoined.
 HYPHENATED = re.compile(r"([^\W\d_])-[ \t]*\n[ \t]*(\w)")
 
 

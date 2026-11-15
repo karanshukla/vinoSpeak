@@ -148,6 +148,34 @@ def test_stop_cuts_playback_off_without_waiting_for_synthesis(monkeypatch):
         release.set()
 
 
+def test_synthesis_runs_one_chunk_ahead_of_a_player_that_is_not_reading(monkeypatch):
+    player_starts = threading.Event()
+
+    def stalled_player(*args):
+        player_starts.wait(10)
+        return [sys.executable, "-c", "import sys; sys.stdin.buffer.read()"]
+
+    monkeypatch.setattr(playback, "raw_command", stalled_player)
+    synthesized = []
+
+    def endless_synthesis():
+        while True:
+            synthesized.append(chunk(0.1))
+            yield synthesized[-1]
+
+    speech = playback.Speech(endless_synthesis(), player="fake", sample_rate=24000)
+    try:
+        waiting = playback.CHUNKS_SYNTHESIZED_AHEAD
+        deadline = time.monotonic() + 5
+        while len(synthesized) <= waiting and time.monotonic() < deadline:
+            time.sleep(0.01)
+        time.sleep(0.3)
+        assert len(synthesized) == waiting + 1  # the one more is in hand, not yet queued
+    finally:
+        speech.stop()
+        player_starts.set()
+
+
 def test_a_synthesis_error_is_raised_from_wait(monkeypatch):
     player_running(monkeypatch, "import sys; sys.stdin.buffer.read()")
 
