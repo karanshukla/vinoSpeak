@@ -19,8 +19,10 @@ MIMETYPE = b"application/vnd.vinowhisper.session+zip"
 TRANSCRIPT = "transcript.txt"
 SUMMARY = "summary.md"
 ATTESTATION = "attestation.json"
+READ_FROM = (TRANSCRIPT, SUMMARY, ATTESTATION)
 PARTS = ("summary", "transcript")
-# vinoWhisper's own read limits; a bundle's sizes aren't trusted.
+# vinoWhisper's own read limits; a bundle's sizes aren't trusted (test_session.py
+# has a pair either side of each).
 MAX_PART_BYTES = 64 << 20
 MAX_TOTAL_BYTES = 128 << 20
 MAX_ENTRIES = 16
@@ -64,20 +66,39 @@ def load(path: Path) -> Session:
     name = path.name
     try:
         with zipfile.ZipFile(path) as archive:
-            infos = archive.infolist()
-            first = infos[0] if infos else None
-            if first is None or first.filename != "mimetype":
-                raise ValueError(f"{name} is not a vinoWhisper session: no mimetype first.")
-            if first.compress_type != zipfile.ZIP_STORED or archive.read(first) != MIMETYPE:
-                raise ValueError(f"{name} is not a vinoWhisper session.")
-            if len(infos) > MAX_ENTRIES:
-                raise ValueError(f"{name} has too many entries for a session.")
-            wanted = [i for i in infos if i.filename in (TRANSCRIPT, SUMMARY, ATTESTATION)]
-            if sum(i.file_size for i in wanted) > MAX_TOTAL_BYTES:
-                raise ValueError(f"{name} is too large for a session.")
-            parts = {i.filename: _read_capped(archive, i, name) for i in wanted}
+            parts = {i.filename: _read_capped(archive, i, name) for i in _wanted(archive, name)}
     except (zipfile.BadZipFile, EOFError) as error:
         raise ValueError(f"{name} is not a vinoWhisper session: {error}") from None
+    return _parsed(parts, name)
+
+
+def _wanted(archive: zipfile.ZipFile, name: str) -> list[zipfile.ZipInfo]:
+    """The entries a session is read from, once the archive has passed the
+    checks that need only its directory: the mimetype, then the limits."""
+    entries = archive.infolist()
+    first = entries[0] if entries else None
+    if first is None or first.filename != "mimetype":
+        raise ValueError(f"{name} is not a vinoWhisper session: no mimetype first.")
+    if first.compress_type != zipfile.ZIP_STORED or archive.read(first) != MIMETYPE:
+        raise ValueError(f"{name} is not a vinoWhisper session.")
+    if len(entries) > MAX_ENTRIES:
+        raise ValueError(f"{name} has too many entries for a session.")
+    wanted = [entry for entry in entries if entry.filename in READ_FROM]
+    if sum(entry.file_size for entry in wanted) > MAX_TOTAL_BYTES:
+        raise ValueError(f"{name} is too large for a session.")
+    return wanted
+
+
+def _read_capped(archive: zipfile.ZipFile, info: zipfile.ZipInfo, name: str) -> bytes:
+    # The size in the header can lie; stop at the cap whatever it claims.
+    with archive.open(info) as handle:
+        data = handle.read(MAX_PART_BYTES + 1)
+    if len(data) > MAX_PART_BYTES:
+        raise ValueError(f"{name}: {info.filename} is too large.")
+    return data
+
+
+def _parsed(parts: dict[str, bytes], name: str) -> Session:
     try:
         attestation = json.loads(parts[ATTESTATION])
         transcript = parts[TRANSCRIPT].decode("utf-8")
@@ -90,15 +111,6 @@ def load(path: Path) -> Session:
     if found != FORMAT:
         raise ValueError(f"{name} is a {found!r} session; this vinoSpeak reads {FORMAT}.")
     return Session(transcript, summary, attestation)
-
-
-def _read_capped(archive: zipfile.ZipFile, info: zipfile.ZipInfo, name: str) -> bytes:
-    # The size in the header can lie; stop at the cap whatever it claims.
-    with archive.open(info) as handle:
-        data = handle.read(MAX_PART_BYTES + 1)
-    if len(data) > MAX_PART_BYTES:
-        raise ValueError(f"{name}: {info.filename} is too large.")
-    return data
 
 
 def _sentence(paragraph: str) -> str:
