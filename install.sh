@@ -18,7 +18,7 @@
 # of this script as vinospeak-upgrade, which the window's Update button runs
 # with VINO_UPDATE_TAG set; an upgrade keeps the window if it's installed.
 #
-# No sudo: everything goes in your home. From a checkout, see the README.
+# No sudo: everything goes in your home. From a checkout, see docs/install.md.
 
 # Everything is in main, called on the last line: piped into bash, a download
 # cut short must not run half a script.
@@ -26,7 +26,7 @@ set -euo pipefail
 
 REPO="karanshukla/vinoSpeak"
 GUI_ASSET="vinospeak-gui-x86_64-linux.tar.gz"
-# OpenVINO 2026.4.1 has no 3.15 wheels; the same pin as the README.
+# OpenVINO 2026.4.1 has no 3.15 wheels; the same pin as docs/install.md.
 PYTHON="3.14"
 
 # Bumped by hand, in a reviewed commit, as in vinoWhisper's installer: the
