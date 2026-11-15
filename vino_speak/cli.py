@@ -8,7 +8,15 @@ from pathlib import Path
 
 from . import model, readable, serve, session
 from .model import default_model_dir
-from .tts import DEFAULT_DEVICE, DEFAULT_VOICE, LANGUAGES, Synthesizer, speak, synthesize
+from .tts import (
+    DEFAULT_DEVICE,
+    DEFAULT_LANGUAGE,
+    DEFAULT_VOICE,
+    LANGUAGES,
+    Synthesizer,
+    speak,
+    synthesize,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
         "name (pactl list short sinks), or an ALSA device.",
     )
     parser.add_argument("--voice", default=DEFAULT_VOICE, help="Kokoro voice identifier.")
-    parser.add_argument("--language", choices=LANGUAGES, default="en-us")
+    parser.add_argument("--language", choices=LANGUAGES, default=DEFAULT_LANGUAGE)
     parser.add_argument("--speed", type=float, default=1.0)
     parser.add_argument(
         "--device",

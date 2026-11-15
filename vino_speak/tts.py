@@ -21,16 +21,21 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 LANGUAGES = ("en-us", "en-gb", "es", "fr-fr", "hi", "it", "pt-br")
+DEFAULT_LANGUAGE = "en-us"
 DEFAULT_VOICE = "af_heart"
 DEFAULT_DEVICE = "NPU"
+MIN_SPEED, MAX_SPEED = 0.5, 2.0
 # Kokoro's output rate, so a player can start before the first chunk exists.
 SAMPLE_RATE = 24000
 VOICE_PATTERN = re.compile(r"[a-z]{2}_[a-z0-9_]+\Z")
-# OpenVINO 2026.4 pins Kokoro's vocoder to the CPU for an NPU compiler bug
-# that driver 1.32.0 on Wildcat Lake doesn't have (2026-10-17). Other drivers
-# may, so Synthesizer falls back to the pin if the override fails. Remove
-# with #7.
+# Undoes OpenVINO 2026.4's CPU pin on Kokoro's vocoder (docs/architecture.md,
+# "The NPU vocoder override"). Remove with #7.
 NPU_PROPERTIES = {"NPUW_SUBMODEL_DEVICE": ""}
+MISSING_DEPENDENCIES = "Install vinoSpeak's dependencies with 'uv sync'."
+
+
+def is_npu(device: str) -> bool:
+    return device.startswith("NPU")
 
 
 @dataclass(frozen=True)
@@ -39,13 +44,13 @@ class Audio:
     sample_rate: int
 
 
-def validate_inputs(text: str, voice: str, speed: float, language: str = "en-us") -> None:
+def validate_inputs(text: str, voice: str, speed: float, language: str = DEFAULT_LANGUAGE) -> None:
     if not text.strip():
         raise ValueError("Text must not be empty.")
     if not VOICE_PATTERN.fullmatch(voice):
         raise ValueError("Voice must be a Kokoro voice identifier, such as 'af_heart'.")
-    if not 0.5 <= speed <= 2.0:
-        raise ValueError("Speed must be between 0.5 and 2.0.")
+    if not MIN_SPEED <= speed <= MAX_SPEED:
+        raise ValueError(f"Speed must be between {MIN_SPEED} and {MAX_SPEED}.")
     if language not in LANGUAGES:
         raise ValueError(f"Unsupported language '{language}'.")
 
@@ -79,6 +84,16 @@ def get_audio_data(speech: Any, openvino: Any) -> NDArray[np.float32]:
     return audio
 
 
+def _preload_npu_compiler(device: str) -> None:
+    """Must run before the NPU is opened; a prefix that won't load is fatal
+    only when the NPU is the device asked for."""
+    try:
+        ovfetch.preload()
+    except ovfetch.OvfetchError:
+        if is_npu(device):
+            raise
+
+
 class Synthesizer:
     """A loaded Kokoro pipeline. Compiling for the NPU takes seconds, so
     create one and reuse it. Calls are serialized: the pipeline is not
@@ -92,7 +107,7 @@ class Synthesizer:
             import openvino as ov
             import openvino_genai as ov_genai
         except ImportError as error:
-            raise RuntimeError("Install vinoSpeak's dependencies with 'uv sync'.") from error
+            raise RuntimeError(MISSING_DEPENDENCIES) from error
 
         os.environ.setdefault("MISAKI_ESPEAK_LIBRARY", espeakng_loader.get_library_path())
         os.environ.setdefault("ESPEAK_DATA_PATH", espeakng_loader.get_data_path())
@@ -101,31 +116,22 @@ class Synthesizer:
         self.model_dir = model_dir
         self._ov = ov
         self._genai = ov_genai
-        # The compiler or driver from `ovfetch npu install`, before the NPU is
-        # opened. Only the NPU needs it; elsewhere a bad prefix is not fatal.
-        try:
-            ovfetch.preload()
-        except ovfetch.OvfetchError:
-            if device.startswith("NPU"):
-                raise
-        # Until a generate() has succeeded with the override, a failure (an
-        # error, or non-finite samples) may be the compiler bug it exposes,
-        # so it is worth one retry with OpenVINO's pin.
+        _preload_npu_compiler(device)
+        # True from an NPU load with the override until one generate() works:
+        # a failure before then gets one retry with OpenVINO's pin.
         self._unproven_override = False
         self._pipeline = self._load()
         self._voices: dict[str, Any] = {}
         self._lock = threading.Lock()
 
     def _pipeline_for(self, **properties: str) -> Any:
-        # Without a cache every process compiles again: 6.5 s on CPU in the
-        # VM, 1.35 s from the cache (2026-10-29).
         cache = str(compile_cache_dir())
         return self._genai.Text2SpeechPipeline(
             self.model_dir, self.device, CACHE_DIR=cache, **properties
         )
 
     def _load(self) -> Any:
-        if self.device.startswith("NPU"):
+        if is_npu(self.device):
             try:
                 pipeline = self._pipeline_for(**NPU_PROPERTIES)
             except RuntimeError as error:
@@ -176,7 +182,7 @@ class Synthesizer:
         self,
         text: str,
         voice: str = DEFAULT_VOICE,
-        language: str = "en-us",
+        language: str = DEFAULT_LANGUAGE,
         speed: float = 1.0,
     ) -> Audio:
         validate_inputs(text, voice, speed, language)
@@ -187,7 +193,7 @@ class Synthesizer:
         self,
         text: str,
         voice: str = DEFAULT_VOICE,
-        language: str = "en-us",
+        language: str = DEFAULT_LANGUAGE,
         speed: float = 1.0,
     ) -> Iterator[Audio]:
         """The text a chunk at a time, synthesized as it is consumed. The
@@ -199,7 +205,7 @@ class Synthesizer:
         self,
         text: str,
         voice: str = DEFAULT_VOICE,
-        language: str = "en-us",
+        language: str = DEFAULT_LANGUAGE,
         speed: float = 1.0,
         audio_device: str | None = None,
         on_first_audio: Callable[[], None] | None = None,
@@ -219,18 +225,17 @@ def synthesize(
     text: str,
     output: Path,
     voice: str = DEFAULT_VOICE,
-    language: str = "en-us",
+    language: str = DEFAULT_LANGUAGE,
     speed: float = 1.0,
     device: str = DEFAULT_DEVICE,
     model_dir: Path | None = None,
 ) -> Path:
     """One-shot: speak text into a WAV file."""
-    # Before the model download and the pipeline compile, not after.
     validate_inputs(text, voice, speed, language)
     try:
         import soundfile as sf
     except ImportError as error:
-        raise RuntimeError("Install vinoSpeak's dependencies with 'uv sync'.") from error
+        raise RuntimeError(MISSING_DEPENDENCIES) from error
 
     audio = Synthesizer(device, model_dir).synthesize(text, voice, language, speed)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -241,7 +246,7 @@ def synthesize(
 def speak(
     text: str,
     voice: str = DEFAULT_VOICE,
-    language: str = "en-us",
+    language: str = DEFAULT_LANGUAGE,
     speed: float = 1.0,
     device: str = DEFAULT_DEVICE,
     model_dir: Path | None = None,
@@ -249,7 +254,6 @@ def speak(
 ) -> None:
     """One-shot: speak text on the speakers (or `audio_device`) and return
     when it has finished."""
-    # Before the model download and the pipeline compile, not after.
     validate_inputs(text, voice, speed, language)
     player = require_player()
     synthesizer = Synthesizer(device, model_dir)
