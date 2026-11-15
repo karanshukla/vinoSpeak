@@ -51,6 +51,28 @@ def test_default_model_dir_follows_xdg_cache_home(monkeypatch, tmp_path):
     assert model.default_model_dir() == tmp_path / "vinospeak" / "kokoro-82m-int8-ov"
 
 
+CACHE_RULES = json.loads((Path(__file__).parent / "fixtures/model_cache.json").read_text())
+
+
+@pytest.mark.parametrize("case", CACHE_RULES["cache_dirs"])
+def test_the_cache_is_where_the_window_looks_for_it(monkeypatch, case):
+    """The shared table gui/src/speech.rs is tested against too."""
+    monkeypatch.setenv("HOME", case["home"])
+    if case["xdg_cache_home"] is None:
+        monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    else:
+        monkeypatch.setenv("XDG_CACHE_HOME", case["xdg_cache_home"])
+    assert model.cache_dir() == Path(case["cache_dir"])
+    assert model.default_model_dir() == Path(case["cache_dir"]) / CACHE_RULES["model_dir"]
+
+
+def test_disk_usage_counts_files_at_any_depth_but_not_what_a_link_points_to(tmp_path):
+    write(tmp_path / "tree", {"one": b"x" * 10, "a/b/two": b"x" * 5})
+    write(tmp_path / "outside", {"big": b"x" * 1000})
+    (tmp_path / "tree/link-to-file").symlink_to(tmp_path / "outside/big")
+    assert model.disk_usage(tmp_path / "tree") == 15
+
+
 def test_model_readiness_requires_all_pipeline_assets(tmp_path):
     assert not model.model_is_ready(tmp_path)
     write(tmp_path, FILES)

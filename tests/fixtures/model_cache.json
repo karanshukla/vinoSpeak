@@ -1,0 +1,19 @@
+{
+  "about": "The model cache as vino_speak/model.py and gui/src/speech.rs must both see it (docs/architecture.md, \"The model cache, in two languages\"). Read by tests/test_model.py, tests/test_cli.py and gui/src/speech.rs's tests.",
+  "model_dir": "kokoro-82m-int8-ov",
+  "cache_dirs": [
+    {"xdg_cache_home": "/x/cache", "home": "/home/k", "cache_dir": "/x/cache/vinospeak"},
+    {"xdg_cache_home": "", "home": "/home/k", "cache_dir": "/home/k/.cache/vinospeak"},
+    {"xdg_cache_home": null, "home": "/home/k", "cache_dir": "/home/k/.cache/vinospeak"}
+  ],
+  "sizes": [
+    [0, "0 kB"],
+    [999, "1 kB"],
+    [999999, "1000 kB"],
+    [1000000, "1 MB"],
+    [163400000, "163 MB"],
+    [999999999, "1000 MB"],
+    [1000000000, "1.0 GB"],
+    [1260000000, "1.3 GB"]
+  ]
+}
