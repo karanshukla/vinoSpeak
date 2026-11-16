@@ -180,22 +180,27 @@ fn event(line: &str) -> Option<Event> {
     })
 }
 
-/// Send each event the worker prints, then `Exited` with its last words on
-/// stderr once stdout closes; `wake` is called after each.
-fn forward_events(
-    stdout: Option<ChildStdout>,
-    mut stderr: Option<ChildStderr>,
-    tx: mpsc::Sender<Event>,
-    wake: impl Fn() + Send + 'static,
-) {
-    // Read whole, so a chatty stderr can't fill its pipe and stall the worker.
-    let stderr = std::thread::spawn(move || {
+/// All of stderr, read as it comes so a chatty worker can't fill the pipe
+/// and stall.
+fn drain(mut stderr: Option<ChildStderr>) -> std::thread::JoinHandle<String> {
+    std::thread::spawn(move || {
         let mut text = String::new();
         if let Some(pipe) = &mut stderr {
             let _ = pipe.read_to_string(&mut text);
         }
         text
-    });
+    })
+}
+
+/// Send each event the worker prints, then `Exited` with its last words on
+/// stderr once stdout closes; `wake` is called after each.
+fn forward_events(
+    stdout: Option<ChildStdout>,
+    stderr: Option<ChildStderr>,
+    tx: mpsc::Sender<Event>,
+    wake: impl Fn() + Send + 'static,
+) {
+    let stderr = drain(stderr);
     std::thread::spawn(move || {
         if let Some(stdout) = stdout {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
@@ -213,7 +218,7 @@ fn forward_events(
 
 /// `vinospeak --serve`: one process for the window's lifetime that keeps
 /// the model loaded, so only the first reading pays for loading and
-/// compiling it (vinoSpeak#39).
+/// compiling it.
 pub struct Worker {
     child: Child,
     stdin: Option<ChildStdin>,

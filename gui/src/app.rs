@@ -1,7 +1,7 @@
 //! The window: a search box, vinoSearch's hits (or the files changed most
 //! recently) down the left, and the chosen file as vinoSpeak will say it,
 //! with Read aloud and Stop. Its look is vino-ui's, shared with vinoSearch
-//! and vinoWhisper (vinoSpeak#32).
+//! and vinoWhisper.
 //!
 //! This file is the window's state and one frame of it. Each part of the
 //! frame, and the state changes behind it, is a module:
@@ -41,7 +41,6 @@ use crate::search::{Hit, Index, VinoSearch};
 use crate::speech::{self, Part, Reading, Worker};
 use crate::voices::{self, Voice};
 
-/// The voice picked until the user picks another.
 const DEFAULT_VOICE: &str = "af_heart";
 
 /// What a background thread sends back to the window.

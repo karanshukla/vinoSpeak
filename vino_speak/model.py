@@ -19,7 +19,9 @@ from pathlib import Path
 PINS_PATH = Path(__file__).resolve().parent / "model_pins.json"
 
 MODEL_ID = "OpenVINO/Kokoro-82M-int8-ov"
-# What the pipeline cannot start without; a --model-dir you supply only needs these.
+# What the pipeline cannot start without, and all a --model-dir you supply
+# needs (pinned by `test_model.py::test_a_directory_you_supply_is_used_as_given`,
+# `test_model.py::test_an_empty_directory_you_supply_still_gets_the_pinned_model`).
 MODEL_FILES = (
     "openvino_model.xml",
     "openvino_model.bin",
@@ -66,7 +68,8 @@ def compile_cache_dir() -> Path:
     return cache_dir() / "ov-cache"
 
 
-# Shared while the default model downloads, exclusive while it is deleted.
+# Shared while the default model downloads, exclusive while it is deleted
+# (pinned by `test_model.py::test_delete_cached_refuses_during_a_download`).
 _LOCK = ".lock"
 
 
@@ -91,7 +94,9 @@ def cached() -> dict[Path, int]:
 def delete_cached() -> int:
     """Delete the downloaded model and the compiled cache; the bytes freed.
 
-    A --model-dir is never touched. The next run downloads the model again.
+    A --model-dir is never touched, nor anything else in the cache directory
+    (pinned by `test_model.py::test_delete_cached_keeps_what_isnt_ours`). The
+    next run downloads the model again.
     """
     if not cache_dir().is_dir():
         return 0
@@ -105,7 +110,7 @@ def delete_cached() -> int:
         raise ModelBusyError(
             "The model is downloading; delete it once the download has finished."
         ) from None
-    with suppress(OSError):  # something else in it, which isn't ours to delete
+    with suppress(OSError):
         cache_dir().rmdir()
     return sum(found.values())
 
@@ -119,7 +124,9 @@ def sha256_file(path: Path) -> str:
 
 
 # Written once every file has matched its pinned sha256; without it a run
-# hashes the whole model instead of comparing sizes.
+# hashes the whole model instead of comparing sizes (pinned by
+# `test_model.py::test_an_unstamped_model_is_hashed_in_full`,
+# `test_model.py::test_a_verified_model_is_stamped_then_size_checked`).
 STAMP = ".vinospeak-verified"
 
 

@@ -10,14 +10,17 @@ use super::{App, Preview, Reply};
 use crate::search::{self, Hit, Index, Kind};
 use crate::speech::{self, Part, Source};
 
-/// vinoSearch answers nothing under three characters, as KRunner does.
+/// vinoSearch answers nothing under three characters (pinned by
+/// `tests::three_characters_are_searched_and_two_are_not`).
 const MIN_QUERY_CHARS: usize = 3;
 /// Search once typing pauses this long, not on every key.
 const DEBOUNCE: Duration = Duration::from_millis(300);
-/// How many recent files fill the list before a search.
+/// How many recent files fill the list before a search (pinned by
+/// `app::tests::the_recent_list_stops_at_twenty`).
 const RECENT_LISTED: usize = 20;
 /// vinoSearch's most (its recent::MAX): asking for more than are listed keeps
-/// the list full when the newest files are ones not worth hearing.
+/// the list full when the newest files are ones not worth hearing (pinned by
+/// `app::tests::spreadsheets_and_code_are_not_listed`).
 const RECENT_ASKED: u32 = 50;
 
 /// Whether a query is one vinoSearch would answer.
@@ -189,12 +192,19 @@ impl App {
         }
     }
 
+    /// No file picked, nothing searched, and no About opened before the
+    /// recent files came in (pinned by
+    /// `app::tests::before_a_search_the_recent_files_show_and_the_first_is_previewed`,
+    /// `app::tests::about_opened_before_the_recent_files_arrive_stays_open`).
+    fn nothing_chosen_yet(&self) -> bool {
+        self.selected.is_none() && self.query.is_empty() && !self.about
+    }
+
     pub(super) fn on_recent(&mut self, ctx: &egui::Context, recent: anyhow::Result<Vec<Hit>>) {
         match recent {
             Ok(recent) => {
                 self.recent = recent;
-                // About, opened before they came in, stays open.
-                if self.selected.is_none() && self.query.is_empty() && !self.about {
+                if self.nothing_chosen_yet() {
                     self.select_first(ctx);
                 }
             }

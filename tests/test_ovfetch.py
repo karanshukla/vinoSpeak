@@ -120,15 +120,6 @@ def test_a_prefix_from_npu_install_is_reported():
     assert all(n.label != "npu: ovfetch prefix" for n in ovfetch.notes(status(), "2026.4.1"))
 
 
-# --- the NPU prefix's libraries --------------------------------------------
-#
-# `ovfetch npu install` puts the compiler a distro's driver package lacks (or
-# a whole driver) in ~/.local/lib/ovfetch-npu, off the linker path. vinoSpeak
-# loads them itself, in the order ovfetch-preload.txt gives, before OpenVINO
-# opens the NPU. The order is the file's: a driver loaded before the Level
-# Zero loader crashed (ovfetch's README, measured 2026-10-24).
-
-
 @pytest.fixture
 def loader(monkeypatch):
     loaded: list[tuple[str, int]] = []

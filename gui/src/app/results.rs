@@ -32,7 +32,7 @@ fn tile(ui: &mut egui::Ui, hit: &Hit) {
     match hit.kind {
         Kind::Text | Kind::Document => file_tile::file(ui, Format::of(&hit.path), TILE),
         Kind::Image => widgets::file_tile(ui, Icon::Image, TILE),
-        // As vinoSearch shows one; Icon::Sessions is drawn as FileText.
+        // Not Icon::Sessions: vino-ui draws that as FileText.
         Kind::Session { .. } => vino_ui::logo::whisper(ui, TILE),
     };
 }

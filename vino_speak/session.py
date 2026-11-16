@@ -21,8 +21,10 @@ SUMMARY = "summary.md"
 ATTESTATION = "attestation.json"
 READ_FROM = (TRANSCRIPT, SUMMARY, ATTESTATION)
 PARTS = ("summary", "transcript")
-# vinoWhisper's own read limits; a bundle's sizes aren't trusted (test_session.py
-# has a pair either side of each).
+# vinoWhisper's own read limits (pinned by
+# `test_session.py::test_a_part_at_the_cap_is_read_and_one_byte_over_is_refused`,
+# `test_session.py::test_parts_adding_up_to_the_total_are_read_and_one_byte_over_is_refused`,
+# `test_session.py::test_sixteen_entries_are_read_and_seventeen_are_refused`).
 MAX_PART_BYTES = 64 << 20
 MAX_TOTAL_BYTES = 128 << 20
 MAX_ENTRIES = 16
@@ -44,7 +46,8 @@ MONTHS = [
 
 HEADER = re.compile(r"\AvinoWhisper transcript, (\d{4})-(\d{2})-(\d{2}) [^\n]*\n?")
 STAMP = re.compile(r"^\[\d{2,}:\d{2}\] ", re.M)
-# A summary bullet ends with the stamps it came from: `[01:10]` or `(1:10)`.
+# A summary bullet's trailing stamps, `[01:10]` or `(1:10)` (pinned by
+# `test_session.py::test_summary_stamps_of_both_shapes_go_and_a_paragraph_ends_a_sentence`).
 TRAILING_STAMPS = re.compile(r"(?:[ \t]*(?:\[\d+:\d{2}\]|\(\d+:\d{2}\)))+[ \t]*$", re.M)
 FOOTER = re.compile(r"^\s*[_*]Machine-written summary\..*[_*]\s*$", re.M)
 
@@ -90,7 +93,9 @@ def _wanted(archive: zipfile.ZipFile, name: str) -> list[zipfile.ZipInfo]:
 
 
 def _read_capped(archive: zipfile.ZipFile, info: zipfile.ZipInfo, name: str) -> bytes:
-    # The size in the header can lie; stop at the cap whatever it claims.
+    """The entry, read only up to the cap whatever size its header claims
+    (pinned by
+    `test_session.py::test_an_oversized_part_is_refused_whatever_its_header_claims`)."""
     with archive.open(info) as handle:
         data = handle.read(MAX_PART_BYTES + 1)
     if len(data) > MAX_PART_BYTES:

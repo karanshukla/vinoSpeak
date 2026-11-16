@@ -1,7 +1,7 @@
 //! The header: the logo and name, the search field, and About. With vino-ui's
 //! own title bar it is also what the window is dragged by, and the window's
-//! buttons sit in its top right corner
-//! (`the_window_buttons_sit_in_the_top_right_corner` in tests.rs).
+//! buttons sit in its top right corner (pinned by
+//! `app::tests::the_window_buttons_sit_in_the_top_right_corner`).
 
 use eframe::egui::{self, Align, Layout, Margin, RichText};
 use vino_ui::a11y;
@@ -37,6 +37,11 @@ fn margin(app_title_bar: bool) -> Margin {
     }
 }
 
+/// A label that isn't selectable, so a press on it drags the window.
+fn drags_the_window(text: RichText) -> egui::Label {
+    egui::Label::new(text).selectable(false)
+}
+
 /// The logo, the name and the line under it.
 fn brand(ui: &mut egui::Ui, header: theme::Header) {
     ui.allocate_ui_with_layout(BRAND_SIZE, Layout::left_to_right(Align::Center), |ui| {
@@ -44,25 +49,18 @@ fn brand(ui: &mut egui::Ui, header: theme::Header) {
         vino_ui::logo::speak(ui, 32.0);
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            // Not selectable: a press on them drags the window.
-            let title = ui.add(
-                egui::Label::new(
-                    RichText::new("vinoSpeak")
-                        .size(17.0)
-                        .family(theme::bold())
-                        .color(header.text),
-                )
-                .selectable(false),
-            );
+            let title = ui.add(drags_the_window(
+                RichText::new("vinoSpeak")
+                    .size(17.0)
+                    .family(theme::bold())
+                    .color(header.text),
+            ));
             a11y::heading(&title, "vinoSpeak", 1);
-            ui.add(
-                egui::Label::new(
-                    RichText::new("Find it, then listen.")
-                        .size(12.5)
-                        .color(header.muted),
-                )
-                .selectable(false),
-            );
+            ui.add(drags_the_window(
+                RichText::new("Find it, then listen.")
+                    .size(12.5)
+                    .color(header.muted),
+            ));
         });
     });
 }
@@ -77,9 +75,11 @@ impl App {
             .show(root, |ui| self.header(ui, header));
     }
 
+    /// The drag area goes in first, under the field and About, or it would
+    /// take their clicks (pinned by
+    /// `app::tests::with_the_app_title_bar_about_still_takes_a_click`).
     fn header(&mut self, ui: &mut egui::Ui, header: theme::Header) {
         if self.app_title_bar {
-            // Before what is in it, so the field and About keep their clicks.
             vino_ui::window::drag(ui, ui.clip_rect(), "header");
             vino_ui::window::corner(ui);
             ui.add_space(TOP - vino_ui::window::BAR_GAP);

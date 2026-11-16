@@ -30,7 +30,8 @@ from typing import IO, Any, Protocol
 from .playback import Speech
 from .tts import DEFAULT_LANGUAGE, DEFAULT_VOICE
 
-# Synthesized once after loading and thrown away, so the first reading is warm.
+# Synthesized once after loading and thrown away (pinned by
+# `test_serve.py::test_main_warms_up_says_ready_then_serves`).
 WARM_UP = "Ready."
 OPS = ("speak", "stop")
 

@@ -73,7 +73,6 @@ def test_install_then_uninstall_leaves_nothing_behind(home):
 
 
 def test_a_vinospeak_path_with_awkward_characters_survives(home):
-    # Each of these broke the old sed or the unquoted Exec line
     odd = home / 'my code & more|100% "$HOME" `x` \\n' / "vinospeak"
     odd.parent.mkdir()
     odd.touch()

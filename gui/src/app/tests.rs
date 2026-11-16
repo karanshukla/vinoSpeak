@@ -32,6 +32,7 @@ if [ "$1" = "--delete-model" ]; then
 fi
 if [ "$1" = "--serve" ]; then
     echo '{"event": "ready"}'
+    [ -f "$dir/exit-idle" ] && exit 0
     current=
     while read -r line; do
         printf '%s\n' "$line" >> "$dir/calls"
@@ -42,6 +43,7 @@ if [ "$1" = "--serve" ]; then
         fi
         case "$line" in *'"op":"speak"'*) ;; *) continue ;; esac
         id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+        [ -f "$dir/crash-read" ] && { echo "vinospeak: error: crashed" >&2; exit 1; }
         if [ -f "$dir/fail-read" ]; then
             echo "{\"event\": \"error\", \"id\": $id, \"message\": \"boom\"}"
             continue
@@ -85,8 +87,7 @@ impl Scratch {
         std::fs::write(&path, text).unwrap();
         Hit {
             name: name.to_owned(),
-            // As RecentFiles describes it, so a file's text shows only in the preview.
-            description: format!("{}  Changed just now", self.0.display()),
+            description: self.changed_just_now(),
             kind: if name.ends_with(".pdf") {
                 Kind::Document
             } else {
@@ -103,10 +104,15 @@ impl Scratch {
         std::fs::copy(fixtures.join(fixture), &path).unwrap();
         Hit {
             name: name.to_owned(),
-            description: format!("{}  Changed just now", self.0.display()),
+            description: self.changed_just_now(),
             kind: crate::search::kind_of(&path, ""),
             path,
         }
+    }
+
+    /// As RecentFiles describes a file: its text shows only in the preview.
+    fn changed_just_now(&self) -> String {
+        format!("{}  Changed just now", self.0.display())
     }
 
     fn image(&self, name: &str) -> Hit {
@@ -150,6 +156,15 @@ struct FakeIndex {
     searches: HashMap<String, Vec<Hit>>,
     documents: HashMap<PathBuf, String>,
     down: bool,
+}
+
+impl FakeIndex {
+    fn recent(recent: Vec<Hit>) -> Self {
+        Self {
+            recent,
+            ..Default::default()
+        }
+    }
 }
 
 impl Index for FakeIndex {
@@ -211,8 +226,8 @@ fn window_with(
     );
     app.cache = Some(scratch.0.join("cache"));
     app.app_title_bar = app_title_bar;
-    // Fonts set in a frame apply from the next, and the window's bold face
-    // has to exist before it draws.
+    // Fonts set in a frame apply from the next; the bold face must exist
+    // before the window draws.
     let mut styled = false;
     Harness::builder().with_size(size).build_ui_state(
         move |ui, app: &mut App| {
@@ -226,6 +241,16 @@ fn window_with(
         },
         app,
     )
+}
+
+/// The window with one recent file, notes.md, previewed.
+fn notes_window(scratch: &Scratch, text: &str) -> Harness<'static, App> {
+    let mut h = window(
+        scratch,
+        FakeIndex::recent(vec![scratch.file("notes.md", text)]),
+    );
+    wait_for(&mut h, text);
+    h
 }
 
 fn shows(h: &Harness<'_, App>, text: &str) -> bool {
@@ -265,15 +290,18 @@ fn last_speak(h: &mut Harness<'_, App>, scratch: &Scratch) -> String {
 }
 
 #[test]
+fn two_scratch_dirs_made_in_one_test_run_never_share_a_path() {
+    let (a, b) = (Scratch::new(), Scratch::new());
+    assert_ne!(a.0, b.0);
+}
+
+#[test]
 fn before_a_search_the_recent_files_show_and_the_first_is_previewed() {
     let scratch = Scratch::new();
-    let index = FakeIndex {
-        recent: vec![
-            scratch.file("notes.md", "Newest notes first."),
-            scratch.file("older.md", "Older text."),
-        ],
-        ..Default::default()
-    };
+    let index = FakeIndex::recent(vec![
+        scratch.file("notes.md", "Newest notes first."),
+        scratch.file("older.md", "Older text."),
+    ]);
     let mut h = window(&scratch, index);
     wait_for(&mut h, "Newest notes first.");
     assert!(shows(&h, "Recently changed"));
@@ -308,10 +336,7 @@ fn typing_searches_and_lists_hits_without_images() {
 #[test]
 fn a_search_that_finds_nothing_says_so_and_keeps_the_recent_files() {
     let scratch = Scratch::new();
-    let index = FakeIndex {
-        recent: vec![scratch.file("notes.md", "Some notes.")],
-        ..Default::default()
-    };
+    let index = FakeIndex::recent(vec![scratch.file("notes.md", "Some notes.")]);
     let mut h = window(&scratch, index);
     h.state_mut().type_query("nothing like this");
     wait_for(&mut h, "Nothing close enough.");
@@ -365,13 +390,10 @@ fn the_recent_list_stops_at_twenty() {
 #[test]
 fn clicking_a_file_previews_it() {
     let scratch = Scratch::new();
-    let index = FakeIndex {
-        recent: vec![
-            scratch.file("first.md", "First file."),
-            scratch.file("second.md", "Second file."),
-        ],
-        ..Default::default()
-    };
+    let index = FakeIndex::recent(vec![
+        scratch.file("first.md", "First file."),
+        scratch.file("second.md", "Second file."),
+    ]);
     let mut h = window(&scratch, index);
     wait_for(&mut h, "First file.");
     h.get_by_label("second.md").click();
@@ -383,10 +405,7 @@ fn clicking_a_file_previews_it() {
 fn a_document_is_previewed_and_read_from_vinosearchs_text() {
     let scratch = Scratch::new();
     let pdf = scratch.file("contract.pdf", "%PDF-1.7 binary");
-    let mut index = FakeIndex {
-        recent: vec![pdf.clone()],
-        ..Default::default()
-    };
+    let mut index = FakeIndex::recent(vec![pdf.clone()]);
     index
         .documents
         .insert(pdf.path.clone(), "Extracted page one.".to_owned());
@@ -405,12 +424,7 @@ fn a_document_is_previewed_and_read_from_vinosearchs_text() {
 #[test]
 fn read_aloud_passes_the_voice_its_language_the_speed_and_the_output() {
     let scratch = Scratch::new();
-    let index = FakeIndex {
-        recent: vec![scratch.file("notes.md", "Read me.")],
-        ..Default::default()
-    };
-    let mut h = window(&scratch, index);
-    wait_for(&mut h, "Read me.");
+    let mut h = notes_window(&scratch, "Read me.");
     let state = h.state_mut();
     state.voice = voices::voice("bm_george").unwrap();
     state.speed = 1.5;
@@ -432,12 +446,7 @@ fn read_aloud_passes_the_voice_its_language_the_speed_and_the_output() {
 #[test]
 fn the_default_output_passes_no_audio_device() {
     let scratch = Scratch::new();
-    let index = FakeIndex {
-        recent: vec![scratch.file("notes.md", "Read me.")],
-        ..Default::default()
-    };
-    let mut h = window(&scratch, index);
-    wait_for(&mut h, "Read me.");
+    let mut h = notes_window(&scratch, "Read me.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Stop");
     let request = last_speak(&mut h, &scratch);
@@ -449,12 +458,7 @@ fn the_default_output_passes_no_audio_device() {
 fn every_reading_goes_to_the_one_worker() {
     let scratch = Scratch::new();
     scratch.mode("quick");
-    let index = FakeIndex {
-        recent: vec![scratch.file("notes.md", "Twice.")],
-        ..Default::default()
-    };
-    let mut h = window(&scratch, index);
-    wait_for(&mut h, "Twice.");
+    let mut h = notes_window(&scratch, "Twice.");
     for _ in 0..2 {
         h.get_by_role_and_label(Role::Button, "Read aloud").click();
         wait_for(&mut h, "Finished notes.md");
@@ -472,12 +476,7 @@ fn every_reading_goes_to_the_one_worker() {
 #[test]
 fn stop_interrupts_vinospeak_and_brings_read_aloud_back() {
     let scratch = Scratch::new();
-    let index = FakeIndex {
-        recent: vec![scratch.file("notes.md", "A long read.")],
-        ..Default::default()
-    };
-    let mut h = window(&scratch, index);
-    wait_for(&mut h, "A long read.");
+    let mut h = notes_window(&scratch, "A long read.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Stop");
     h.get_by_role_and_label(Role::Button, "Stop").click();
@@ -493,12 +492,7 @@ fn stop_interrupts_vinospeak_and_brings_read_aloud_back() {
 fn a_reading_that_ends_says_so() {
     let scratch = Scratch::new();
     scratch.mode("quick");
-    let index = FakeIndex {
-        recent: vec![scratch.file("notes.md", "Short.")],
-        ..Default::default()
-    };
-    let mut h = window(&scratch, index);
-    wait_for(&mut h, "Short.");
+    let mut h = notes_window(&scratch, "Short.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Finished notes.md");
 }
@@ -507,12 +501,7 @@ fn a_reading_that_ends_says_so() {
 fn a_failing_reading_shows_vinospeaks_error() {
     let scratch = Scratch::new();
     scratch.mode("fail-read");
-    let index = FakeIndex {
-        recent: vec![scratch.file("notes.md", "Doomed.")],
-        ..Default::default()
-    };
-    let mut h = window(&scratch, index);
-    wait_for(&mut h, "Doomed.");
+    let mut h = notes_window(&scratch, "Doomed.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Couldn't read notes.md: boom");
 }
@@ -521,10 +510,7 @@ fn a_failing_reading_shows_vinospeaks_error() {
 fn a_file_vinospeak_refuses_says_why_and_cant_be_read_aloud() {
     let scratch = Scratch::new();
     scratch.mode("fail-preview");
-    let index = FakeIndex {
-        recent: vec![scratch.file("blob.bin", "binary")],
-        ..Default::default()
-    };
+    let index = FakeIndex::recent(vec![scratch.file("blob.bin", "binary")]);
     let mut h = window(&scratch, index);
     wait_for(&mut h, "Can't read this file: not a UTF-8 text file.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
@@ -550,10 +536,9 @@ fn vinosearch_being_down_is_shown() {
 #[test]
 fn a_session_is_titled_by_its_summary_and_reads_either_part() {
     let scratch = Scratch::new();
-    let index = FakeIndex {
-        recent: vec![scratch.session("2026-10-27-140512.vwsession", "session_v1.vwsession")],
-        ..Default::default()
-    };
+    let index = FakeIndex::recent(vec![
+        scratch.session("2026-10-27-140512.vwsession", "session_v1.vwsession"),
+    ]);
     let mut h = window(&scratch, index);
     wait_for(&mut h, "The summary of the session.");
     assert!(shows(&h, "Local captioning on the NPU"));
@@ -572,13 +557,10 @@ fn a_session_is_titled_by_its_summary_and_reads_either_part() {
 #[test]
 fn a_session_without_a_summary_reads_its_transcript_and_says_why() {
     let scratch = Scratch::new();
-    let index = FakeIndex {
-        recent: vec![scratch.session(
-            "2026-10-27-140512.vwsession",
-            "session_v1_nosummary.vwsession",
-        )],
-        ..Default::default()
-    };
+    let index = FakeIndex::recent(vec![scratch.session(
+        "2026-10-27-140512.vwsession",
+        "session_v1_nosummary.vwsession",
+    )]);
     let mut h = window(&scratch, index);
     wait_for(&mut h, "The transcript of the session.");
     assert!(shows(&h, "27 October 2026, 14:05"));
@@ -589,13 +571,10 @@ fn a_session_without_a_summary_reads_its_transcript_and_says_why() {
 #[test]
 fn about_shows_the_other_apps_until_a_file_is_picked() {
     let scratch = Scratch::new();
-    let index = FakeIndex {
-        recent: vec![
-            scratch.file("first.md", "First file."),
-            scratch.file("second.md", "Second file."),
-        ],
-        ..Default::default()
-    };
+    let index = FakeIndex::recent(vec![
+        scratch.file("first.md", "First file."),
+        scratch.file("second.md", "Second file."),
+    ]);
     let mut h = window(&scratch, index);
     wait_for(&mut h, "First file.");
     h.get_by_label("About vinoSpeak").click();
@@ -607,33 +586,44 @@ fn about_shows_the_other_apps_until_a_file_is_picked() {
     assert!(!shows(&h, "Learn more vinoSearch"));
 }
 
-#[test]
-fn about_deletes_the_model_after_confirming_in_place() {
-    let scratch = Scratch::new();
+/// A tall window previewing notes.md, so its worker holds a downloaded
+/// model open, with About showing the model's size.
+fn about_with_a_model(scratch: &Scratch) -> Harness<'static, App> {
     scratch.model();
-    let index = FakeIndex {
-        recent: vec![scratch.file("notes.md", "Some notes.")],
-        ..Default::default()
-    };
-    let mut h = tall_window(&scratch, index);
+    let index = FakeIndex::recent(vec![scratch.file("notes.md", "Some notes.")]);
+    let mut h = tall_window(scratch, index);
     wait_for(&mut h, "Some notes.");
-    // The preview starts the worker, which holds the model open.
     wait_until(&mut h, "the worker", |_| {
         scratch.read("calls").contains("--serve")
     });
     h.get_by_label("About vinoSpeak").click();
     wait_for(&mut h, "2 MB on disk");
+    h
+}
 
+fn confirm_delete(h: &mut Harness<'_, App>) {
+    h.get_by_role_and_label(Role::Button, "Delete…").click();
+    wait_for(h, "Delete the model");
+    h.get_by_role_and_label(Role::Button, "Delete the model")
+        .click();
+}
+
+#[test]
+fn cancelling_the_confirmation_keeps_the_model() {
+    let scratch = Scratch::new();
+    let mut h = about_with_a_model(&scratch);
     h.get_by_role_and_label(Role::Button, "Delete…").click();
     wait_for(&mut h, "Deletes 2 MB");
     h.get_by_role_and_label(Role::Button, "Cancel").click();
     wait_for(&mut h, "2 MB on disk");
     assert!(!scratch.read("calls").contains("--delete-model"));
+}
 
-    h.get_by_role_and_label(Role::Button, "Delete…").click();
-    wait_for(&mut h, "Delete the model");
-    h.get_by_role_and_label(Role::Button, "Delete the model")
-        .click();
+#[test]
+fn about_deletes_the_model_after_confirming_in_place() {
+    let scratch = Scratch::new();
+    let mut h = about_with_a_model(&scratch);
+    confirm_delete(&mut h);
     wait_for(&mut h, "Not downloaded");
     assert!(shows(&h, "Deleted the model and its compiled cache"));
     assert!(h.state().worker.is_none(), "the worker let go of the model");
@@ -641,8 +631,14 @@ fn about_deletes_the_model_after_confirming_in_place() {
     assert!(delete.accesskit_node().is_disabled(), "nothing to delete");
     let voices: Vec<_> = h.state().voices.iter().map(|v| v.id.clone()).collect();
     assert_eq!(voices, ["af_heart"]);
+}
 
-    // The next reading starts a worker again, which downloads the model.
+#[test]
+fn after_a_delete_the_next_reading_starts_a_worker_again() {
+    let scratch = Scratch::new();
+    let mut h = about_with_a_model(&scratch);
+    confirm_delete(&mut h);
+    wait_for(&mut h, "Not downloaded");
     h.get_by_label("notes.md").click();
     wait_for(&mut h, "Some notes.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
@@ -654,10 +650,7 @@ fn about_deletes_the_model_after_confirming_in_place() {
 fn the_model_cant_be_deleted_while_reading() {
     let scratch = Scratch::new();
     scratch.model();
-    let index = FakeIndex {
-        recent: vec![scratch.file("notes.md", "A long read.")],
-        ..Default::default()
-    };
+    let index = FakeIndex::recent(vec![scratch.file("notes.md", "A long read.")]);
     let mut h = tall_window(&scratch, index);
     wait_for(&mut h, "A long read.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
@@ -676,32 +669,44 @@ fn a_delete_vinospeak_refuses_says_why() {
     let mut h = tall_window(&scratch, FakeIndex::default());
     h.get_by_label("About vinoSpeak").click();
     wait_for(&mut h, "2 MB on disk");
-    h.get_by_role_and_label(Role::Button, "Delete…").click();
-    wait_for(&mut h, "Delete the model");
-    h.get_by_role_and_label(Role::Button, "Delete the model")
-        .click();
+    confirm_delete(&mut h);
     wait_for(&mut h, "Couldn't delete it: The model is downloading.");
     assert!(scratch.0.join("cache/ov-cache/blob").is_file());
 }
 
+const WIDE: egui::Vec2 = egui::vec2(1100.0, 700.0);
+const NARROW: egui::Vec2 = egui::vec2(600.0, 700.0);
+
+/// The window at `size` with vino-ui's title bar, drawn.
+fn title_bar_window(scratch: &Scratch, size: egui::Vec2) -> Harness<'static, App> {
+    let mut h = window_with(scratch, FakeIndex::default(), size, true);
+    h.run_steps(4);
+    h
+}
+
 #[test]
 fn the_window_buttons_sit_in_the_top_right_corner() {
-    for size in [egui::vec2(1100.0, 700.0), egui::vec2(600.0, 700.0)] {
+    for size in [WIDE, NARROW] {
         let scratch = Scratch::new();
-        let mut h = window_with(&scratch, FakeIndex::default(), size, true);
-        h.run_steps(4);
-        // From the window's own edges: the harness's margin round the page
-        // doesn't move them.
+        let h = title_bar_window(&scratch, size);
+        // kittest's margin round the page doesn't move the window's own edges.
         let gap = vino_ui::window::BAR_GAP;
         let close = h.get_by_role_and_label(Role::Button, "Close").rect();
         assert_eq!(close.top(), gap, "{size:?}");
         assert_eq!(close.right(), size.x - gap, "{size:?}");
-        let minimise = h.get_by_role_and_label(Role::Button, "Minimise").rect();
         for name in ["Minimise", "Maximise"] {
             let button = h.get_by_role_and_label(Role::Button, name).rect();
             assert_eq!(button.top(), gap, "{name} {size:?}");
         }
-        // The search field and About stay clear of them.
+    }
+}
+
+#[test]
+fn the_search_field_and_about_stay_clear_of_the_window_buttons() {
+    for size in [WIDE, NARROW] {
+        let scratch = Scratch::new();
+        let h = title_bar_window(&scratch, size);
+        let minimise = h.get_by_role_and_label(Role::Button, "Minimise").rect();
         let about = h
             .get_by_role_and_label(Role::Button, "About vinoSpeak")
             .rect();
@@ -709,6 +714,51 @@ fn the_window_buttons_sit_in_the_top_right_corner() {
         let field = h.get_by_role(Role::TextInput).rect();
         assert!(field.right() < about.left(), "{size:?}");
     }
+}
+
+#[test]
+fn with_the_app_title_bar_about_still_takes_a_click() {
+    let scratch = Scratch::new();
+    let mut h = title_bar_window(&scratch, WIDE);
+    h.get_by_label("About vinoSpeak").click();
+    wait_for(&mut h, "Learn more vinoSearch");
+}
+
+#[test]
+fn about_opened_before_the_recent_files_arrive_stays_open() {
+    let scratch = Scratch::new();
+    let notes = scratch.file("notes.md", "Some notes.");
+    let mut h = window(&scratch, FakeIndex::recent(vec![]));
+    h.state_mut().open_about();
+    let ctx = h.ctx.clone();
+    h.state_mut().on_recent(&ctx, Ok(vec![notes]));
+    h.run_steps(4);
+    assert!(shows(&h, "Learn more vinoSearch"));
+    assert!(h.state().selected.is_none());
+}
+
+#[test]
+fn a_worker_that_exits_idle_is_started_again_by_the_next_read_aloud() {
+    let scratch = Scratch::new();
+    scratch.mode("exit-idle");
+    let mut h = notes_window(&scratch, "Some notes.");
+    wait_until(&mut h, "the idle worker to exit", |h| {
+        scratch.read("calls").contains("--serve") && h.state().worker.is_none()
+    });
+    assert_eq!(h.state().status, "", "no reading failed");
+    std::fs::remove_file(scratch.0.join("exit-idle")).unwrap();
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    last_speak(&mut h, &scratch);
+    assert_eq!(scratch.read("calls").matches("--serve").count(), 2);
+}
+
+#[test]
+fn a_worker_that_exits_mid_reading_fails_the_reading() {
+    let scratch = Scratch::new();
+    scratch.mode("crash-read");
+    let mut h = notes_window(&scratch, "Some notes.");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "Couldn't read notes.md: crashed");
 }
 
 #[test]

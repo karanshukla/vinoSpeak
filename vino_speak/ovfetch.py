@@ -18,15 +18,16 @@ from typing import Any
 BINARY = "ovfetch"
 INSTALL_HINT = "cargo install ovfetch --locked"
 _TIMEOUT_S = 10
-# Where `ovfetch npu install` puts the compiler (or a whole driver), and the
-# list it writes there: the libraries to load, one per line, in order.
 NPU_PREFIX = Path.home() / ".local/lib/ovfetch-npu"
 PRELOAD_LIST = "ovfetch-preload.txt"
 
 
 @dataclass(frozen=True)
 class Note:
-    ok: bool | None  # None: nothing to judge by
+    """`ok` is None when there is nothing to judge by (pinned by
+    `test_ovfetch.py::test_no_recorded_ceiling_is_unknown_not_bad`)."""
+
+    ok: bool | None
     label: str
     detail: str
 
@@ -43,7 +44,8 @@ def npu_prefix() -> Path | None:
         return None
 
 
-# What preload() loaded, once it has: a failed attempt is retried next time.
+# None until a preload succeeds, so a failed one is retried (pinned by
+# `test_ovfetch.py::test_a_library_that_will_not_load_is_named_and_retried`).
 _preloaded: list[str] | None = None
 
 

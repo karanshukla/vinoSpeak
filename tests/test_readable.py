@@ -73,10 +73,8 @@ def test_nested_emphasis_and_parenthesised_link_targets():
     assert spoken("See [Kokoro](https://en.wikipedia.org/wiki/Kokoro_(novel)).") == "See Kokoro."
 
 
-# Each of these is unclosed markup repeated along one line. Before the inline
-# patterns stopped at the next opening delimiter, 5,000 `**a ` took 3.3 s and
-# the time grew with the square of the length, so a large .md file could hang
-# the preview in the window (2026-10-25). Now 25,000 take about 20 ms.
+# Quadratic patterns took 3.3 s for 5,000 `**a ` and could hang the window's
+# preview; linear ones take about 20 ms for 25,000 (2026-10-25).
 @pytest.mark.parametrize(
     "unit", ["**a ", "__a ", "*a ", "_a ", "[", "![", "[a", "[^a", "[a](", "<http://a"]
 )
@@ -93,7 +91,6 @@ def test_a_document_line_without_punctuation_ends_a_sentence():
 
 
 def test_a_docx_table_is_read_cell_by_cell():
-    # vinoSearch's DOCX extractor: one line per paragraph and per table cell
     assert " ".join(document("Results\nName\nScore\nAlice\n90\n").split()) == (
         "Results. Name. Score. Alice. 90."
     )

@@ -11,13 +11,15 @@ from urllib.parse import urlsplit
 
 MARKDOWN_SUFFIXES = frozenset({".md", ".markdown", ".mdx", ".mkd"})
 CODE_SKIPPED = "Code skipped."
-# A sentence already ends here; anything else gets a full stop so Kokoro
-# pauses and chunks() can split after it.
+# A line ending otherwise gets a full stop, so Kokoro pauses and chunks() can
+# split after it (pinned by
+# `test_readable.py::test_a_document_line_without_punctuation_ends_a_sentence`).
 SENTENCE_END = re.compile(r"[.!?…:;]\Z")
 
 FRONT_MATTER = re.compile(r"\A---\n.*?\n(?:---|\.\.\.)\n", re.S)
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
-# An unclosed fence runs to the end of the file, as it renders.
+# An unclosed fence runs to the end of the file, as it renders (pinned by
+# `test_readable.py::test_an_unclosed_fence_skips_to_the_end`).
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,}).*?(?:^ {0,3}\1[`~]*[ \t]*$|\Z)", re.M | re.S)
 
 HEADING = re.compile(r"^ {0,3}#{1,6}\s+(.*?)(?:\s+#+)?\s*$")
@@ -29,8 +31,10 @@ TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
 TABLE_RULE = re.compile(r"^[\s|:-]*-[\s|:-]*$")
 
 # Inline patterns stop at the next opening delimiter, never `.+?`, so unclosed
-# markup stays linear (test_unclosed_inline_markup_is_linear; docs/architecture.md).
-# A link target may hold one level of parentheses, as Wikipedia URLs do.
+# markup stays linear (pinned by
+# `test_readable.py::test_unclosed_inline_markup_is_linear`). A link target may
+# hold one level of parentheses (pinned by
+# `test_readable.py::test_nested_emphasis_and_parenthesised_link_targets`).
 TARGET = r"\((?:[^()]|\([^()]*\))*\)"
 IMAGE = re.compile(r"!\[[^\[\]]*\]" + TARGET)
 LINK = re.compile(r"\[([^\[\]]*)\]" + TARGET)
@@ -49,11 +53,10 @@ EMPHASIS = re.compile(
 )
 STRIKE = re.compile(r"~~(.+?)~~")
 ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|<>~])")
-# An escaped character is held in the Private Use Area while the inline
-# markup around it is stripped, so `\*` is never taken for emphasis.
 ESCAPED = re.compile("[\ue000-\ue0ff]")
 
-# A word broken over a line end; only two lowercase halves are rejoined.
+# Only two lowercase halves are rejoined (pinned by
+# `test_readable.py::test_a_word_hyphenated_at_a_line_end_is_rejoined`).
 HYPHENATED = re.compile(r"([^\W\d_])-[ \t]*\n[ \t]*(\w)")
 
 
@@ -71,6 +74,17 @@ def _dehyphenate(match: re.Match[str]) -> str:
     return before + after if before.islower() and after.islower() else f"{before}-{after}"
 
 
+def _hold_escapes(text: str) -> str:
+    """Each escaped character moved into the Private Use Area while the inline
+    markup around it is stripped, so `\\*` is never taken for emphasis
+    (pinned by `test_readable.py::test_quotes_and_escapes`)."""
+    return ESCAPE.sub(lambda m: chr(0xE000 + ord(m.group(1))), text)
+
+
+def _release_escapes(text: str) -> str:
+    return ESCAPED.sub(lambda m: chr(ord(m.group(0)) - 0xE000), text)
+
+
 def _sentence(line: str) -> str:
     line = line.strip()
     return line if not line or SENTENCE_END.search(line) else f"{line}."
@@ -82,7 +96,6 @@ class _SpokenLines:
 
     def __init__(self) -> None:
         self.lines: list[str] = []
-        # A list item's lines run until a blank line or the next block.
         self._in_list_item = False
 
     def add(self, line: str) -> None:
@@ -118,6 +131,8 @@ class _SpokenLines:
         return bool(UNDERLINE.match(line)) and bool(above) and not self._in_list_item
 
     def _end_list_item(self) -> None:
+        """A list item's lines run until a blank line or the next block
+        (pinned by `test_readable.py::test_a_wrapped_list_item_ends_once`)."""
         if self._in_list_item:
             self.lines[-1] = _sentence(self.lines[-1])
             self._in_list_item = False
@@ -143,7 +158,7 @@ def markdown(text: str) -> str:
     text = FENCE.sub(f"\n{CODE_SKIPPED}\n", text)
     text = REFERENCE.sub("", text)
     text = "\n".join(_lines(text))
-    text = ESCAPE.sub(lambda m: chr(0xE000 + ord(m.group(1))), text)
+    text = _hold_escapes(text)
     text = IMAGE.sub("", text)
     text = LINK.sub(r"\1", text)
     text = REFERENCE_LINK.sub(r"\1", text)
@@ -155,7 +170,7 @@ def markdown(text: str) -> str:
     text = STRONG.sub(_inner, text)
     text = EMPHASIS.sub(_inner, text)
     text = STRIKE.sub(r"\1", text)
-    return ESCAPED.sub(lambda m: chr(ord(m.group(0)) - 0xE000), text)
+    return _release_escapes(text)
 
 
 def plain(text: str) -> str:
