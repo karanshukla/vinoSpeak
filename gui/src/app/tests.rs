@@ -245,7 +245,10 @@ fn window_with(
 
 /// The window with one recent file, notes.md, previewed.
 fn notes_window(scratch: &Scratch, text: &str) -> Harness<'static, App> {
-    let mut h = window(scratch, FakeIndex::recent(vec![scratch.file("notes.md", text)]));
+    let mut h = window(
+        scratch,
+        FakeIndex::recent(vec![scratch.file("notes.md", text)]),
+    );
     wait_for(&mut h, text);
     h
 }
@@ -287,12 +290,18 @@ fn last_speak(h: &mut Harness<'_, App>, scratch: &Scratch) -> String {
 }
 
 #[test]
+fn two_scratch_dirs_made_in_one_test_run_never_share_a_path() {
+    let (a, b) = (Scratch::new(), Scratch::new());
+    assert_ne!(a.0, b.0);
+}
+
+#[test]
 fn before_a_search_the_recent_files_show_and_the_first_is_previewed() {
     let scratch = Scratch::new();
     let index = FakeIndex::recent(vec![
-            scratch.file("notes.md", "Newest notes first."),
-            scratch.file("older.md", "Older text."),
-        ]);
+        scratch.file("notes.md", "Newest notes first."),
+        scratch.file("older.md", "Older text."),
+    ]);
     let mut h = window(&scratch, index);
     wait_for(&mut h, "Newest notes first.");
     assert!(shows(&h, "Recently changed"));
@@ -382,9 +391,9 @@ fn the_recent_list_stops_at_twenty() {
 fn clicking_a_file_previews_it() {
     let scratch = Scratch::new();
     let index = FakeIndex::recent(vec![
-            scratch.file("first.md", "First file."),
-            scratch.file("second.md", "Second file."),
-        ]);
+        scratch.file("first.md", "First file."),
+        scratch.file("second.md", "Second file."),
+    ]);
     let mut h = window(&scratch, index);
     wait_for(&mut h, "First file.");
     h.get_by_label("second.md").click();
@@ -527,7 +536,9 @@ fn vinosearch_being_down_is_shown() {
 #[test]
 fn a_session_is_titled_by_its_summary_and_reads_either_part() {
     let scratch = Scratch::new();
-    let index = FakeIndex::recent(vec![scratch.session("2026-10-27-140512.vwsession", "session_v1.vwsession")]);
+    let index = FakeIndex::recent(vec![
+        scratch.session("2026-10-27-140512.vwsession", "session_v1.vwsession"),
+    ]);
     let mut h = window(&scratch, index);
     wait_for(&mut h, "The summary of the session.");
     assert!(shows(&h, "Local captioning on the NPU"));
@@ -547,9 +558,9 @@ fn a_session_is_titled_by_its_summary_and_reads_either_part() {
 fn a_session_without_a_summary_reads_its_transcript_and_says_why() {
     let scratch = Scratch::new();
     let index = FakeIndex::recent(vec![scratch.session(
-            "2026-10-27-140512.vwsession",
-            "session_v1_nosummary.vwsession",
-        )]);
+        "2026-10-27-140512.vwsession",
+        "session_v1_nosummary.vwsession",
+    )]);
     let mut h = window(&scratch, index);
     wait_for(&mut h, "The transcript of the session.");
     assert!(shows(&h, "27 October 2026, 14:05"));
@@ -561,9 +572,9 @@ fn a_session_without_a_summary_reads_its_transcript_and_says_why() {
 fn about_shows_the_other_apps_until_a_file_is_picked() {
     let scratch = Scratch::new();
     let index = FakeIndex::recent(vec![
-            scratch.file("first.md", "First file."),
-            scratch.file("second.md", "Second file."),
-        ]);
+        scratch.file("first.md", "First file."),
+        scratch.file("second.md", "Second file."),
+    ]);
     let mut h = window(&scratch, index);
     wait_for(&mut h, "First file.");
     h.get_by_label("About vinoSpeak").click();
@@ -716,10 +727,11 @@ fn with_the_app_title_bar_about_still_takes_a_click() {
 #[test]
 fn about_opened_before_the_recent_files_arrive_stays_open() {
     let scratch = Scratch::new();
-    let index = FakeIndex::recent(vec![scratch.file("notes.md", "Some notes.")]);
-    let mut h = window(&scratch, index);
+    let notes = scratch.file("notes.md", "Some notes.");
+    let mut h = window(&scratch, FakeIndex::recent(vec![]));
     h.state_mut().open_about();
-    wait_for(&mut h, "notes.md");
+    let ctx = h.ctx.clone();
+    h.state_mut().on_recent(&ctx, Ok(vec![notes]));
     h.run_steps(4);
     assert!(shows(&h, "Learn more vinoSearch"));
     assert!(h.state().selected.is_none());
