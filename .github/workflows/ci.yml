@@ -85,6 +85,27 @@ jobs:
           # FAIL (a missing package, OpenVINO that won't start) fails the job
           /tmp/wheel/bin/vinospeak-doctor
 
+  # Every test a comment cites as "pinned by" is a real test
+  # (docs/comment-style.md). Also part of pytest and cargo test; its own job
+  # so a broken citation is named on the PR.
+  doc-links:
+    name: Doc Links
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked --only-group dev
+      - run: .venv/bin/python -m pytest tests/test_doc_links.py
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: gui
+      - run: cargo test --locked --test doc_links
+        working-directory: gui
+
   # The proof-of-concept window. Its tests drive it headless (egui_kittest)
   # against a fake vinoSearch and a fake vinospeak, so no display or D-Bus.
   gui:

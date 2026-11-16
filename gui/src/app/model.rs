@@ -45,7 +45,6 @@ impl Model {
 }
 
 impl App {
-    /// How much is on disk now.
     pub(super) fn refresh_model(&mut self) {
         self.model.bytes = Some(self.cache.as_deref().map_or(0, model_cache::disk_usage));
     }
@@ -76,7 +75,6 @@ impl App {
         let worker = self.worker.take();
         let (tx, ctx, vinospeak) = (self.tx.clone(), ctx.clone(), self.vinospeak.clone());
         std::thread::spawn(move || {
-            // Dropping it waits for it to exit, or kills it.
             drop(worker);
             let _ = tx.send(Reply::Deleted(model_cache::delete(&vinospeak)));
             ctx.request_repaint();

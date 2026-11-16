@@ -116,7 +116,10 @@ impl App {
     }
 
     /// Apply one worker event; how the reading with id `current` ended, if
-    /// this event ends it.
+    /// this event ends it. A worker that exits with no reading under way ends
+    /// none, and the next Read aloud starts another (pinned by
+    /// `app::tests::a_worker_that_exits_idle_is_started_again_by_the_next_read_aloud`,
+    /// `app::tests::a_worker_that_exits_mid_reading_fails_the_reading`).
     fn take_event(&mut self, event: Event, current: Option<u64>) -> Option<Ended> {
         match event {
             Event::Ready => {
@@ -135,7 +138,6 @@ impl App {
             }
             Event::Exited(message) => {
                 self.worker = None;
-                // A worker that died idle is started again by the next Read aloud.
                 current.map(|_| Ended::Failed(message))
             }
             Event::Done { .. } | Event::Error { .. } => None,

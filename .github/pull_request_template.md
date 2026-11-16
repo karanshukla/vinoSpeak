@@ -15,7 +15,7 @@ CI has no OpenVINO and no NPU. Say which of these applies:
 
 ## Checklist
 
-- [ ] Comments explain *why*, not what, and any measured claim carries a date
+- [ ] Comments follow docs/comment-style.md (a rule is a test pair, cited as "pinned by"), and any measured claim carries a date
 - [ ] README / CONTRIBUTING updated if behaviour or setup changed
 - [ ] If the model changed: `scripts/update_pins.py` re-run and the diff read
 - [ ] No secrets, tokens or machine-specific paths committed

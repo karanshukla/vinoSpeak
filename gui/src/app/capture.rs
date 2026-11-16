@@ -52,7 +52,6 @@ fn screenshot_then_close(ctx: &egui::Context, out: PathBuf) {
             Some(Ok(())) => eprintln!("saved {}", out.display()),
             _ => eprintln!("couldn't save {}", out.display()),
         }
-        // Dropping the window stops any reading.
         done.send_viewport_cmd(egui::ViewportCommand::Close);
         done.request_repaint();
     });

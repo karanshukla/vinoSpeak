@@ -25,7 +25,9 @@ DEFAULT_LANGUAGE = "en-us"
 DEFAULT_VOICE = "af_heart"
 DEFAULT_DEVICE = "NPU"
 MIN_SPEED, MAX_SPEED = 0.5, 2.0
-# Kokoro's output rate, so a player can start before the first chunk exists.
+# Kokoro's output rate, known up front so a player can start before the first
+# chunk exists (pinned by
+# `test_playback.py::test_with_the_rate_known_the_player_starts_before_the_first_chunk`).
 SAMPLE_RATE = 24000
 VOICE_PATTERN = re.compile(r"[a-z]{2}_[a-z0-9_]+\Z")
 # Undoes OpenVINO 2026.4's CPU pin on Kokoro's vocoder (docs/architecture.md,
@@ -117,8 +119,10 @@ class Synthesizer:
         self._ov = ov
         self._genai = ov_genai
         _preload_npu_compiler(device)
-        # True from an NPU load with the override until one generate() works:
-        # a failure before then gets one retry with OpenVINO's pin.
+        # Until one generate() works, a failure gets one retry with OpenVINO's
+        # pin (pinned by
+        # `test_tts.py::test_a_first_generate_that_fails_on_the_npu_retries_with_the_pin`,
+        # `test_tts.py::test_once_the_override_has_worked_errors_are_not_retried`).
         self._unproven_override = False
         self._pipeline = self._load()
         self._voices: dict[str, Any] = {}

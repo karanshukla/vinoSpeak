@@ -32,7 +32,8 @@ def _aplay(player: str, sample_rate: int, audio_device: str | None) -> list[str]
     return [player, "-q", "-t", "raw", "-f", "FLOAT_LE", "-c", "1", "-r", str(sample_rate), *target]
 
 
-# In order of preference: PipeWire, then PulseAudio, then bare ALSA.
+# In order of preference (pinned by
+# `test_playback.py::test_pipewire_is_preferred_over_pulseaudio_and_alsa`).
 RAW_COMMANDS = {"pw-play": _pw_play, "paplay": _paplay, "aplay": _aplay}
 PLAYERS = tuple(RAW_COMMANDS)
 
@@ -77,7 +78,8 @@ def raw_command(player: str, sample_rate: int, audio_device: str | None = None) 
     return RAW_COMMANDS[name](player, sample_rate, audio_device)
 
 
-# One chunk waits while the next is synthesized, so a stop() wastes little.
+# Kept small so a stop() wastes little (pinned by
+# `test_playback.py::test_synthesis_runs_one_chunk_ahead_of_a_player_that_is_not_reading`).
 CHUNKS_SYNTHESIZED_AHEAD = 1
 
 
@@ -171,7 +173,8 @@ class Speech:
             self._error = self._error or error
         finally:
             self._finish()
-            # Releases the synthesis thread from a full queue when no stop() comes.
+            # Frees the synthesis thread from a full queue when no stop() comes
+            # (pinned by `test_playback.py::test_a_dead_player_releases_the_synthesis_thread`).
             self._stopped.set()
 
     def _write_chunks(self) -> None:

@@ -29,9 +29,11 @@ uv run poe check    # ruff, ruff format --check, mypy, pytest
 - Tests run with no NPU and no OpenVINO: the pipeline, `openvino` and the
   `subprocess` call to ovfetch are faked. If a change can only be verified on
   hardware, say so in the PR instead of faking a test.
-- Keep code comments to one line, and only where the code would invite a wrong
-  "fix". A rule gets a test instead; the why and any measurement go in
-  [docs/architecture.md](docs/architecture.md).
+- Comments are the last resort: extract, name, or pin a rule with a test pair
+  first, and link the test from the code it governs. See
+  [docs/comment-style.md](docs/comment-style.md); `tests/test_doc_links.py`
+  and `gui/tests/doc_links.rs` check the links. The why and any measurement
+  go in [docs/architecture.md](docs/architecture.md).
 - Measured claims carry a date.
 - Commits are conventional (`feat:`, `fix:`, `docs:`, ...); the changelog is
   generated from them with `git cliff`.

@@ -32,6 +32,11 @@ def write(directory, files):
 FILES = {name: name.encode() for name in model.MODEL_FILES}
 
 
+def same_size_wrong_bytes(name):
+    """Passes the size check; only the hash catches it."""
+    return b"X" * len(FILES[name])
+
+
 def test_shipped_pins_are_well_formed():
     pins = model.load_pins()
     assert pins.model_id == model.MODEL_ID
@@ -100,7 +105,7 @@ def test_verify_names_missing_resized_and_altered_files(tmp_path):
 
 def test_a_same_size_change_needs_the_full_check(tmp_path):
     pins = make_pins(tmp_path, FILES)
-    write(tmp_path, {**FILES, "config.json": b"X" * len(FILES["config.json"])})
+    write(tmp_path, {**FILES, "config.json": same_size_wrong_bytes("config.json")})
 
     assert model.verify(tmp_path, pins, full=False) == []
     assert model.verify(tmp_path, pins) == ["config.json does not match its pinned sha256"]
@@ -165,16 +170,21 @@ def test_an_empty_directory_you_supply_still_gets_the_pinned_model(fake_hub, tmp
     assert len(fake_hub.calls) == 1
 
 
-def test_a_failed_download_is_not_used_on_the_next_run(fake_hub, tmp_path):
-    # Right size, wrong bytes: the size check alone would pass it.
-    bad = b"X" * len(FILES["config.json"])
-    fake_hub.contents = {**FILES, "config.json": bad}
-    target = tmp_path / "kokoro"
+def fail_a_download(fake_hub, target):
+    fake_hub.contents = {**FILES, "config.json": same_size_wrong_bytes("config.json")}
     with pytest.raises(model.ModelIntegrityError, match="removed"):
         model.ensure_model(target)
+
+
+def test_a_download_that_fails_its_hash_is_removed(fake_hub, tmp_path):
+    target = tmp_path / "kokoro"
+    fail_a_download(fake_hub, target)
     assert not (target / "config.json").exists()
 
-    # Run again, as a user would: it downloads again instead of loading.
+
+def test_a_failed_download_is_not_used_on_the_next_run(fake_hub, tmp_path):
+    target = tmp_path / "kokoro"
+    fail_a_download(fake_hub, target)
     fake_hub.contents = FILES
     assert model.ensure_model(target) == target
     assert len(fake_hub.calls) == 2
@@ -182,8 +192,7 @@ def test_a_failed_download_is_not_used_on_the_next_run(fake_hub, tmp_path):
 
 
 def test_an_unstamped_model_is_hashed_in_full(fake_hub, tmp_path):
-    # Left by an older version, or a download interrupted before its check.
-    write(tmp_path, {**FILES, "config.json": b"X" * len(FILES["config.json"])})
+    write(tmp_path, {**FILES, "config.json": same_size_wrong_bytes("config.json")})
     with pytest.raises(model.ModelIntegrityError, match="not the pinned revision"):
         model.ensure_model(tmp_path)
     assert not (tmp_path / model.STAMP).exists()
@@ -242,13 +251,12 @@ def test_delete_cached_keeps_what_isnt_ours(cache):
 
 
 def test_delete_cached_refuses_during_a_download(cache, fake_hub):
-    def snapshot_download(**kwargs):
-        # The download is under way when someone deletes the model.
+    def delete_mid_download(**kwargs):
         with pytest.raises(model.ModelBusyError, match="downloading"):
             model.delete_cached()
         write(Path(kwargs["local_dir"]), FILES)
 
-    fake_hub.snapshot_download = snapshot_download
+    fake_hub.snapshot_download = delete_mid_download
     assert model.ensure_model(model.default_model_dir()) == model.default_model_dir()
     assert model.delete_cached() > 0
 

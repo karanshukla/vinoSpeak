@@ -27,8 +27,7 @@ from huggingface_hub import HfApi, snapshot_download  # noqa: E402
 
 from vino_speak.model import MODEL_ID, PINS_PATH, sha256_file  # noqa: E402
 
-# Never used by the pipeline.
-SKIP = {".gitattributes", "README.md"}
+NOT_USED_BY_THE_PIPELINE = {".gitattributes", "README.md"}
 
 
 def main(argv: list[str]) -> int:
@@ -39,7 +38,7 @@ def main(argv: list[str]) -> int:
     infos = {
         entry.path: entry
         for entry in api.list_repo_tree(MODEL_ID, revision=revision, recursive=True)
-        if hasattr(entry, "size") and entry.path not in SKIP
+        if hasattr(entry, "size") and entry.path not in NOT_USED_BY_THE_PIPELINE
     }
 
     scratch = Path.home() / ".cache" / "vinospeak" / "pin-scratch"

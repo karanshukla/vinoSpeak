@@ -42,7 +42,7 @@ fn main() -> ExitCode {
                 .with_min_inner_size(MIN_SIZE),
             app_title_bar,
         ),
-        // As in vinoSearch's settings: with vsync, KWin can stall a hidden window.
+        // With vsync, KWin can stall a hidden window.
         glow_options: eframe::egui_glow::GlowConfiguration {
             vsync: false,
             ..Default::default()

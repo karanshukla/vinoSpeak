@@ -6,17 +6,20 @@ from __future__ import annotations
 import re
 
 SENTENCE_BREAK = re.compile(r"(?<=[.!?…])\s+|\n\s*\n")
-# A full stop that ends an abbreviation or an initial, not a sentence.
+# A full stop after an abbreviation or an initial ends no sentence (pinned by
+# `test_text.py::test_no_cut_after_an_abbreviation_or_an_initial`,
+# `test_text.py::test_a_word_that_ends_like_an_abbreviation_still_ends_its_sentence`).
 ABBREVIATION = re.compile(
     r"(?<![^\s(\[\"'“‘])(?:[eE]\.g|[iI]\.e|etc|vs|Dr|Mr|Mrs|Ms|St|No|pp?|[fF]ig|(?:[A-Z]\.)*[A-Z])\.\Z"
 )
-# Where a sentence too long for one chunk is cut first: after a clause.
 CLAUSE_BREAK = re.compile(r"(?<=[,;:—–])\s+")
 MAX_CHUNK_CHARS = 400
-# Every call pays a fixed cost, so a chunk is never cut smaller than this
+# Every synthesis call pays a fixed cost, so no chunk is cut smaller than
+# this but the first, which is all the listener waits for.
 MIN_CHUNK_CHARS = 100
-# Except the first, which is all the listener waits for: a long first
-# sentence is cut at its first clause break past this many characters.
+# A long first sentence is cut at its first clause break past this (pinned by
+# `test_text.py::test_a_long_first_sentence_is_cut_after_its_first_clause_past_sixty_chars`,
+# `test_text.py::test_a_first_sentence_with_no_late_clause_break_goes_whole`).
 FIRST_CHUNK_CHARS = 60
 
 

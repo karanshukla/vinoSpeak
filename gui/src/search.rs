@@ -262,7 +262,6 @@ fn summary(path: &Path) -> Option<String> {
     let mut bytes = Vec::new();
     let entry = zip.by_name("summary.md").ok()?;
     entry.take(SUMMARY_PEEK).read_to_end(&mut bytes).ok()?;
-    // A cut can split a character; the title is on the first lines anyway.
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
@@ -302,7 +301,8 @@ fn recorded(path: &Path) -> Option<String> {
 const MINUTE: i64 = 60;
 const HOUR: i64 = 60 * MINUTE;
 const DAY: i64 = 24 * HOUR;
-/// A month for this purpose; days are counted up to two of them.
+/// Days are counted up to two of these (pinned by
+/// `tests::days_are_counted_up_to_two_months`).
 const MONTH: i64 = 30 * DAY;
 
 /// How long ago, in the largest unit that fits: "just now", "3 days ago".
