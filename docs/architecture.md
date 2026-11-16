@@ -176,19 +176,21 @@ boundary.
 
 The two differ in what they add up. `vinospeak --model-status` lists the
 model and the compiled copy separately; the window's About page shows one
-figure for everything under the cache directory. They also round an exact
-half megabyte differently (Rust away from zero, Python to even), which the
-table stays clear of.
+figure for everything under the cache directory. An exact
+half rounds to even on both sides (2.5 MB is `2 MB`, 3.5 MB is `4 MB`), and
+the table has those rows; until 2026-11-15 the window rounded a half up.
 
 The window walks the cache with `walkdir`, which doesn't follow links unless
 asked. It was already in `Cargo.lock` for another platform's build, so the
 lock gains no package;
 `disk_usage_counts_neither_a_link_nor_what_it_points_to` pins that.
 
-Both size formatters are five lines written by hand. `humansize` (Rust) and
-`humanize` (Python) were looked at on 2026-11-15 and left out: neither gives
-"one decimal for GB, none below" without a branch per unit around the call,
-which is the whole function, and `import vino_speak` has to stay light.
+The window formats a size with `humansize` (2026-11-15), told which unit and
+how many decimals by the three rules above. Python's `cli.size` stays written
+out: `humanize.naturalsize` can't give these strings (it says `999 Bytes`
+where the rule is `1 kB`, and one format for every unit where GB alone has a
+decimal), and it would be a runtime dependency of a package whose import has
+to stay light.
 
 ## Reading markdown
 
