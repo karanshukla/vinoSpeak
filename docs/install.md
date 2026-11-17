@@ -36,6 +36,9 @@ uv tool install --python 3.14 vinospeak
 pinned to the same release as vinoPop and vinoWhisper, so programs sharing one
 NPU never run mismatched runtimes.
 
+`vinospeak --version` prints `vinospeak <version>` for a release (PyPI or the
+release installer's wheel) and `vinospeak dev` for an install from a checkout.
+
 `uv tool uninstall vinospeak` leaves the model behind; run
 `vinospeak --delete-model` first.
 

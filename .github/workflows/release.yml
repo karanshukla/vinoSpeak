@@ -34,7 +34,14 @@ jobs:
             exit 1
           fi
       - run: rustup toolchain install stable --profile minimal && rustup default stable
-      - run: cargo build --release --locked --manifest-path gui/Cargo.toml
+      - name: Build the window, stamped as a release
+        # Unset (any other build) the window says `dev`
+        env:
+          VINOSPEAK_VERSION: ${{ github.ref_name }}
+        run: |
+          export VINOSPEAK_VERSION="${VINOSPEAK_VERSION#v}"
+          cargo build --release --locked --manifest-path gui/Cargo.toml
+          test "$(gui/target/release/vinospeak-gui --version)" = "vinospeak-gui ${VINOSPEAK_VERSION}"
       # The tarball install.sh unpacks: the binary, its app menu entry and icon.
       - name: Package
         run: |
@@ -88,10 +95,13 @@ jobs:
 
       - name: Install the wheel and run it
         # The same smoke test as CI's wheel job, on the file that is uploaded
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           uv venv --python 3.14 /tmp/wheel
           uv pip install --python /tmp/wheel dist/*.whl
           test "$(/tmp/wheel/bin/vinospeak --print-text 'Hello from the wheel.')" = 'Hello from the wheel.'
+          test "$(/tmp/wheel/bin/vinospeak --version)" = "vinospeak ${VERSION}"
           /tmp/wheel/bin/vinospeak-doctor
 
       - name: Check the metadata renders on PyPI

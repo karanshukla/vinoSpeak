@@ -81,6 +81,8 @@ jobs:
           uv pip install --python /tmp/wheel dist/*.whl
           test "$(/tmp/wheel/bin/vinospeak --print-text 'Hello from the wheel.')" = 'Hello from the wheel.'
           /tmp/wheel/bin/python -c 'import vino_speak.model as m; m.load_pins()'
+          # An installed wheel is a release, not a `dev` build
+          test "$(/tmp/wheel/bin/vinospeak --version)" = "vinospeak $(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)"
           # No NPU and no model on the runner: warnings and unknowns, but a
           # FAIL (a missing package, OpenVINO that won't start) fails the job
           /tmp/wheel/bin/vinospeak-doctor

@@ -6,6 +6,7 @@ mod model_cache;
 mod outputs;
 mod search;
 mod speech;
+mod version;
 mod voices;
 
 use std::process::ExitCode;
@@ -32,6 +33,10 @@ fn window_size() -> [f32; 2] {
 }
 
 fn main() -> ExitCode {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("vinospeak-gui {}", version::VERSION);
+        return ExitCode::SUCCESS;
+    }
     let app_title_bar = vino_ui::window::app_title_bar();
     let options = eframe::NativeOptions {
         viewport: vino_ui::window::viewport(

@@ -189,3 +189,11 @@ def test_sizes_are_shown_as_the_window_shows_them():
     """The shared table gui/src/model_cache.rs is tested against too."""
     rules = json.loads((Path(__file__).parent / "fixtures/shared_with_window.json").read_text())
     assert [cli.size(n) for n, _ in rules["sizes"]] == [shown for _, shown in rules["sizes"]]
+
+
+def test_version_prints_the_program_and_its_version(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "__version__", "1.2.3")
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["--version"])
+    assert exit_info.value.code == 0
+    assert capsys.readouterr().out == "vinospeak 1.2.3\n"
