@@ -6,7 +6,7 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-from . import model, readable, serve, session
+from . import __version__, model, readable, serve, session
 from .model import default_model_dir
 from .tts import (
     DEFAULT_DEVICE,
@@ -21,8 +21,10 @@ from .tts import (
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Synthesize speech with Kokoro-82M INT8 on an OpenVINO device."
+        prog="vinospeak",
+        description="Synthesize speech with Kokoro-82M INT8 on an OpenVINO device.",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("text", nargs="?", help="Text to synthesize.")
     parser.add_argument(
         "--file",

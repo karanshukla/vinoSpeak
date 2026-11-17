@@ -15,7 +15,7 @@ use super::App;
 /// `~/.local/bin/vinospeak-upgrade`, which the row's button runs; without it
 /// (a build from a checkout) the row links to the release instead.
 pub(super) fn updater() -> Updater {
-    let updater = Updater::new(vino_ui::App::Speak, env!("CARGO_PKG_VERSION"));
+    let updater = Updater::new(vino_ui::App::Speak, crate::version::VERSION);
     match std::env::var_os("HOME")
         .map(|home| PathBuf::from(home).join(".local/bin/vinospeak-upgrade"))
     {
