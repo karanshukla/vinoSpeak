@@ -16,7 +16,6 @@ const MEASURE: f32 = 680.0;
 const PARTS: [(Part, &str); 2] = [(Part::Summary, "Summary"), (Part::Transcript, "Transcript")];
 /// What vinospeak says in place of a code block (readable.py's CODE_SKIPPED).
 const CODE_SKIPPED: &str = "Code skipped.";
-const INSET: i8 = 32;
 
 fn kind_tag(ui: &mut egui::Ui, kind: Kind) {
     let label = match kind {
@@ -48,28 +47,40 @@ fn paragraph(ui: &mut egui::Ui, text: &str) {
 }
 
 impl App {
-    pub(super) fn reader(&mut self, ui: &mut egui::Ui) {
+    /// `bar`: the file's name is up in the window's bar, not here.
+    pub(super) fn reader(&mut self, ui: &mut egui::Ui, inset: f32, top: i8, bar: bool) {
         let p = theme::palette(ui.ctx());
+        let inset = inset as i8;
         let Some(hit) = self.selected.clone() else {
-            ui.add_space(60.0);
-            ui.vertical_centered(|ui| {
-                widgets::muted(ui, "Pick a file to hear it.");
-            });
+            egui::Frame::NONE
+                .inner_margin(Margin {
+                    left: inset,
+                    top: top + 20,
+                    ..Margin::ZERO
+                })
+                .show(ui, |ui| {
+                    widgets::muted(ui, "Pick a file to hear it, or open one.");
+                    self.status_line(ui);
+                });
             return;
         };
         egui::Frame::NONE
             .inner_margin(Margin {
-                left: INSET,
-                right: INSET,
-                top: 20,
+                left: inset,
+                right: inset,
+                top,
                 bottom: 16,
             })
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.spacing_mut().item_spacing.y = 2.0;
-                title(ui, &hit);
+                if !bar {
+                    ui.horizontal(|ui| title_line(ui, &hit));
+                }
+                path_line(ui, &hit);
                 ui.add_space(12.0);
                 self.player(ui, &hit);
+                self.status_line(ui);
             });
         let rect = ui.max_rect();
         ui.painter().hline(
@@ -79,7 +90,7 @@ impl App {
         );
         egui::Frame::NONE
             .inner_margin(Margin {
-                left: INSET,
+                left: inset,
                 right: 0,
                 top: 20,
                 bottom: 0,
@@ -91,6 +102,14 @@ impl App {
                 }
                 self.text(ui, &hit);
             });
+    }
+
+    /// What the last reading did, or why it failed, under the player.
+    fn status_line(&self, ui: &mut egui::Ui) {
+        if !self.status.is_empty() {
+            ui.add_space(8.0);
+            a11y::live(&widgets::small(ui, &self.status));
+        }
     }
 
     /// Summary or Transcript, for a session. Without a summary the toggle
@@ -144,17 +163,21 @@ impl App {
     }
 }
 
-/// The file's name with what kind it is, and its path under it.
-fn title(ui: &mut egui::Ui, hit: &Hit) {
+/// The file's name with what kind it is, in a horizontal `ui`: the page's
+/// title, here or up in the window's bar.
+pub(super) fn title_line(ui: &mut egui::Ui, hit: &Hit) {
+    ui.spacing_mut().item_spacing.x = 10.0;
+    let title = ui.add(
+        egui::Label::new(RichText::new(&hit.name).size(22.0).family(theme::bold()))
+            .truncate()
+            .selectable(false),
+    );
+    a11y::heading(&title, &hit.name, 2);
+    kind_tag(ui, hit.kind);
+}
+
+fn path_line(ui: &mut egui::Ui, hit: &Hit) {
     let p = theme::palette(ui.ctx());
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 10.0;
-        let title = ui.add(
-            egui::Label::new(RichText::new(&hit.name).size(22.0).family(theme::bold())).truncate(),
-        );
-        a11y::heading(&title, &hit.name, 2);
-        kind_tag(ui, hit.kind);
-    });
     let path = hit.path.display().to_string();
     ui.add(egui::Label::new(RichText::new(&path).monospace().color(p.muted)).truncate())
         .on_hover_text(path);

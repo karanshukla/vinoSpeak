@@ -15,6 +15,8 @@ pub(super) struct Model {
     pub(super) deleting: bool,
     /// Why the last delete failed.
     pub(super) error: Option<String>,
+    /// What vinospeak said when it last deleted the model.
+    pub(super) deleted: Option<String>,
 }
 
 impl Model {
@@ -86,7 +88,7 @@ impl App {
         self.model.deleting = false;
         match said {
             Ok(said) => {
-                self.status = said;
+                self.model.deleted = Some(said);
                 self.model.error = None;
             }
             Err(e) => self.model.error = Some(format!("{e:#}")),

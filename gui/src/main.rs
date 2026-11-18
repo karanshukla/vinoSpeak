@@ -17,8 +17,8 @@ use eframe::egui;
 
 const APP_ID: &str = "dev.vinospeak.Listen";
 
-const DEFAULT_SIZE: [f32; 2] = [1040.0, 680.0];
-const MIN_SIZE: [f32; 2] = [560.0, 360.0];
+const DEFAULT_SIZE: [f32; 2] = [960.0, 680.0];
+const MIN_SIZE: [f32; 2] = [340.0, 320.0];
 
 /// `WxH`, as `VINOSPEAK_GUI_SIZE` gives a size.
 fn parse_size(size: &str) -> Option<[f32; 2]> {

@@ -1,5 +1,5 @@
-//! The list down the left: vinoSearch's hits, or the files changed most
-//! recently, one row each.
+//! The list in the sidebar, or a narrow window's Files tab: vinoSearch's
+//! hits, or the files changed most recently, one row each.
 
 use eframe::egui::{self, Margin, RichText, Sense, Stroke};
 use vino_ui::a11y;
@@ -108,23 +108,10 @@ fn highlight(
 }
 
 impl App {
-    pub(super) fn results_panel(&mut self, root: &mut egui::Ui) {
-        let p = theme::palette(root.ctx());
-        egui::Panel::left("results")
-            .resizable(true)
-            .show_separator_line(false)
-            .default_size(320.0)
-            .size_range(260.0..=560.0)
-            .frame(egui::Frame::NONE.fill(p.surface).inner_margin(Margin {
-                left: 10,
-                right: 0,
-                top: 0,
-                bottom: 12,
-            }))
-            .show(root, |ui| {
-                self.results(ui);
-                widgets::panel_rule(ui, widgets::Edge::Left);
-            });
+    /// A narrow window's Files tab: the search and the list.
+    pub(super) fn files_page(&mut self, ui: &mut egui::Ui) {
+        self.search_row(ui);
+        self.results(ui);
     }
 
     /// What the search is doing, when that isn't a list of hits.
@@ -142,7 +129,7 @@ impl App {
         }
     }
 
-    fn results(&mut self, ui: &mut egui::Ui) {
+    pub(super) fn results(&mut self, ui: &mut egui::Ui) {
         if self.vinosearch_missing.is_some() {
             ui.add_space(10.0);
             widgets::banner(ui, Tone::Info, "Search and PDFs need vinoSearch.", |ui| {
@@ -172,6 +159,7 @@ impl App {
         }
         if let Some(hit) = self.file_list(ui) {
             self.select(ui.ctx(), hit);
+            self.listing = false;
         }
     }
 
