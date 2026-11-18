@@ -21,6 +21,13 @@ own release (what `toolbox create` gives you; on openSUSE Aeon, a distrobox with
 a Tumbleweed image), since a binary linked against a newer glibc than the
 host's won't start there.
 
+vinoSearch is optional. Without it the window lists vinoWhisper's sessions
+from both its native folder (`~/.local/share/vinowhisper/transcripts`) and its
+Flatpak's (`~/.var/app/io.github.karanshukla.vinowhisper/data/...`), opens any
+text file through the folder button, a drop on the window or
+`vinospeak-gui FILE`, and turns search off. With it, those sessions join its
+recent files.
+
 Text files are read by vinospeak itself; PDFs and other documents through the
 text vinoSearch extracts. A vinoWhisper session is titled by its summary (or the
 time it was recorded) and has a Summary / Transcript toggle; Summary is

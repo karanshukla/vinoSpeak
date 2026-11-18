@@ -162,7 +162,7 @@ fn search(query: &str) -> Result<Vec<Hit>> {
 /// A recent file as the list shows it: named by its file name, described by
 /// its directory and how long ago it changed. `kind` is vinoSearch's word
 /// for it, `mtime` and `now` seconds since the epoch.
-fn recent_hit(path: PathBuf, kind: &str, mtime: i64, now: i64) -> Hit {
+pub(crate) fn recent_hit(path: PathBuf, kind: &str, mtime: i64, now: i64) -> Hit {
     let dir = path
         .parent()
         .map(|d| d.display().to_string())

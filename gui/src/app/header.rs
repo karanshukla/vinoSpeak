@@ -1,4 +1,4 @@
-//! The header: the logo and name, the search field, and About. With vino-ui's
+//! The header: the logo and name, the search field, Open and About. With vino-ui's
 //! own title bar it is also what the window is dragged by, and the window's
 //! buttons sit in its top right corner (pinned by
 //! `app::tests::the_window_buttons_sit_in_the_top_right_corner`).
@@ -16,8 +16,8 @@ const INSET: f32 = 20.0;
 /// The header's content, from the window's top edge.
 const TOP: f32 = 10.0;
 const BOTTOM: i8 = 12;
-/// The room About takes beside the search field.
-const ABOUT_ROOM: f32 = 36.0;
+/// The room Open and About take beside the search field.
+const BUTTONS_ROOM: f32 = 80.0;
 const BRAND_SIZE: egui::Vec2 = egui::vec2(290.0, 36.0);
 /// Between the brand, the search field and About.
 const GAP: f32 = 16.0;
@@ -86,7 +86,7 @@ impl App {
         }
         let window_buttons = vino_ui::window::controls_width() + CONTROLS_GAP;
         let right_of_the_field = if self.app_title_bar {
-            window_buttons + ABOUT_ROOM + GAP
+            window_buttons + BUTTONS_ROOM + GAP
         } else {
             0.0
         };
@@ -100,23 +100,37 @@ impl App {
                     ui.add_space(window_buttons);
                 }
                 self.about_button(ui);
+                self.open_button(ui);
             });
         });
     }
 
     fn search_field(&mut self, ui: &mut egui::Ui, room: f32) {
-        let response = widgets::search_field(
-            ui,
-            &mut self.query,
-            "Search your files by what's in them…",
-            "Search",
-            room.clamp(*SEARCH_WIDTH.start(), *SEARCH_WIDTH.end()),
-        );
+        let can_search = self.vinosearch_missing.is_none();
+        let hint = if can_search {
+            "Search your files by what's in them…"
+        } else {
+            "Searching needs vinoSearch"
+        };
+        let width = room.clamp(*SEARCH_WIDTH.start(), *SEARCH_WIDTH.end());
+        let response = ui
+            .add_enabled_ui(can_search, |ui| {
+                widgets::search_field(ui, &mut self.query, hint, "Search", width)
+            })
+            .inner;
         if response.changed() {
             self.query_edited();
         }
         if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
             self.search_now();
+        }
+    }
+
+    fn open_button(&mut self, ui: &mut egui::Ui) {
+        let open =
+            widgets::icon_button(ui, widgets::ButtonKind::Ghost, Icon::Folder, "Open a file");
+        if open.clicked() {
+            self.ask_for_a_file(ui.ctx());
         }
     }
 

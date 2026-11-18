@@ -13,6 +13,8 @@ publish = false
 # vinospeak CLI; never loads a model itself.
 [dependencies]
 anyhow = "1.0"
+ashpd = { version = "0.14.0", default-features = false, features = ["async-io", "file_chooser"] }
+async-io = "2.6.0"
 humansize = "2"
 eframe = { version = "0.37", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
