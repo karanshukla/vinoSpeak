@@ -57,18 +57,28 @@ pub fn found(dirs: &[PathBuf]) -> Vec<Hit> {
         .collect()
 }
 
-/// vinoSearch's recent files and the sessions on disk as one list, newest
-/// first, each path once.
+/// vinoSearch's recent files in its own order, with each session on disk
+/// that it didn't list slotted in by when it changed (pinned by
+/// `tests::vinosearchs_order_is_kept_and_the_others_slot_in_by_time`).
 pub fn merge(indexed: Vec<Hit>, on_disk: Vec<Hit>) -> Vec<Hit> {
-    let mut seen = HashSet::new();
-    let mut all: Vec<(Option<SystemTime>, Hit)> = indexed
+    let listed: HashSet<PathBuf> = indexed.iter().map(|hit| hit.path.clone()).collect();
+    let mut others: Vec<(Option<SystemTime>, Hit)> = on_disk
         .into_iter()
-        .chain(on_disk)
-        .filter(|hit| seen.insert(hit.path.clone()))
+        .filter(|hit| !listed.contains(&hit.path))
         .map(|hit| (changed(&hit.path), hit))
         .collect();
-    all.sort_by_key(|(changed, _)| std::cmp::Reverse(*changed));
-    all.into_iter().map(|(_, hit)| hit).collect()
+    others.sort_by_key(|(changed, _)| std::cmp::Reverse(*changed));
+    let mut others = others.into_iter().peekable();
+    let mut merged = Vec::new();
+    for hit in indexed {
+        let when = changed(&hit.path);
+        while let Some((_, newer)) = others.next_if(|(changed, _)| *changed > when) {
+            merged.push(newer);
+        }
+        merged.push(hit);
+    }
+    merged.extend(others.map(|(_, hit)| hit));
+    merged
 }
 
 #[cfg(test)]
@@ -128,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn merged_newest_first_with_each_path_once() {
+    fn each_path_is_listed_once() {
         let dir = scratch("merge");
         let (old, new, both) = (
             dir.join("old.md"),
@@ -139,9 +149,27 @@ mod tests {
         touch(&new, Duration::ZERO);
         touch(&both, Duration::from_secs(60));
         let hit = |path: &Path| search::recent_hit(path.to_path_buf(), "text", 0, 0);
-        let merged = merge(vec![hit(&old), hit(&both)], vec![hit(&both), hit(&new)]);
+        let merged = merge(vec![hit(&both), hit(&old)], vec![hit(&both), hit(&new)]);
         let paths: Vec<_> = merged.iter().map(|h| h.path.clone()).collect();
         assert_eq!(paths, [new, both, old]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn vinosearchs_order_is_kept_and_the_others_slot_in_by_time() {
+        let dir = scratch("order");
+        let (a, b, c) = (dir.join("a.md"), dir.join("b.md"), dir.join("c.vwsession"));
+        touch(&a, Duration::from_secs(300));
+        touch(&b, Duration::ZERO);
+        touch(&c, Duration::from_secs(60));
+        let hit = |path: &Path| search::recent_hit(path.to_path_buf(), "text", 0, 0);
+        let merged = merge(vec![hit(&a), hit(&b)], vec![hit(&c)]);
+        let paths: Vec<_> = merged.iter().map(|h| h.path.clone()).collect();
+        assert_eq!(
+            paths,
+            [c, a, b],
+            "a stays before b, as vinoSearch listed them"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
