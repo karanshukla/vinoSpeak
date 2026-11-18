@@ -12,6 +12,7 @@ class FakeSpeech:
         self.stopped = threading.Event()
         self.on_first_audio = on_first_audio
         self.fail = fail
+        self.volume = 1.0
 
     def play(self):
         self.on_first_audio()
@@ -31,17 +32,20 @@ class FakeSynthesizer:
     def __init__(self):
         self.warmed = []
         self.requests = []
+        self.speeches = []
 
     def synthesize(self, text, voice="af_heart"):
         self.warmed.append((text, voice))
 
-    def speak(self, text, voice, language, speed, audio_device, on_first_audio=None):
+    def speak(self, text, voice, language, speed, audio_device, on_first_audio=None, volume=1.0):
         if not text.strip():
             raise ValueError("Text must not be empty.")
         self.requests.append((text, voice, language, speed, audio_device))
         speech = FakeSpeech(
             on_first_audio, RuntimeError("pw-play exited") if text == "fail" else None
         )
+        speech.volume = volume
+        self.speeches.append(speech)
         speech.play()
         if text in ("end", "fail"):
             speech.stop()
@@ -87,6 +91,39 @@ def test_stop_and_a_new_speak_end_the_reading_before():
     assert {"event": "done", "id": 1, "stopped": True} in events
     assert {"event": "done", "id": 2, "stopped": True} in events
     assert synthesizer.requests[0] == ("A long read.", "af_heart", "en-us", 1.0, "hdmi_sink")
+
+
+def test_a_volume_changes_the_reading_playing_without_stopping_it():
+    synthesizer, events = run(
+        {"op": "speak", "id": 1, "text": "A long read.", "volume": 0.8},
+        {"op": "volume", "volume": 0.25},
+    )
+    assert synthesizer.speeches[0].volume == 0.25
+    assert by_id(events, 1) == ["started", "first-audio", "done"]
+    assert events[-1] == {"event": "done", "id": 1, "stopped": True}, "stopped by stdin's end"
+
+
+def test_a_volume_with_nothing_playing_is_no_error():
+    _, events = run({"op": "volume", "volume": 0.5})
+    assert events == []
+
+
+@pytest.mark.parametrize("volume", [0, 1, 0.5])
+def test_a_volume_from_0_to_1_is_taken(volume):
+    synthesizer, events = run({"op": "speak", "id": 1, "text": "end", "volume": volume})
+    assert synthesizer.speeches[0].volume == volume
+    assert by_id(events, 1) == ["started", "first-audio", "done"]
+
+
+@pytest.mark.parametrize("volume", [-0.01, 1.01, "loud", True])
+def test_a_volume_outside_0_to_1_is_refused(volume):
+    synthesizer, events = run(
+        {"op": "speak", "id": 1, "text": "end", "volume": volume},
+        {"op": "volume", "id": 2, "volume": volume},
+    )
+    assert synthesizer.speeches == []
+    assert [(e["event"], e["id"]) for e in events] == [("error", 1), ("error", 2)]
+    assert "from 0 to 1" in events[0]["message"]
 
 
 def test_the_end_of_stdin_stops_what_is_playing():

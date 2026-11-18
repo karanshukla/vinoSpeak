@@ -62,6 +62,7 @@ impl App {
             return;
         }
         self.start_worker(ctx);
+        let volume = self.heard_volume();
         let (Some(hit), Some(Ok(preview)), Some(worker)) =
             (&self.selected, &self.preview, &mut self.worker)
         else {
@@ -72,6 +73,7 @@ impl App {
             &self.voice,
             self.speed,
             self.output.as_deref(),
+            volume,
         ) {
             Ok(id) => {
                 self.status = format!("Speaking {}", hit.name);
@@ -86,6 +88,22 @@ impl App {
                 self.status = format!("{e:#}");
                 self.worker = None;
             }
+        }
+    }
+
+    /// The volume speech plays at: none while muted.
+    pub(super) fn heard_volume(&self) -> f32 {
+        if self.muted { 0.0 } else { self.volume }
+    }
+
+    /// The reading under way plays on at the volume or mute just chosen; the
+    /// next one starts at it.
+    pub(super) fn volume_changed(&mut self) {
+        let volume = self.heard_volume();
+        if let (Some(_), Some(worker)) = (&self.reading, &mut self.worker)
+            && worker.set_volume(volume).is_err()
+        {
+            self.worker = None;
         }
     }
 

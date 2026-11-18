@@ -122,6 +122,13 @@ a queue of one chunk between them. One chunk waiting is enough to keep
 playback fed without spending energy far ahead of a `stop()`
 (`test_synthesis_runs_one_chunk_ahead_of_a_player_that_is_not_reading`).
 
+The window's volume is the reading's own, not the output's: `Speech` scales
+the samples as it writes them, so it works the same through all three
+players and never moves the desktop's volume for other apps. A chunk is
+written a tenth of a second at a time, so a change made mid-reading is heard
+after that slice plus what the pipe and player already hold (under a second
+with the default 64 KiB pipe at 24 kHz float32).
+
 Two failure paths that are easy to lose:
 
 - A player that won't start (gone, not executable, or one `raw_command` can't

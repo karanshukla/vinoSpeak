@@ -258,13 +258,15 @@ impl Worker {
             .context("vinospeak has stopped")
     }
 
-    /// Read `text` aloud, stopping whatever was playing; its id for the events.
+    /// Read `text` aloud at `volume` (0 to 1), stopping whatever was
+    /// playing; its id for the events.
     pub fn speak(
         &mut self,
         text: &str,
         voice: &Voice,
         speed: f32,
         output: Option<&str>,
+        volume: f32,
     ) -> Result<u64> {
         self.next_id += 1;
         self.send(&serde_json::json!({
@@ -275,8 +277,14 @@ impl Worker {
             "language": voice.language,
             "speed": speed,
             "audio_device": output,
+            "volume": volume,
         }))?;
         Ok(self.next_id)
+    }
+
+    /// The reading under way, if any, plays on at `volume` (0 to 1).
+    pub fn set_volume(&mut self, volume: f32) -> Result<()> {
+        self.send(&serde_json::json!({"op": "volume", "volume": volume}))
     }
 
     pub fn stop(&mut self) -> Result<()> {

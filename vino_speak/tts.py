@@ -213,15 +213,17 @@ class Synthesizer:
         speed: float = 1.0,
         audio_device: str | None = None,
         on_first_audio: Callable[[], None] | None = None,
+        volume: float = 1.0,
     ) -> Speech:
         """Start playing the text on the speakers (or `audio_device`) and
         return at once. `on_first_audio` is called once the first samples
-        are with the player."""
+        are with the player; `volume` (0 to 1) can be changed on the Speech."""
         return Speech(
             self.stream(text, voice, language, speed),
             audio_device=audio_device,
             sample_rate=SAMPLE_RATE,
             on_first_audio=on_first_audio,
+            volume=volume,
         )
 
 

@@ -7,6 +7,7 @@ mod open;
 mod outputs;
 mod search;
 mod sessions;
+mod settings;
 mod speech;
 mod version;
 mod voices;

@@ -1,5 +1,5 @@
 //! The player under a file's name: the round Read aloud / Stop button, what
-//! it is doing, and the voice, speed and output choices after it.
+//! it is doing, and the voice, speed, output and volume choices after it.
 
 use eframe::egui::{self, Color32, RichText, Sense, Stroke};
 use vino_ui::a11y;
@@ -12,7 +12,8 @@ use crate::outputs::Output;
 use crate::search::Hit;
 
 /// The speed presets, as the player offers them.
-const SPEEDS: [(f32, &str); 4] = [(0.8, "0.8×"), (1.0, "1.0×"), (1.25, "1.25×"), (1.5, "1.5×")];
+pub(super) const SPEEDS: [(f32, &str); 4] =
+    [(0.8, "0.8×"), (1.0, "1.0×"), (1.25, "1.25×"), (1.5, "1.5×")];
 const BUTTON_DIAMETER: f32 = 44.0;
 /// What each choice takes in the player's row, icon and all: a group that
 /// doesn't fit starts the next row, rather than running off the window
@@ -20,6 +21,7 @@ const BUTTON_DIAMETER: f32 = 44.0;
 const VOICE_ROOM: f32 = 190.0;
 const SPEED_ROOM: f32 = 210.0;
 const OUTPUT_ROOM: f32 = 220.0;
+const VOLUME_ROOM: f32 = 150.0;
 /// The play and stop shapes are drawn on the icons' 24-unit grid, 18 px across.
 const GLYPH_SCALE: f32 = 18.0 / 24.0;
 const GLYPH_CENTRE: f32 = 12.0;
@@ -125,6 +127,8 @@ impl App {
             }
             room_for(ui, OUTPUT_ROOM);
             self.output_picker(ui);
+            room_for(ui, VOLUME_ROOM);
+            self.volume_controls(ui);
         });
     }
 

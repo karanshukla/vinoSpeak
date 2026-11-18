@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import IO, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import numpy as np
+    from numpy.typing import NDArray
+
     from .tts import Audio
 
 
@@ -81,11 +84,23 @@ def raw_command(player: str, sample_rate: int, audio_device: str | None = None) 
 # Kept small so a stop() wastes little (pinned by
 # `test_playback.py::test_synthesis_runs_one_chunk_ahead_of_a_player_that_is_not_reading`).
 CHUNKS_SYNTHESIZED_AHEAD = 1
+# Each chunk is written this many seconds at a time, so a change of volume is
+# heard within a slice plus what the pipe and player hold (pinned by
+# `test_playback.py::test_a_volume_change_applies_to_the_samples_not_yet_written`).
+SLICE_SECONDS = 0.1
+
+
+def scaled(samples: NDArray[np.float32], volume: float) -> bytes:
+    """Samples as the player's little-endian float32, at `volume` (0 to 1)."""
+    if volume != 1.0:
+        samples = samples * volume
+    return samples.astype("<f4", copy=False).tobytes()
 
 
 class Speech:
     """Audio playing in the background as it arrives. stop() cuts it off at
     once; wait() blocks until it has finished and raises whatever went wrong.
+    `volume` (0 to 1) can be changed while it plays.
 
     A chunk already being synthesized when stop() is called still finishes
     in the background, since the pipeline can't be interrupted, so the next
@@ -102,7 +117,9 @@ class Speech:
         audio_device: str | None = None,
         sample_rate: int | None = None,
         on_first_audio: Callable[[], None] | None = None,
+        volume: float = 1.0,
     ) -> None:
+        self.volume = volume
         self._player = player or require_player()
         self._audio_device = audio_device
         self._sample_rate = sample_rate
@@ -195,11 +212,15 @@ class Speech:
                 raise RuntimeError(
                     f"Speech came at {chunk.sample_rate} Hz to a player started at {rate} Hz."
                 )
-            stdin.write(chunk.samples.astype("<f4", copy=False).tobytes())
-            stdin.flush()
-            if not heard and self._on_first_audio is not None:
-                self._on_first_audio()
-            heard = True
+            step = max(1, round(rate * SLICE_SECONDS))
+            for start in range(0, len(chunk.samples), step):
+                if self._stopped.is_set():
+                    return
+                stdin.write(scaled(chunk.samples[start : start + step], self.volume))
+                stdin.flush()
+                if not heard and self._on_first_audio is not None:
+                    self._on_first_audio()
+                heard = True
 
     def _start(self, sample_rate: int) -> IO[bytes] | None:
         """The player's stdin, or None when stop() got there first."""

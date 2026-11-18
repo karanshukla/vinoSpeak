@@ -9,11 +9,13 @@
 //! - `files`: the search, the recent files, the chosen file's preview
 //! - `reading`: the worker and the reading under way
 //! - `model`: the downloaded model's size, voices and deletion
-//! - `sidebar`, `header`, `results`, `reader`, `player`, `about`: what is drawn
+//! - `sidebar`, `header`, `results`, `reader`, `player`, `volume`, `about`: what is drawn
+//! - `choices`: the voice, speed and volume kept between runs
 //! - `capture`: the screenshot taken with nobody at the screen
 
 mod about;
 mod capture;
+mod choices;
 mod files;
 mod header;
 mod model;
@@ -24,6 +26,7 @@ mod results;
 mod sidebar;
 #[cfg(test)]
 mod tests;
+mod volume;
 
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
@@ -97,6 +100,9 @@ pub struct App {
     voices: Vec<Voice>,
     voice: Voice,
     speed: f32,
+    /// 0 to 1, kept while muted so unmuting brings it back.
+    volume: f32,
+    muted: bool,
     outputs: Vec<Output>,
     default_output: Option<String>,
     /// None plays on the desktop's default output.
@@ -108,6 +114,9 @@ pub struct App {
     tx: mpsc::Sender<Reply>,
     rx: mpsc::Receiver<Reply>,
     capture: Option<Capture>,
+    /// Where the voice, speed and volume are kept; None keeps them for this run only.
+    settings: Option<PathBuf>,
+    saved: Option<crate::settings::Settings>,
     focused: bool,
     kde_header: Option<theme::KdeHeader>,
     /// The window's buttons and edges are drawn here, not by the desktop
@@ -138,6 +147,9 @@ impl App {
         app.session_dirs = crate::sessions::user_dirs();
         app.to_open = std::env::args_os().nth(1).map(PathBuf::from);
         app.capture = Capture::from_env();
+        if let Some(path) = crate::settings::path() {
+            app.remember(path);
+        }
         if let Ok(query) = std::env::var("VINOSPEAK_GUI_QUERY") {
             app.type_query(&query);
         }
@@ -183,6 +195,8 @@ impl App {
             voices,
             voice,
             speed: 1.0,
+            volume: 1.0,
+            muted: false,
             outputs,
             default_output,
             output: None,
@@ -192,6 +206,8 @@ impl App {
             tx,
             rx,
             capture: None,
+            settings: None,
+            saved: None,
             focused: true,
             kde_header: None,
             app_title_bar: false,
@@ -256,6 +272,7 @@ impl App {
             vino_ui::window::bar(root, inset, |ui| self.bar_title(ui), |_| {});
         }
         self.page(root, wide, bar, inset);
+        self.save_choices(ctx);
         self.capture(ctx);
     }
 

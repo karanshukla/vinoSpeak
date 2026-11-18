@@ -36,6 +36,7 @@ if [ "$1" = "--serve" ]; then
     current=
     while read -r line; do
         printf '%s\n' "$line" >> "$dir/calls"
+        case "$line" in *'"op":"volume"'*) continue ;; esac
         if [ -n "$current" ]; then
             echo interrupted >> "$dir/calls"
             echo "{\"event\": \"done\", \"id\": $current, \"stopped\": true}"
@@ -463,13 +464,62 @@ fn read_aloud_passes_the_voice_its_language_the_speed_and_the_output() {
 }
 
 #[test]
+fn read_aloud_passes_the_volume_and_none_while_muted() {
+    let scratch = Scratch::new();
+    scratch.mode("quick");
+    let mut h = notes_window(&scratch, "Read me.");
+    h.state_mut().volume = 0.5;
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "Finished notes.md");
+    assert!(last_speak(&mut h, &scratch).contains(r#""volume":0.5"#));
+    h.get_by_role_and_label(Role::Button, "Mute").click();
+    h.run();
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_until(&mut h, "a muted speak request", |_| {
+        scratch.read("calls").contains(r#""volume":0.0}"#)
+    });
+}
+
+#[test]
+fn mute_quiets_the_reading_under_way_without_stopping_it() {
+    let scratch = Scratch::new();
+    let mut h = notes_window(&scratch, "A long read.");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "Stop");
+    h.get_by_role_and_label(Role::Button, "Mute").click();
+    wait_until(&mut h, "a volume request", |_| {
+        scratch
+            .read("calls")
+            .contains(r#"{"op":"volume","volume":0.0}"#)
+    });
+    h.run();
+    h.get_by_role_and_label(Role::Button, "Unmute").click();
+    wait_until(&mut h, "the volume back", |_| {
+        scratch
+            .read("calls")
+            .contains(r#"{"op":"volume","volume":1.0}"#)
+    });
+    assert!(shows(&h, "Stop"), "still reading");
+    assert!(!scratch.read("calls").contains("interrupted"));
+}
+
+#[test]
+fn the_volume_with_nothing_playing_waits_for_the_next_reading() {
+    let scratch = Scratch::new();
+    let mut h = notes_window(&scratch, "Read me.");
+    h.get_by_role_and_label(Role::Button, "Mute").click();
+    h.run();
+    assert!(!scratch.read("calls").contains(r#""op":"volume""#));
+}
+
+#[test]
 fn the_default_output_passes_no_audio_device() {
     let scratch = Scratch::new();
     let mut h = notes_window(&scratch, "Read me.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Stop");
     let request = last_speak(&mut h, &scratch);
-    assert!(request.contains(r#""voice":"af_heart"}"#), "{request}");
+    assert!(request.contains(r#""voice":"af_heart","#), "{request}");
     assert!(request.contains(r#""audio_device":null"#), "{request}");
 }
 
@@ -902,7 +952,7 @@ fn the_player_wraps_rather_than_running_off_the_window() {
     let size = egui::vec2(960.0, 680.0);
     let mut h = window_with(&scratch, index, size, false);
     wait_for(&mut h, "Some notes.");
-    for name in ["Voice", "1.5×", "Output"] {
+    for name in ["Voice", "1.5×", "Output", "Volume"] {
         let right = h.get_by_label(name).rect().right();
         assert!(right <= size.x, "{name} ends at {right}");
     }
@@ -919,4 +969,43 @@ fn with_the_bar_about_is_titled_once() {
             .count(),
         1
     );
+}
+
+#[test]
+fn the_voice_speed_and_volume_come_back_in_the_next_window() {
+    let scratch = Scratch::new();
+    let settings = scratch.0.join("config/vinospeak/gui.json");
+    let mut h = notes_window(&scratch, "Read me.");
+    h.state_mut().remember(settings.clone());
+    h.state_mut().voice = voices::voice("bm_george").unwrap();
+    h.state_mut().volume = 0.4;
+    h.get_by_label("1.25×").click();
+    h.run();
+    h.get_by_role_and_label(Role::Button, "Mute").click();
+    h.run();
+
+    let mut next = notes_window(&scratch, "Read me.");
+    next.state_mut().remember(settings);
+    let state = next.state();
+    assert_eq!(state.voice.id, "bm_george");
+    assert_eq!(state.speed, 1.25);
+    assert_eq!(state.volume, 0.4);
+    assert!(!state.muted, "a window never opens muted");
+}
+
+#[test]
+fn a_saved_voice_that_is_not_installed_or_an_unoffered_speed_is_left_at_the_default() {
+    let scratch = Scratch::new();
+    let settings = scratch.0.join("gui.json");
+    std::fs::write(
+        &settings,
+        r#"{"voice": "zz_nobody", "speed": 3.0, "volume": 0.7}"#,
+    )
+    .unwrap();
+    let mut h = notes_window(&scratch, "Read me.");
+    h.state_mut().remember(settings);
+    let state = h.state();
+    assert_eq!(state.voice.id, "af_heart");
+    assert_eq!(state.speed, 1.0);
+    assert_eq!(state.volume, 0.7);
 }
