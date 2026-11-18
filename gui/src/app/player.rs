@@ -12,7 +12,8 @@ use crate::outputs::Output;
 use crate::search::Hit;
 
 /// The speed presets, as the player offers them.
-const SPEEDS: [(f32, &str); 4] = [(0.8, "0.8×"), (1.0, "1.0×"), (1.25, "1.25×"), (1.5, "1.5×")];
+pub(super) const SPEEDS: [(f32, &str); 4] =
+    [(0.8, "0.8×"), (1.0, "1.0×"), (1.25, "1.25×"), (1.5, "1.5×")];
 const BUTTON_DIAMETER: f32 = 44.0;
 /// What each choice takes in the player's row, icon and all: a group that
 /// doesn't fit starts the next row, rather than running off the window

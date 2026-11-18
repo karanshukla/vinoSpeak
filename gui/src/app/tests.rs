@@ -970,3 +970,42 @@ fn with_the_bar_about_is_titled_once() {
         1
     );
 }
+
+#[test]
+fn the_voice_speed_and_volume_come_back_in_the_next_window() {
+    let scratch = Scratch::new();
+    let settings = scratch.0.join("config/vinospeak/gui.json");
+    let mut h = notes_window(&scratch, "Read me.");
+    h.state_mut().remember(settings.clone());
+    h.state_mut().voice = voices::voice("bm_george").unwrap();
+    h.state_mut().volume = 0.4;
+    h.get_by_label("1.25×").click();
+    h.run();
+    h.get_by_role_and_label(Role::Button, "Mute").click();
+    h.run();
+
+    let mut next = notes_window(&scratch, "Read me.");
+    next.state_mut().remember(settings);
+    let state = next.state();
+    assert_eq!(state.voice.id, "bm_george");
+    assert_eq!(state.speed, 1.25);
+    assert_eq!(state.volume, 0.4);
+    assert!(!state.muted, "a window never opens muted");
+}
+
+#[test]
+fn a_saved_voice_that_is_not_installed_or_an_unoffered_speed_is_left_at_the_default() {
+    let scratch = Scratch::new();
+    let settings = scratch.0.join("gui.json");
+    std::fs::write(
+        &settings,
+        r#"{"voice": "zz_nobody", "speed": 3.0, "volume": 0.7}"#,
+    )
+    .unwrap();
+    let mut h = notes_window(&scratch, "Read me.");
+    h.state_mut().remember(settings);
+    let state = h.state();
+    assert_eq!(state.voice.id, "af_heart");
+    assert_eq!(state.speed, 1.0);
+    assert_eq!(state.volume, 0.7);
+}

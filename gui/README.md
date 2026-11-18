@@ -35,6 +35,11 @@ disabled until vinoWhisper has summarised it. Spreadsheets and source code are
 left out of the lists, though vinoSearch indexes them: `vinospeak --file` still
 reads one if you want it.
 
+The voice, speed and volume are kept between runs in
+`~/.config/vinospeak/gui.json` (or under `$XDG_CONFIG_HOME`). Mute is not:
+the window always opens unmuted. Volume is the reading's own, not the
+desktop's, and a change is heard mid-reading.
+
 Checked without anyone at the screen: `VINOSPEAK_GUI_QUERY` searches,
 `VINOSPEAK_GUI_SCREENSHOT=out.png` saves the window once the first hit's text is
 in and exits, and `VINOSPEAK_GUI_SPEAK=1` starts reading first.
