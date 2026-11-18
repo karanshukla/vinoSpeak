@@ -14,6 +14,12 @@ use crate::search::Hit;
 /// The speed presets, as the player offers them.
 const SPEEDS: [(f32, &str); 4] = [(0.8, "0.8×"), (1.0, "1.0×"), (1.25, "1.25×"), (1.5, "1.5×")];
 const BUTTON_DIAMETER: f32 = 44.0;
+/// What each choice takes in the player's row, icon and all: a group that
+/// doesn't fit starts the next row, rather than running off the window
+/// (pinned by `app::tests::the_player_wraps_rather_than_running_off_the_window`).
+const VOICE_ROOM: f32 = 190.0;
+const SPEED_ROOM: f32 = 210.0;
+const OUTPUT_ROOM: f32 = 220.0;
 /// The play and stop shapes are drawn on the icons' 24-unit grid, 18 px across.
 const GLYPH_SCALE: f32 = 18.0 / 24.0;
 const GLYPH_CENTRE: f32 = 12.0;
@@ -36,6 +42,13 @@ fn default_output_label(outputs: &[Output], default: Option<&str>) -> String {
     match default {
         Some(name) => format!("Default ({})", described(outputs, name)),
         None => "Default output".to_owned(),
+    }
+}
+
+/// In a wrapping row `available_width` is the whole row's, not what is left.
+fn room_for(ui: &mut egui::Ui, width: f32) {
+    if ui.max_rect().right() - ui.cursor().left() < width {
+        ui.end_row();
     }
 }
 
@@ -103,11 +116,14 @@ impl App {
                 self.read_aloud_button(ui);
             }
             ui.add_space(8.0);
+            room_for(ui, VOICE_ROOM);
             self.voice_picker(ui);
+            room_for(ui, SPEED_ROOM);
             let mut speed = self.speed;
             if widgets::segmented(ui, "Speed", &mut speed, &SPEEDS) {
                 self.speed = speed;
             }
+            room_for(ui, OUTPUT_ROOM);
             self.output_picker(ui);
         });
     }

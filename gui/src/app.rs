@@ -1,7 +1,7 @@
-//! The window: a search box, vinoSearch's hits (or the files changed most
-//! recently) down the left, and the chosen file as vinoSpeak will say it,
-//! with Read aloud and Stop. Its look is vino-ui's, shared with vinoSearch
-//! and vinoWhisper.
+//! The window: a sidebar with the search, vinoSearch's hits (or the files
+//! changed most recently) and About, and the chosen file as vinoSpeak will
+//! say it, with Read aloud and Stop. Narrow, the sidebar becomes tabs. Its
+//! look is vino-ui's, shared with the other vinoPilot apps.
 //!
 //! This file is the window's state and one frame of it. Each part of the
 //! frame, and the state changes behind it, is a module:
@@ -9,7 +9,7 @@
 //! - `files`: the search, the recent files, the chosen file's preview
 //! - `reading`: the worker and the reading under way
 //! - `model`: the downloaded model's size, voices and deletion
-//! - `header`, `results`, `reader`, `player`, `about`: what is drawn
+//! - `sidebar`, `header`, `results`, `reader`, `player`, `about`: what is drawn
 //! - `capture`: the screenshot taken with nobody at the screen
 
 mod about;
@@ -21,6 +21,7 @@ mod player;
 mod reader;
 mod reading;
 mod results;
+mod sidebar;
 #[cfg(test)]
 mod tests;
 
@@ -28,7 +29,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 use std::time::Instant;
 
-use eframe::egui::{self, Margin, RichText, Stroke};
+use eframe::egui::{self, Margin};
 use vino_ui::a11y;
 use vino_ui::theme;
 use vino_ui::widgets;
@@ -42,6 +43,8 @@ use crate::speech::{self, Part, Reading, Worker};
 use crate::voices::{self, Voice};
 
 const DEFAULT_VOICE: &str = "af_heart";
+/// A narrow window's page, from its left edge: the header's own inset.
+const NARROW_INSET: f32 = 16.0;
 
 /// What a background thread sends back to the window.
 enum Reply {
@@ -113,6 +116,8 @@ pub struct App {
     text_scale: Option<f32>,
     /// The About page shows in place of the reader until a file is picked.
     about: bool,
+    /// A narrow window shows the list in place of the reader, as its Files tab.
+    listing: bool,
     updater: vino_ui::update::Updater,
     /// vinospeak's cache: the model, its voices, and OpenVINO's compiled copy.
     cache: Option<PathBuf>,
@@ -192,6 +197,7 @@ impl App {
             app_title_bar: false,
             text_scale: None,
             about: false,
+            listing: true,
             updater: about::updater(),
             cache: model_cache::dir(),
             model: Model::default(),
@@ -233,55 +239,69 @@ impl App {
             node.set_label("vinoSpeak")
         });
 
-        self.header_panel(root);
-        self.status_bar(root);
-        self.results_panel(root);
-        self.reader_or_about(root);
+        let window = ctx.content_rect().width();
+        let wide = window >= widgets::SIDEBAR_FROM;
+        if wide {
+            self.sidebar_panel(root);
+        } else {
+            self.header_panel(root);
+        }
+        let bar = wide && self.app_title_bar;
+        let inset = if wide {
+            widgets::page_inset(window)
+        } else {
+            NARROW_INSET
+        };
+        if bar {
+            vino_ui::window::bar(root, inset, |ui| self.bar_title(ui), |_| {});
+        }
+        self.page(root, wide, bar, inset);
         self.capture(ctx);
     }
 
-    /// The line along the bottom: what last happened, or which vinospeak speaks.
-    fn status_bar(&self, root: &mut egui::Ui) {
-        let p = theme::palette(root.ctx());
-        egui::Panel::bottom("status")
-            .show_separator_line(false)
-            .frame(
-                egui::Frame::NONE
-                    .fill(p.surface)
-                    .stroke(Stroke::new(1.0_f32, p.rule))
-                    .inner_margin(Margin::symmetric(20, 6)),
-            )
-            .show(root, |ui| {
-                let shown = if self.status.is_empty() {
-                    ui.label(
-                        RichText::new(format!("Speech by {}", self.vinospeak.display()))
-                            .monospace()
-                            .size(11.5)
-                            .color(p.muted),
-                    )
-                } else {
-                    ui.label(RichText::new(&self.status).size(12.5).color(p.muted))
-                };
-                a11y::live(&shown);
-            });
+    /// The page's title up in the window's bar: the chosen file, or About.
+    fn bar_title(&self, ui: &mut egui::Ui) {
+        if self.about {
+            let title = widgets::title(ui, vino_ui::about::TITLE);
+            a11y::heading(&title, vino_ui::about::TITLE, 2);
+        } else if let Some(hit) = &self.selected {
+            reader::title_line(ui, hit);
+        }
     }
 
-    fn reader_or_about(&mut self, root: &mut egui::Ui) {
+    /// Beside the sidebar, or under the narrow header's tabs: the reader,
+    /// About, or (narrow) the list.
+    fn page(&mut self, root: &mut egui::Ui, wide: bool, bar: bool, inset: f32) {
         let p = theme::palette(root.ctx());
+        let top = if bar {
+            2
+        } else if wide {
+            20
+        } else {
+            12
+        };
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(p.bg))
             .show(root, |ui| {
-                if self.about {
+                let margin = Margin {
+                    left: inset as i8,
+                    right: 0,
+                    top,
+                    bottom: 0,
+                };
+                if !wide && self.listing {
                     egui::Frame::NONE
                         .inner_margin(Margin {
-                            left: widgets::PAGE_INSET as i8,
-                            right: 0,
-                            top: 20,
-                            bottom: 0,
+                            right: 16,
+                            ..margin
                         })
-                        .show(ui, |ui| self.about(ui));
+                        .show(ui, |ui| self.files_page(ui));
+                } else if self.about {
+                    egui::Frame::NONE
+                        .inner_margin(margin)
+                        .show(ui, |ui| self.about(ui, bar));
                 } else {
-                    self.reader(ui);
+                    self.reader(ui, inset, top, bar);
                 }
             });
     }

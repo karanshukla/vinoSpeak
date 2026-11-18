@@ -27,10 +27,13 @@ pub(super) fn updater() -> Updater {
 }
 
 impl App {
-    pub(super) fn about(&mut self, ui: &mut egui::Ui) {
+    /// `bar`: the title is up in the window's bar, not here.
+    pub(super) fn about(&mut self, ui: &mut egui::Ui, bar: bool) {
         widgets::page_scroll(ui, vino_ui::about::TITLE, widgets::CONTENT_MAX, |ui| {
-            let title = widgets::title(ui, vino_ui::about::TITLE);
-            a11y::heading(&title, vino_ui::about::TITLE, 2);
+            if !bar {
+                let title = widgets::title(ui, vino_ui::about::TITLE);
+                a11y::heading(&title, vino_ui::about::TITLE, 2);
+            }
             vino_ui::about::page_with_updates(ui, &mut self.updater);
             self.model_row(ui);
         });
@@ -66,8 +69,10 @@ impl App {
             row = row.tone(Tone::Error);
         }
         let mut delete = false;
+        let spoken_by = self.vinospeak.display().to_string();
         widgets::group_label(ui, "Model");
         widgets::group(ui, |ui| {
+            Row::new("Spoken by").help(&spoken_by).show(ui, |_, _| {});
             row.show(ui, |ui, _| {
                 if self.model.deleting {
                     a11y::live(&widgets::chip(ui, ChipKind::Neutral, "Deleting…"));
@@ -90,6 +95,10 @@ impl App {
                 }
             });
         });
+        if let Some(said) = &self.model.deleted {
+            ui.add_space(8.0);
+            a11y::live(&widgets::small(ui, said));
+        }
         if delete {
             self.delete_model(ui.ctx());
         }

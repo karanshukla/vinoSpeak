@@ -252,7 +252,11 @@ fn window_with(
                 ui.ctx().request_repaint();
                 return;
             }
-            app.show(ui);
+            // The whole window, as eframe hands it over: kittest's root has a margin.
+            let window = ui.ctx().content_rect();
+            let mut root = ui.new_child(egui::UiBuilder::new().max_rect(window));
+            root.set_clip_rect(window);
+            app.show(&mut root);
         },
         app,
     )
@@ -661,7 +665,7 @@ fn about_shows_the_other_apps_until_a_file_is_picked() {
     ]);
     let mut h = window(&scratch, index);
     wait_for(&mut h, "First file.");
-    h.get_by_label("About vinoSpeak").click();
+    h.get_by_role_and_label(Role::Tab, "About").click();
     wait_for(&mut h, "Learn more vinoSearch");
     assert!(shows(&h, "vinopilot.ca"));
     assert!(!shows(&h, "Learn more vinoSpeak"));
@@ -680,7 +684,7 @@ fn about_with_a_model(scratch: &Scratch) -> Harness<'static, App> {
     wait_until(&mut h, "the worker", |_| {
         scratch.read("calls").contains("--serve")
     });
-    h.get_by_label("About vinoSpeak").click();
+    h.get_by_role_and_label(Role::Tab, "About").click();
     wait_for(&mut h, "2 MB on disk");
     h
 }
@@ -739,7 +743,7 @@ fn the_model_cant_be_deleted_while_reading() {
     wait_for(&mut h, "A long read.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Stop");
-    h.get_by_label("About vinoSpeak").click();
+    h.get_by_role_and_label(Role::Tab, "About").click();
     wait_for(&mut h, "Stop the reading to delete it.");
     let delete = h.get_by_role_and_label(Role::Button, "Delete…");
     assert!(delete.accesskit_node().is_disabled());
@@ -751,7 +755,7 @@ fn a_delete_vinospeak_refuses_says_why() {
     scratch.model();
     scratch.mode("fail-delete");
     let mut h = tall_window(&scratch, FakeIndex::default());
-    h.get_by_label("About vinoSpeak").click();
+    h.get_by_role_and_label(Role::Tab, "About").click();
     wait_for(&mut h, "2 MB on disk");
     confirm_delete(&mut h);
     wait_for(&mut h, "Couldn't delete it: The model is downloading.");
@@ -786,25 +790,34 @@ fn the_window_buttons_sit_in_the_top_right_corner() {
 }
 
 #[test]
-fn the_search_field_and_about_stay_clear_of_the_window_buttons() {
-    for size in [WIDE, NARROW] {
-        let scratch = Scratch::new();
-        let h = title_bar_window(&scratch, size);
-        let minimise = h.get_by_role_and_label(Role::Button, "Minimise").rect();
-        let about = h
-            .get_by_role_and_label(Role::Button, "About vinoSpeak")
-            .rect();
-        assert!(about.right() < minimise.left(), "{size:?}");
-        let field = h.get_by_role(Role::TextInput).rect();
-        assert!(field.right() < about.left(), "{size:?}");
-    }
+fn the_page_title_and_tabs_stay_clear_of_the_window_buttons() {
+    let scratch = Scratch::new();
+    let notes = scratch.file(
+        "a-long-name-for-a-file-that-runs-on-and-on.md",
+        "Some notes.",
+    );
+    let mut h = window_with(&scratch, FakeIndex::recent(vec![notes]), WIDE, true);
+    wait_for(&mut h, "Some notes.");
+    let minimise = h.get_by_role_and_label(Role::Button, "Minimise").rect();
+    let title = h
+        .get_by_role_and_label(
+            Role::Heading,
+            "a-long-name-for-a-file-that-runs-on-and-on.md",
+        )
+        .rect();
+    assert!(title.right() < minimise.left(), "{title:?}");
+
+    let h = title_bar_window(&scratch, NARROW);
+    let minimise = h.get_by_role_and_label(Role::Button, "Minimise").rect();
+    let about = h.get_by_role_and_label(Role::Tab, "About").rect();
+    assert!(about.top() > minimise.bottom() || about.right() < minimise.left());
 }
 
 #[test]
 fn with_the_app_title_bar_about_still_takes_a_click() {
     let scratch = Scratch::new();
     let mut h = title_bar_window(&scratch, WIDE);
-    h.get_by_label("About vinoSpeak").click();
+    h.get_by_role_and_label(Role::Tab, "About").click();
     wait_for(&mut h, "Learn more vinoSearch");
 }
 
@@ -856,4 +869,54 @@ fn without_the_app_title_bar_the_desktop_keeps_its_buttons() {
             "{name}"
         );
     }
+}
+
+#[test]
+fn narrow_the_list_is_a_tab_and_picking_a_file_turns_to_reading() {
+    let scratch = Scratch::new();
+    let index = FakeIndex::recent(vec![
+        scratch.file("first.md", "First file."),
+        scratch.file("second.md", "Second file."),
+    ]);
+    let mut h = window_with(&scratch, index, NARROW, false);
+    wait_for(&mut h, "second.md");
+    assert!(!shows(&h, "First file."), "the reader waits behind its tab");
+    h.query_all_by_role(Role::ListBoxOption)
+        .find(|row| {
+            row.accesskit_node()
+                .label()
+                .is_some_and(|l| l.starts_with("second.md"))
+        })
+        .unwrap()
+        .click();
+    wait_for(&mut h, "Second file.");
+    assert!(!shows(&h, "first.md"), "the list is behind its tab");
+    h.get_by_role_and_label(Role::Tab, "Files").click();
+    wait_for(&mut h, "first.md");
+}
+
+#[test]
+fn the_player_wraps_rather_than_running_off_the_window() {
+    let scratch = Scratch::new();
+    let index = FakeIndex::recent(vec![scratch.file("notes.md", "Some notes.")]);
+    let size = egui::vec2(960.0, 680.0);
+    let mut h = window_with(&scratch, index, size, false);
+    wait_for(&mut h, "Some notes.");
+    for name in ["Voice", "1.5×", "Output"] {
+        let right = h.get_by_label(name).rect().right();
+        assert!(right <= size.x, "{name} ends at {right}");
+    }
+}
+
+#[test]
+fn with_the_bar_about_is_titled_once() {
+    let scratch = Scratch::new();
+    let mut h = title_bar_window(&scratch, WIDE);
+    h.get_by_role_and_label(Role::Tab, "About").click();
+    wait_for(&mut h, "Learn more vinoSearch");
+    assert_eq!(
+        h.query_all_by_role_and_label(Role::Heading, "About")
+            .count(),
+        1
+    );
 }
