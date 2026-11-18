@@ -131,6 +131,39 @@ def test_chunks_reach_the_player_in_order(monkeypatch, tmp_path):
     np.testing.assert_allclose(np.fromfile(out, dtype="<f4"), [0.1, 0.2, 0.3])
 
 
+def played(monkeypatch, tmp_path, audio, **speech_args):
+    out = tmp_path / "played.raw"
+    player_running(
+        monkeypatch, f"import sys; open({str(out)!r}, 'wb').write(sys.stdin.buffer.read())"
+    )
+    speech = playback.Speech(audio, player="fake", **speech_args)
+    assert speech.wait(timeout=10)
+    return np.fromfile(out, dtype="<f4")
+
+
+def test_speech_plays_at_its_volume(monkeypatch, tmp_path):
+    samples = played(monkeypatch, tmp_path, [chunk(0.4, -0.2)], volume=0.5)
+    np.testing.assert_allclose(samples, [0.2, -0.1])
+
+
+def test_a_volume_change_applies_to_the_samples_not_yet_written(monkeypatch, tmp_path):
+    monkeypatch.setattr(playback, "SLICE_SECONDS", 1 / 24000)
+    speech = []
+
+    def quieter():
+        speech[0].volume = 0.25
+
+    original = playback.Speech.__init__
+
+    def keep(self, *args, **kwargs):
+        speech.append(self)
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(playback.Speech, "__init__", keep)
+    samples = played(monkeypatch, tmp_path, [chunk(0.4, 0.4, 0.4)], on_first_audio=quieter)
+    np.testing.assert_allclose(samples, [0.4, 0.1, 0.1])
+
+
 def test_stop_cuts_playback_off_without_waiting_for_synthesis(monkeypatch):
     player_running(monkeypatch, "import time; time.sleep(30)")
     release = threading.Event()

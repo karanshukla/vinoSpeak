@@ -9,7 +9,7 @@
 //! - `files`: the search, the recent files, the chosen file's preview
 //! - `reading`: the worker and the reading under way
 //! - `model`: the downloaded model's size, voices and deletion
-//! - `sidebar`, `header`, `results`, `reader`, `player`, `about`: what is drawn
+//! - `sidebar`, `header`, `results`, `reader`, `player`, `volume`, `about`: what is drawn
 //! - `capture`: the screenshot taken with nobody at the screen
 
 mod about;
@@ -24,6 +24,7 @@ mod results;
 mod sidebar;
 #[cfg(test)]
 mod tests;
+mod volume;
 
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
@@ -97,6 +98,9 @@ pub struct App {
     voices: Vec<Voice>,
     voice: Voice,
     speed: f32,
+    /// 0 to 1, kept while muted so unmuting brings it back.
+    volume: f32,
+    muted: bool,
     outputs: Vec<Output>,
     default_output: Option<String>,
     /// None plays on the desktop's default output.
@@ -183,6 +187,8 @@ impl App {
             voices,
             voice,
             speed: 1.0,
+            volume: 1.0,
+            muted: false,
             outputs,
             default_output,
             output: None,

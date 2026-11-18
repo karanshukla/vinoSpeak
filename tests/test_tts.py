@@ -336,9 +336,11 @@ class FakeSpeech:
         audio_device=None,
         sample_rate=None,
         on_first_audio=None,
+        volume=1.0,
         *,
         interrupt=False,
     ):
+        self.volume = volume
         self.chunks = list(audio)
         self.player = player
         self.audio_device = audio_device
@@ -377,8 +379,9 @@ def test_speak_plays_on_the_chosen_device_and_always_stops(fake_runtime, monkeyp
 def test_synthesizer_speak_plays_on_the_given_device(fake_runtime, monkeypatch):
     FakeSpeech.instances.clear()
     monkeypatch.setattr(tts, "Speech", FakeSpeech)
-    speech = tts.Synthesizer("CPU", fake_runtime).speak("Hi.", audio_device="sink")
+    speech = tts.Synthesizer("CPU", fake_runtime).speak("Hi.", audio_device="sink", volume=0.4)
     assert speech is FakeSpeech.instances[0]
     assert speech.audio_device == "sink"
+    assert speech.volume == 0.4
     assert speech.sample_rate == 24000
     assert len(speech.chunks) == 1
