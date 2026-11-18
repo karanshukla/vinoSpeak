@@ -124,6 +124,20 @@ impl Scratch {
         }
     }
 
+    /// Where the window looks for vinoWhisper's sessions itself.
+    fn sessions(&self) -> PathBuf {
+        self.0.join("sessions")
+    }
+
+    /// One of vinoWhisper's session fixtures, only on disk: vinoSearch doesn't list it.
+    fn session_on_disk(&self, name: &str, fixture: &str) -> PathBuf {
+        std::fs::create_dir_all(self.sessions()).unwrap();
+        let path = self.sessions().join(name);
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures");
+        std::fs::copy(fixtures.join(fixture), &path).unwrap();
+        path
+    }
+
     fn mode(&self, flag: &str) {
         std::fs::write(self.0.join(flag), "").unwrap();
     }
@@ -225,6 +239,7 @@ fn window_with(
         (outputs, Some("hdmi_sink".to_owned())),
     );
     app.cache = Some(scratch.0.join("cache"));
+    app.session_dirs = vec![scratch.sessions()];
     app.app_title_bar = app_title_bar;
     // Fonts set in a frame apply from the next; the bold face must exist
     // before the window draws.
@@ -522,15 +537,84 @@ fn a_file_vinospeak_refuses_says_why_and_cant_be_read_aloud() {
 }
 
 #[test]
-fn vinosearch_being_down_is_shown() {
+fn a_search_vinosearch_fails_says_so() {
     let scratch = Scratch::new();
-    let index = FakeIndex {
+    let mut h = window(&scratch, FakeIndex::default());
+    wait_for(&mut h, "Nothing indexed yet.");
+    h.state_mut().index = Arc::new(FakeIndex {
         down: true,
         ..Default::default()
-    };
-    let mut h = window(&scratch, index);
+    });
     h.state_mut().type_query("anything");
     wait_for(&mut h, "vinoSearch didn't answer");
+}
+
+fn without_vinosearch() -> FakeIndex {
+    FakeIndex {
+        down: true,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn without_vinosearch_the_sessions_on_disk_are_listed_and_search_is_off() {
+    let scratch = Scratch::new();
+    scratch.session_on_disk("2026-10-27-140512.vwsession", "session_v1.vwsession");
+    let mut h = window(&scratch, without_vinosearch());
+    wait_for(&mut h, "The summary of the session.");
+    assert!(shows(&h, "Search and PDFs need vinoSearch."));
+    assert!(shows(&h, "vinoWhisper sessions"));
+    assert!(shows(&h, "Local captioning on the NPU"));
+    let search = h.get_by_label("Search");
+    assert!(search.accesskit_node().is_disabled(), "search is off");
+}
+
+#[test]
+fn without_vinosearch_or_sessions_the_list_says_how_to_open_a_file() {
+    let scratch = Scratch::new();
+    let mut h = window(&scratch, without_vinosearch());
+    wait_for(&mut h, "Open a file with the folder button.");
+}
+
+#[test]
+fn a_session_vinosearch_doesnt_list_joins_the_recent_files() {
+    let scratch = Scratch::new();
+    let index = FakeIndex::recent(vec![scratch.file("notes.md", "Notes.")]);
+    scratch.session_on_disk("2026-10-27-140512.vwsession", "session_v1.vwsession");
+    let mut h = window(&scratch, index);
+    wait_for(&mut h, "Local captioning on the NPU");
+    assert!(shows(&h, "notes.md"));
+    assert!(shows(&h, "Recently changed"));
+    assert!(!shows(&h, "need vinoSearch"));
+}
+
+#[test]
+fn a_session_vinosearch_lists_too_is_listed_once() {
+    let scratch = Scratch::new();
+    let on_disk = scratch.session_on_disk("2026-10-27-140512.vwsession", "session_v1.vwsession");
+    let mut listed = scratch.session("x.vwsession", "session_v1.vwsession");
+    listed.path = on_disk;
+    let mut h = window(&scratch, FakeIndex::recent(vec![listed]));
+    wait_for(&mut h, "Local captioning on the NPU");
+    let rows = h
+        .query_all_by_role(Role::ListBoxOption)
+        .filter(|row| {
+            row.accesskit_node()
+                .label()
+                .is_some_and(|l| l.contains("Local captioning"))
+        })
+        .count();
+    assert_eq!(rows, 1);
+}
+
+#[test]
+fn a_file_named_on_the_command_line_is_previewed() {
+    let scratch = Scratch::new();
+    let opened = scratch.file("elsewhere.md", "Opened from elsewhere.");
+    let mut h = window(&scratch, without_vinosearch());
+    h.state_mut().to_open = Some(opened.path);
+    wait_for(&mut h, "Opened from elsewhere.");
+    assert!(shows(&h, "elsewhere.md"));
 }
 
 #[test]
@@ -731,7 +815,7 @@ fn about_opened_before_the_recent_files_arrive_stays_open() {
     let mut h = window(&scratch, FakeIndex::recent(vec![]));
     h.state_mut().open_about();
     let ctx = h.ctx.clone();
-    h.state_mut().on_recent(&ctx, Ok(vec![notes]));
+    h.state_mut().on_recent(&ctx, vec![notes], None);
     h.run_steps(4);
     assert!(shows(&h, "Learn more vinoSearch"));
     assert!(h.state().selected.is_none());

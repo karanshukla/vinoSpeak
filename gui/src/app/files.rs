@@ -2,12 +2,14 @@
 //! pauses, the recent files, and the chosen file's preview. Each is fetched
 //! on a thread and comes back as a `Reply`.
 
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use eframe::egui;
 
 use super::{App, Preview, Reply};
 use crate::search::{self, Hit, Index, Kind};
+use crate::sessions;
 use crate::speech::{self, Part, Source};
 
 /// vinoSearch answers nothing under three characters (pinned by
@@ -88,6 +90,9 @@ impl App {
             return;
         }
         self.edited = None;
+        if self.vinosearch_missing.is_some() {
+            return;
+        }
         if long_enough(&self.query) && self.query.trim() != self.searched {
             self.search(ctx);
         }
@@ -116,11 +121,14 @@ impl App {
     pub(super) fn load_recent(&mut self, ctx: &egui::Context) {
         self.recent_asked = true;
         let (tx, ctx, index) = (self.tx.clone(), ctx.clone(), self.index.clone());
+        let dirs = self.session_dirs.clone();
         std::thread::spawn(move || {
-            let recent = index
-                .recent(RECENT_ASKED)
-                .map(|hits| worth_listing(hits, RECENT_LISTED));
-            let _ = tx.send(Reply::Recent(recent));
+            let (indexed, missing) = match index.recent(RECENT_ASKED) {
+                Ok(hits) => (hits, None),
+                Err(e) => (Vec::new(), Some(format!("{e:#}"))),
+            };
+            let recent = sessions::merge(indexed, sessions::found(&dirs));
+            let _ = tx.send(Reply::Recent(worth_listing(recent, RECENT_LISTED), missing));
             ctx.request_repaint();
         });
     }
@@ -200,15 +208,68 @@ impl App {
         self.selected.is_none() && self.query.is_empty() && !self.about
     }
 
-    pub(super) fn on_recent(&mut self, ctx: &egui::Context, recent: anyhow::Result<Vec<Hit>>) {
-        match recent {
-            Ok(recent) => {
-                self.recent = recent;
-                if self.nothing_chosen_yet() {
-                    self.select_first(ctx);
-                }
-            }
-            Err(e) => self.status = format!("No recent files: {e:#}"),
+    pub(super) fn on_recent(
+        &mut self,
+        ctx: &egui::Context,
+        recent: Vec<Hit>,
+        missing: Option<String>,
+    ) {
+        self.recent = recent;
+        self.vinosearch_missing = missing;
+        if self.nothing_chosen_yet() {
+            self.select_first(ctx);
+        }
+    }
+
+    /// Ask the desktop's file dialog for a file; it answers as `Reply::Opened`.
+    pub(super) fn ask_for_a_file(&self, ctx: &egui::Context) {
+        let (tx, ctx) = (self.tx.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let _ = tx.send(Reply::Opened(crate::open::dialog()));
+            ctx.request_repaint();
+        });
+    }
+
+    pub(super) fn on_opened(
+        &mut self,
+        ctx: &egui::Context,
+        chosen: anyhow::Result<Option<PathBuf>>,
+    ) {
+        match chosen {
+            Ok(Some(path)) => self.open(ctx, path),
+            Ok(None) => {}
+            Err(e) => self.status = format!("No file dialog: {e:#}"),
+        }
+    }
+
+    /// A file dropped on the window, or named on the command line.
+    pub(super) fn open_dropped(&mut self, ctx: &egui::Context) {
+        let dropped = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .map(|f| f.path().to_path_buf())
+                .find(|path| !path.as_os_str().is_empty())
+        });
+        if let Some(path) = dropped.or_else(|| self.to_open.take()) {
+            self.open(ctx, path);
+        }
+    }
+
+    /// Preview a file that isn't in the list, as if it were.
+    fn open(&mut self, ctx: &egui::Context, path: PathBuf) {
+        let hit = Hit {
+            name: path
+                .file_name()
+                .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+            description: path
+                .parent()
+                .map_or_else(String::new, |d| d.display().to_string()),
+            kind: search::kind_of(&path, ""),
+            path,
+        };
+        if let Some(hit) = search::title_sessions(vec![hit]).pop() {
+            self.select(ctx, hit);
         }
     }
 

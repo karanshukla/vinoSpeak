@@ -3,10 +3,11 @@
 
 use eframe::egui::{self, Margin, RichText, Sense, Stroke};
 use vino_ui::a11y;
+use vino_ui::family;
 use vino_ui::file_tile::{self, Format};
 use vino_ui::icons::Icon;
 use vino_ui::theme;
-use vino_ui::widgets;
+use vino_ui::widgets::{self, Button, Tone};
 
 use super::App;
 use super::files::long_enough;
@@ -142,18 +143,31 @@ impl App {
     }
 
     fn results(&mut self, ui: &mut egui::Ui) {
-        if let Some(note) = self.search_note() {
+        if self.vinosearch_missing.is_some() {
+            ui.add_space(10.0);
+            widgets::banner(ui, Tone::Info, "Search and PDFs need vinoSearch.", |ui| {
+                if ui
+                    .add(Button::secondary("Get vinoSearch").small())
+                    .clicked()
+                {
+                    let _ = family::open(family::App::Search.page());
+                }
+            });
+        } else if let Some(note) = self.search_note() {
             ui.add_space(10.0);
             a11y::live(&widgets::muted(ui, note));
         }
-        let heading = if self.showing_hits() {
-            "Results"
-        } else {
-            "Recently changed"
+        let (heading, empty) = match (self.showing_hits(), self.vinosearch_missing.is_some()) {
+            (true, _) => ("Results", ""),
+            (false, false) => ("Recently changed", "Nothing indexed yet."),
+            (false, true) => (
+                "vinoWhisper sessions",
+                "No sessions yet. Open a file with the folder button.",
+            ),
         };
         widgets::group_label(ui, heading);
         if !self.showing_hits() && self.recent.is_empty() {
-            widgets::muted(ui, "Nothing indexed yet.");
+            widgets::muted(ui, empty);
             return;
         }
         if let Some(hit) = self.file_list(ui) {

@@ -47,7 +47,10 @@ const DEFAULT_VOICE: &str = "af_heart";
 enum Reply {
     /// The hits for the search with this `generation`.
     Results(u64, anyhow::Result<Vec<Hit>>),
-    Recent(anyhow::Result<Vec<Hit>>),
+    /// The recent files and sessions, and why vinoSearch didn't answer if it didn't.
+    Recent(Vec<Hit>, Option<String>),
+    /// The file the desktop's file dialog chose, or why there is none.
+    Opened(anyhow::Result<Option<PathBuf>>),
     /// The preview for the `previewed` it was asked for.
     Preview(u64, anyhow::Result<String>),
     /// What `vinospeak --delete-model` said.
@@ -74,6 +77,13 @@ pub struct App {
     hits: Vec<Hit>,
     recent: Vec<Hit>,
     recent_asked: bool,
+    /// Why vinoSearch didn't answer for the recent files; the window then
+    /// lists the sessions on disk and can't search.
+    vinosearch_missing: Option<String>,
+    /// Where vinoWhisper's sessions are looked for, with or without vinoSearch.
+    session_dirs: Vec<PathBuf>,
+    /// A file named on the command line, opened on the first frame.
+    to_open: Option<PathBuf>,
     error: Option<String>,
     selected: Option<Hit>,
     preview: Option<Result<Preview, String>>,
@@ -120,6 +130,8 @@ impl App {
             outputs::outputs(),
         );
         app.kde_header = theme::kde_header();
+        app.session_dirs = crate::sessions::user_dirs();
+        app.to_open = std::env::args_os().nth(1).map(PathBuf::from);
         app.capture = Capture::from_env();
         if let Ok(query) = std::env::var("VINOSPEAK_GUI_QUERY") {
             app.type_query(&query);
@@ -155,6 +167,9 @@ impl App {
             hits: Vec::new(),
             recent: Vec::new(),
             recent_asked: false,
+            vinosearch_missing: None,
+            session_dirs: Vec::new(),
+            to_open: None,
             error: None,
             selected: None,
             preview: None,
@@ -196,7 +211,8 @@ impl App {
         while let Ok(reply) = self.rx.try_recv() {
             match reply {
                 Reply::Results(generation, hits) => self.on_results(ctx, generation, hits),
-                Reply::Recent(recent) => self.on_recent(ctx, recent),
+                Reply::Recent(recent, missing) => self.on_recent(ctx, recent, missing),
+                Reply::Opened(chosen) => self.on_opened(ctx, chosen),
                 Reply::Preview(previewed, text) => self.on_preview(ctx, previewed, text),
                 Reply::Deleted(said) => self.on_deleted(said),
             }
@@ -211,6 +227,7 @@ impl App {
         }
         self.receive(ctx);
         self.search_when_typing_pauses(ctx);
+        self.open_dropped(ctx);
         self.poll_reading(ctx);
         ctx.accesskit_node_builder(egui::accesskit_root_id(), |node| {
             node.set_label("vinoSpeak")
@@ -283,6 +300,9 @@ impl eframe::App for App {
             theme::follow_desktop(ctx);
             self.kde_header = theme::kde_header();
             self.follow_text_scale(ctx, theme::desktop_text_scale());
+            if self.vinosearch_missing.is_some() {
+                self.recent_asked = false;
+            }
         }
         self.focused = focused;
         self.show(ui);
