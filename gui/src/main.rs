@@ -1,7 +1,9 @@
 //! vinospeak-gui: find a file with vinoSearch and listen to it with vinoSpeak.
 //! A proof of concept; the vinospeak CLI does the speaking.
 
+mod api;
 mod app;
+mod lexicon;
 mod model_cache;
 mod mpris;
 mod open;

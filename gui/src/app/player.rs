@@ -1,7 +1,8 @@
-//! The player under a file's name, in two rows that never reflow: the
+//! The player under a file's name, in rows that never reflow: the
 //! transport (the round Read aloud / Stop button, what it is doing, the
-//! volume) and the reading's settings (translate, voice, speed,
-//! output), each under its heading, in four equal columns or two by two.
+//! volume), then what is chosen per reading (Translate, Voice, Speed, and
+//! Save as… to save it to a file), each under its heading, four or two to a
+//! row. What is set once (the blend, the output, the save format) is on Settings.
 
 use eframe::egui::{self, Color32, RichText, Sense, Stroke};
 use vino_ui::a11y;
@@ -10,7 +11,6 @@ use vino_ui::theme;
 use vino_ui::widgets;
 
 use super::App;
-use crate::outputs::Output;
 use crate::search::Hit;
 
 /// The speed presets, as the player offers them.
@@ -43,22 +43,6 @@ const GLYPH_CENTRE: f32 = 12.0;
 /// Minutes and seconds into a reading: `1:05`.
 fn elapsed(secs: u64) -> String {
     format!("{}:{:02}", secs / 60, secs % 60)
-}
-
-/// What the output picker calls a sink: its description, or its name when
-/// `pactl` didn't list it.
-fn described(outputs: &[Output], name: &str) -> String {
-    outputs
-        .iter()
-        .find(|o| o.name == name)
-        .map_or_else(|| name.to_owned(), |o| o.description.clone())
-}
-
-fn default_output_label(outputs: &[Output], default: Option<&str>) -> String {
-    match default {
-        Some(name) => format!("Default ({})", described(outputs, name)),
-        None => "Default output".to_owned(),
-    }
 }
 
 /// A setting's small heading above its picker.
@@ -216,7 +200,8 @@ impl App {
         let speaking_this = self.reading.as_ref().is_some_and(|r| r.file == hit.path);
         self.transport(ui, speaking_this);
         ui.add_space(14.0);
-        self.settings(ui);
+        self.reading_choices(ui);
+        self.save_note(ui);
     }
 
     /// The button and what it is doing on the left, the volume on the right,
@@ -249,15 +234,15 @@ impl App {
         });
     }
 
-    /// Translate, voice, speed and output; a change takes over the reading
-    /// under way from where it is.
-    fn settings(&mut self, ui: &mut egui::Ui) {
+    /// Translate, voice and speed, whose change takes over the reading under
+    /// way from where it is, and Save as….
+    fn reading_choices(&mut self, ui: &mut egui::Ui) {
         let per_row = settings_per_row(ui.available_width());
         let mut cells: Vec<Setting> = vec![
             ("TRANSLATE", Self::translate_picker),
             ("VOICE", Self::voice_picker),
             ("SPEED", Self::speed_picker),
-            ("OUTPUT", Self::output_picker),
+            ("SAVE AS AUDIO", Self::save_cell),
         ];
         while !cells.is_empty() {
             let row: Vec<_> = cells.drain(..per_row.min(cells.len())).collect();
@@ -267,7 +252,9 @@ impl App {
                     setting(column, heading, |ui| picker(self, ui));
                 }
             });
-            ui.add_space(8.0);
+            if !cells.is_empty() {
+                ui.add_space(8.0);
+            }
         }
     }
 
@@ -346,7 +333,10 @@ impl App {
         let p = theme::palette(ui.ctx());
         let chosen = self.voice.clone();
         {
-            let label = format!("{} · {}", chosen.name, chosen.gender);
+            let label = match &self.blend {
+                Some(blend) => format!("{} + {}", chosen.name, blend.name),
+                None => format!("{} · {}", chosen.name, chosen.gender),
+            };
             let shown = widgets::combo(ui, "voice", label, f32::INFINITY).show_ui(ui, |ui| {
                 ui.set_min_width(220.0);
                 let mut accent = "";
@@ -374,42 +364,11 @@ impl App {
             ));
         }
     }
-
-    /// Where speech plays.
-    fn output_picker(&mut self, ui: &mut egui::Ui) {
-        let default = default_output_label(&self.outputs, self.default_output.as_deref());
-        let selected = match &self.output {
-            Some(name) => described(&self.outputs, name),
-            None => default.clone(),
-        };
-        {
-            let shown = widgets::combo(ui, "output", selected, f32::INFINITY).show_ui(ui, |ui| {
-                ui.selectable_value(&mut self.output, None, default);
-                for output in &self.outputs {
-                    ui.selectable_value(
-                        &mut self.output,
-                        Some(output.name.clone()),
-                        &output.description,
-                    );
-                }
-            });
-            ui.ctx()
-                .accesskit_node_builder(shown.response.id, |node| node.set_label("Output"));
-            shown.response.on_hover_text("Where speech plays");
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn hdmi() -> Vec<Output> {
-        vec![Output {
-            name: "hdmi_sink".to_owned(),
-            description: "HDMI 1".to_owned(),
-        }]
-    }
 
     #[test]
     fn the_clock_counts_minutes_and_two_digit_seconds() {
@@ -417,20 +376,5 @@ mod tests {
         assert_eq!(elapsed(59), "0:59");
         assert_eq!(elapsed(60), "1:00");
         assert_eq!(elapsed(3725), "62:05");
-    }
-
-    #[test]
-    fn an_output_is_called_by_its_description_or_else_its_name() {
-        assert_eq!(described(&hdmi(), "hdmi_sink"), "HDMI 1");
-        assert_eq!(described(&hdmi(), "usb_dac"), "usb_dac");
-    }
-
-    #[test]
-    fn the_default_output_is_named_when_pactl_says_which_it_is() {
-        assert_eq!(
-            default_output_label(&hdmi(), Some("hdmi_sink")),
-            "Default (HDMI 1)"
-        );
-        assert_eq!(default_output_label(&hdmi(), None), "Default output");
     }
 }

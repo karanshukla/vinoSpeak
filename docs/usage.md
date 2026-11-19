@@ -76,7 +76,7 @@ Notes and limitations:
 - **Accuracy:** A 3B model is good enough for casual listening, but review any
   translation where accuracy matters.
 - **Desktop window:** Download the model from the **Translation** row on the
-  About page. Once installed, a **Translate** picker appears in the player bar
+  Settings page. Once installed, a **Translate** picker appears in the player bar
   and the window displays translated chunks as they arrive, highlighting the
   piece currently being spoken.
 
@@ -127,7 +127,8 @@ Matching rules:
 
 OpenVINO GenAI's Kokoro pipeline ignores inline phonemes, so entries must be
 plain-text respellings rather than IPA. The GUI worker loads the lexicon at
-startup.
+startup and again whenever Pronunciations are saved on the window's Settings
+page, which is also where the window edits it.
 
 ## Saving
 
@@ -148,6 +149,10 @@ times match playback, which makes saving slightly slower. Sentences longer than
 two lines of 42 characters are split across cues with durations proportional to
 character length, so mid-sentence cue splits are approximate.
 
+In the window, the player's Save as does the same for the file shown, beside
+any reading, in the format and with the subtitles (an `.srt` beside it) chosen
+on Settings.
+
 ## Voices
 
 ```bash
@@ -161,7 +166,8 @@ Each voice ID's leading letter determines its default language, so `--language`
 is only needed when reading text in a different language. A blend combines up to
 8 voices by weight (weights do not need to sum to 1; `af_heart+af_bella` mixes
 them equally) and uses the first voice's language. The GUI worker and Python API
-accept the same blend syntax.
+accept the same blend syntax; Blend with and Mix on the window's Settings pick a
+second voice and how much of it, in tenths.
 
 ## vinoWhisper sessions
 
@@ -203,6 +209,9 @@ lists available voices and `GET /v1/models` exposes the model under OpenAI's
 model names. Only `pcm` streams audio as chunks finish; encoded formats are sent
 once synthesis completes.
 
+In the window, the Speech API switch in Settings runs `vinospeak --http` on
+port 8880 while the window is open.
+
 By default the server binds only to `127.0.0.1`. To bind to another address, set
 `VINOSPEAK_API_KEY` and send `Authorization: Bearer <key>` on every request; see
 [SECURITY.md](../SECURITY.md).
@@ -219,7 +228,7 @@ vinospeak --model-status    # show cached files and disk usage
 vinospeak --delete-model    # delete both model and compile cache; next run downloads again
 ```
 
-The GUI's About page offers the same Delete action. Because vinoPop's read-aloud
+The GUI's Settings page offers the same Delete action. Because vinoPop's read-aloud
 feature shares this cached model, deleting it causes vinoPop to re-download it
 on next use. A custom `--model-dir` is used as-is without hash checks and is
 never deleted by `--delete-model`.

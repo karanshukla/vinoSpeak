@@ -1,7 +1,7 @@
-//! The desktop's own file dialog, through xdg-desktop-portal, for a file
-//! that isn't listed.
+//! The desktop's own file dialogs, through xdg-desktop-portal: for a file
+//! that isn't listed, and for where to save speech.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use ashpd::desktop::ResponseError;
@@ -29,6 +29,33 @@ pub fn dialog() -> Result<Option<PathBuf>> {
             .multiple(false)
             .filter(readable_filter())
             .filter(FileFilter::new("All files").glob("*"))
+            .send()
+            .await?
+            .response()
+    });
+    match asked {
+        Ok(files) => Ok(files.uris().first().and_then(|u| file_uri_path(u.as_str()))),
+        Err(ashpd::Error::Response(ResponseError::Cancelled)) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Where to save speech as `name` (`notes.mp3`), offering only files of
+/// its suffix, called `kind`; None when it was cancelled.
+pub fn save_dialog(name: &str, kind: &str) -> Result<Option<PathBuf>> {
+    let suffix = Path::new(name)
+        .extension()
+        .map(|e| e.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let only = FileFilter::new(kind).glob(&format!("*.{suffix}"));
+    let asked = async_io::block_on(async {
+        SelectedFiles::save_file()
+            .title("Save the speech")
+            .accept_label("Save")
+            .modal(true)
+            .current_name(name)
+            .filter(only.clone())
+            .current_filter(only)
             .send()
             .await?
             .response()

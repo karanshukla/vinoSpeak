@@ -207,7 +207,7 @@ while the previous piece is synthesized and played.
   on vinoWhisper's marker alone; if verification fails at read time, the reading
   reports the model error.
 - **Discoverability:** Before the model is downloaded, the GUI displays a
-  **Translate…** button that jumps to the About page's download confirmation;
+  **Translate…** button that jumps to the Settings page's download confirmation;
   when it was hidden beforehand, users could not find it (2026-11-18).
 
 ### Prompting and model limits
@@ -326,7 +326,7 @@ boundary pairs around every unit threshold and half-to-even rounding rows):
   `gui/src/app/reader.rs`.
 
 The one intentional difference is scope: `vinospeak --model-status` reports the
-model and compiled cache separately, whereas the GUI's About page shows a single
+model and compiled cache separately, whereas the GUI's Settings page shows a single
 total for the entire cache directory.
 
 Implementation notes:

@@ -139,7 +139,7 @@ impl App {
             _ => Part::Summary,
         };
         self.selected = Some(hit);
-        self.about = false;
+        self.page = super::Page::Reader;
         self.load_preview(ctx);
     }
 
@@ -205,7 +205,7 @@ impl App {
     /// `app::tests::before_a_search_the_recent_files_show_and_the_first_is_previewed`,
     /// `app::tests::about_opened_before_the_recent_files_arrive_stays_open`).
     fn nothing_chosen_yet(&self) -> bool {
-        self.selected.is_none() && self.query.is_empty() && !self.about
+        self.selected.is_none() && self.query.is_empty() && self.page == super::Page::Reader
     }
 
     pub(super) fn on_recent(

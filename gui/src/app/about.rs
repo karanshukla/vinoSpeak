@@ -1,16 +1,14 @@
 //! The About page: this app, vinopilot.ca and the other vinoPilot apps
-//! (vino-ui's), its Updates row, the Model row with Delete… on it, and the
-//! Translation row.
+//! (vino-ui's) and its Updates row. What can be changed is on Settings.
 
 use std::path::PathBuf;
 
 use eframe::egui;
 use vino_ui::a11y;
-use vino_ui::theme;
 use vino_ui::update::Updater;
-use vino_ui::widgets::{self, Button, ChipKind, Row, Tone};
+use vino_ui::widgets;
 
-use super::App;
+use super::{App, Page};
 
 /// About's Updates row. The release installer leaves itself as
 /// `~/.local/bin/vinospeak-upgrade`, which the row's button runs; without it
@@ -36,76 +34,10 @@ impl App {
                 a11y::heading(&title, vino_ui::about::TITLE, 2);
             }
             vino_ui::about::page_with_updates(ui, &mut self.updater);
-            self.model_row(ui);
-            self.translation_row(ui);
         });
     }
 
     pub(super) fn open_about(&mut self) {
-        self.about = true;
-        self.model.confirm = false;
-        self.refresh_model();
-        if self.translation.step.is_none() {
-            self.refresh_translation();
-        }
-    }
-
-    pub(super) fn toggle_about(&mut self) {
-        if self.about {
-            self.about = false;
-        } else {
-            self.open_about();
-        }
-    }
-
-    /// The downloaded model, its size, and Delete… with its confirmation in place.
-    fn model_row(&mut self, ui: &mut egui::Ui) {
-        let p = theme::palette(ui.ctx());
-        let bytes = self.model.bytes.unwrap_or(0);
-        let reading = self.reading.is_some();
-        if reading {
-            self.model.confirm = false;
-        }
-        let help = self.model.help(bytes, reading);
-        let mut row = Row::new("Kokoro voice model").help(&help);
-        if self.model.confirm {
-            row = row.tint(p.error_tint).tone(Tone::Error);
-        } else if self.model.error.is_some() {
-            row = row.tone(Tone::Error);
-        }
-        let mut delete = false;
-        let spoken_by = self.vinospeak.display().to_string();
-        widgets::group_label(ui, "Model");
-        widgets::group(ui, |ui| {
-            Row::new("Spoken by").help(&spoken_by).show(ui, |_, _| {});
-            row.show(ui, |ui, _| {
-                if self.model.deleting {
-                    a11y::live(&widgets::chip(ui, ChipKind::Neutral, "Deleting…"));
-                } else if self.model.confirm {
-                    if ui
-                        .add(Button::destructive("Delete the model").small())
-                        .clicked()
-                    {
-                        delete = true;
-                    }
-                    if ui.add(Button::ghost("Cancel").small()).clicked() {
-                        self.model.confirm = false;
-                    }
-                } else if ui
-                    .add_enabled(bytes > 0 && !reading, Button::secondary("Delete…"))
-                    .clicked()
-                {
-                    self.model.confirm = true;
-                    self.model.error = None;
-                }
-            });
-        });
-        if let Some(said) = &self.model.deleted {
-            ui.add_space(8.0);
-            a11y::live(&widgets::small(ui, said));
-        }
-        if delete {
-            self.delete_model(ui.ctx());
-        }
+        self.page = Page::About;
     }
 }

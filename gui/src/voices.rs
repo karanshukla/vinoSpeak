@@ -57,6 +57,20 @@ pub fn voice(id: &str) -> Option<Voice> {
     })
 }
 
+/// The most a blend's second voice is mixed in, in tenths; the least is 1.
+pub const MIX_TENTHS: u8 = 9;
+
+/// `voice` as vinospeak's `--voice` takes it, mixed with `blend`'s voice for
+/// that many tenths of it (pinned by `voices::tests::a_blend_is_spelled_in_tenths`).
+pub fn spec(voice: &Voice, blend: Option<(&Voice, u8)>) -> String {
+    match blend {
+        Some((other, tenths)) if other.id != voice.id && (1..=MIX_TENTHS).contains(&tenths) => {
+            format!("{}({})+{}({tenths})", voice.id, 10 - tenths, other.id)
+        }
+        _ => voice.id.clone(),
+    }
+}
+
 /// Kokoro's voices that vinospeak can speak, from the model it downloaded,
 /// grouped by accent, women then men, by name.
 pub fn voices() -> Vec<Voice> {
@@ -104,5 +118,15 @@ mod tests {
         assert!(voice("zm_yunxi").is_none(), "no Mandarin in vinospeak");
         assert!(voice("ax_odd").is_none());
         assert!(voice("af").is_none());
+    }
+
+    #[test]
+    fn a_blend_is_spelled_in_tenths() {
+        let (heart, george) = (voice("af_heart").unwrap(), voice("bm_george").unwrap());
+        assert_eq!(spec(&heart, None), "af_heart");
+        assert_eq!(spec(&heart, Some((&george, 3))), "af_heart(7)+bm_george(3)");
+        assert_eq!(spec(&heart, Some((&heart, 3))), "af_heart", "itself");
+        assert_eq!(spec(&heart, Some((&george, 0))), "af_heart");
+        assert_eq!(spec(&heart, Some((&george, 10))), "af_heart");
     }
 }

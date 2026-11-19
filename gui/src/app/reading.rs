@@ -71,6 +71,7 @@ impl App {
         self.start_worker(ctx);
         let volume = self.heard_volume();
         let chosen = self.chosen();
+        let spoken = self.voice_sent();
         let (Some(hit), Some(Ok(preview)), Some(worker)) =
             (&self.selected, &self.preview, &mut self.worker)
         else {
@@ -79,7 +80,7 @@ impl App {
         let target = self.translate_to;
         match worker.speak(
             &preview.text,
-            &self.voice,
+            &spoken,
             self.speed,
             self.output.as_deref(),
             volume,
@@ -119,10 +120,18 @@ impl App {
         }
     }
 
+    /// The voice, blended if it is, as the worker is sent it.
+    pub(super) fn voice_sent(&self) -> speech::Spoken {
+        speech::Spoken {
+            spec: crate::voices::spec(&self.voice, self.blend.as_ref().map(|b| (b, self.mix))),
+            language: self.voice.language,
+        }
+    }
+
     /// The settings a reading started now is spoken with.
     fn chosen(&self) -> speech::Chosen {
         speech::Chosen {
-            voice: self.voice.id.clone(),
+            voice: self.voice_sent().spec,
             speed: self.speed,
             output: self.output.clone(),
             translate: self.translate_to.map(|t| t.language),
@@ -162,8 +171,9 @@ impl App {
         }
     }
 
-    /// A reading whose voice, speed, output or Translate was changed goes on
-    /// with the new one from the sentence it was at, paused if it was (pinned
+    /// A reading whose voice, blend, speed, output or Translate was changed
+    /// goes on with the new one from the sentence it was at, paused if it
+    /// was, once the pointer is let go (pinned
     /// by `app::tests::a_new_setting_takes_over_the_reading_from_where_it_is`).
     pub(super) fn follow_new_settings(&mut self, ctx: &egui::Context) {
         let Some(reading) = &self.reading else {
@@ -174,7 +184,13 @@ impl App {
             .selected
             .as_ref()
             .is_some_and(|hit| hit.path == reading.file);
-        if reading.chosen == now || reading.stop_sent.is_some() || !shown || reading.done >= 1.0 {
+        let dragging = ctx.input(|i| i.pointer.any_down());
+        if reading.chosen == now
+            || reading.stop_sent.is_some()
+            || !shown
+            || reading.done >= 1.0
+            || dragging
+        {
             return;
         }
         let (at, paused) = (reading.done, reading.paused_at.is_some());
@@ -208,13 +224,16 @@ impl App {
         let events = self.worker.as_ref().map(Worker::events).unwrap_or_default();
         let current = self.reading.as_ref().map(|r| r.id);
         for event in events {
+            if self.take_save_event(&event) {
+                continue;
+            }
             if let Some(ended) = self.take_event(event, current) {
                 let file = self.reading.take().as_ref().map(file_name);
                 self.status = ended_status(file, ended);
             }
         }
         self.drop_a_worker_that_ignores_stop();
-        if self.reading.is_some() {
+        if self.reading.is_some() || self.saving.is_some() {
             ctx.request_repaint_after(Duration::from_millis(250));
         }
     }
@@ -267,7 +286,11 @@ impl App {
                 self.worker = None;
                 current.map(|_| Ended::Failed(message))
             }
-            Event::Done { .. } | Event::Error { .. } => None,
+            Event::Done { .. }
+            | Event::Error { .. }
+            | Event::Saving { .. }
+            | Event::Saved { .. }
+            | Event::SaveCancelled { .. } => None,
         }
     }
 

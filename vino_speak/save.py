@@ -88,7 +88,7 @@ def save(
                 out.write(audio.samples)
                 length = len(audio.samples) / SAMPLE_RATE
                 if step.text:
-                    cues += subtitles.split(at, at + length, step.text)
+                    cues += subtitles.split(at, at + length, step.written)
                 at += length
                 if on_progress is not None:
                     on_progress(done, len(steps))

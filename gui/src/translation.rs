@@ -12,7 +12,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::speech;
 
-/// What it is called on About.
+/// What it is called on Settings.
 pub const LABEL: &str = "SmolLM3-3B";
 /// The model's folder (translate.py's `model_dir()`).
 pub const MODEL_DIR: &str = "SmolLM3-3B-int4-cw-ov";
