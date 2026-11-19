@@ -119,10 +119,8 @@ impl App {
                 self.read_aloud_button(ui);
             }
             ui.add_space(8.0);
-            if self.translation.downloaded {
-                room_for(ui, TRANSLATE_ROOM);
-                self.translate_picker(ui);
-            }
+            room_for(ui, TRANSLATE_ROOM);
+            self.translate_picker(ui);
             room_for(ui, VOICE_ROOM);
             self.voice_picker(ui);
             room_for(ui, SPEED_ROOM);

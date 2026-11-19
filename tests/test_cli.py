@@ -404,13 +404,21 @@ def test_a_failed_translation_download_is_a_usage_error(monkeypatch, capsys):
 
 
 def test_delete_translation_model_says_what_it_freed(monkeypatch, capsys):
-    freed = [2_100_000_000, 0]
+    freed = [(2_100_000_000, False), (0, False)]
     monkeypatch.setattr(cli.translate, "delete", lambda: freed.pop(0))
     cli.main(["--delete-translation-model"])
     cli.main(["--delete-translation-model"])
     assert (
         capsys.readouterr().out == "Deleted the translation model (2.1 GB).\nNothing to delete.\n"
     )
+
+
+def test_delete_translation_model_says_it_kept_vinowhispers_copy(monkeypatch, capsys):
+    monkeypatch.setattr(cli.translate, "delete", lambda: (5_000_000, True))
+    cli.main(["--delete-translation-model"])
+    said = capsys.readouterr().out
+    assert "Kept the translation model" in said
+    assert "vinoWhisper uses it too" in said
 
 
 def test_the_translation_model_commands_take_no_text():

@@ -126,12 +126,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--download-translation-model",
         action="store_true",
         help=f"Download the translation model ({translate.LABEL}, about 1.7 GB) "
-        f"into {translate.data_dir()}.",
+        f"into {translate.model_dir()}, shared with vinoWhisper.",
     )
     parser.add_argument(
         "--delete-translation-model",
         action="store_true",
-        help="Delete it and its compiled copy.",
+        help="Delete it and its compiled copy; a copy vinoWhisper uses is kept.",
     )
     parser.add_argument(
         "--list-voices", action="store_true", help="List the voices and the language of each."
@@ -172,7 +172,7 @@ def model_status() -> None:
     for directory, used in found.items():
         print(f"{size(used):>8}  {directory}")
     if translate.is_downloaded():
-        print(f"{size(translate.disk_usage()):>8}  {translate.data_dir()} (translation)")
+        print(f"{size(translate.disk_usage()):>8}  {translate.model_dir()} (translation)")
 
 
 def delete_model(parser: argparse.ArgumentParser) -> None:
@@ -194,8 +194,16 @@ def translation_model(parser: argparse.ArgumentParser, arguments: argparse.Names
     if arguments.text is not None or arguments.file is not None or arguments.translate:
         parser.error("--download- and --delete-translation-model take no text")
     if arguments.delete_translation_model:
-        freed = translate.delete()
-        print(f"Deleted the translation model ({size(freed)})." if freed else "Nothing to delete.")
+        freed, kept = translate.delete()
+        if kept:
+            print(
+                f"Kept the translation model in {translate.model_dir()}: vinoWhisper uses it too. "
+                f"Deleted its compiled copy ({size(freed)})."
+            )
+        else:
+            print(
+                f"Deleted the translation model ({size(freed)})." if freed else "Nothing to delete."
+            )
         return
     if translate.is_downloaded():
         print(f"The translation model is already in {translate.model_dir()}")

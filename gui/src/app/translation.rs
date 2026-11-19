@@ -1,6 +1,6 @@
 //! Translating before reading: About's row that downloads or deletes the
-//! translation model, and the player's Translate picker, which shows only
-//! once it is downloaded. Nothing is downloaded or loaded until asked for:
+//! translation model, and the player's Translate picker, which until then is
+//! a button that leads to that row. Nothing is downloaded or loaded until asked for:
 //! the model loads in the worker at the first translated reading.
 
 use std::time::Duration;
@@ -32,6 +32,8 @@ pub(super) const UNTRANSLATED: &str = "Don't translate";
 #[derive(Default)]
 pub(super) struct Translation {
     pub(super) downloaded: bool,
+    /// vinoWhisper uses the same copy, so it isn't deleted from here.
+    pub(super) shared: bool,
     /// Bytes in the translation folder, read when About shows and while downloading.
     pub(super) bytes: u64,
     pub(super) step: Option<Step>,
@@ -61,6 +63,11 @@ impl Translation {
                 model_cache::size(self.bytes)
             ),
             Some(Step::Deleting) => "Deleting…".to_owned(),
+            None if self.shared => format!(
+                "{} on disk, shared with vinoWhisper: delete it there. Pick a language \
+                 under Translate to have a file read in it.",
+                model_cache::size(self.bytes)
+            ),
             None if self.downloaded => format!(
                 "{} on disk. Pick a language under Translate to have a file read in it.",
                 model_cache::size(self.bytes)
@@ -78,6 +85,8 @@ impl App {
     pub(super) fn refresh_translation(&mut self) {
         let dir = self.translation_dir.as_deref();
         self.translation.downloaded = dir.is_some_and(translation::downloaded);
+        self.translation.shared =
+            self.translation.downloaded && dir.is_some_and(translation::used_by_vinowhisper);
         self.translation.bytes = dir.map_or(0, model_cache::disk_usage);
         if !self.translation.downloaded {
             self.translate_to = None;
@@ -131,6 +140,7 @@ impl App {
                         self.translation.step = None;
                     }
                 }
+                None if self.translation.shared => {}
                 None if self.translation.downloaded => {
                     let button = Button::secondary("Delete translation…");
                     if ui.add_enabled(!reading, button).clicked() {
@@ -190,14 +200,30 @@ impl App {
         self.refresh_translation();
     }
 
-    /// The player's Translate picker, once the model is downloaded. Picking
-    /// a language picks a voice of it, unless the voice already speaks it
+    /// The player's Translate picker, once the model is downloaded; until then
+    /// a button that opens About at its download (pinned by
+    /// `app::tests::translate_before_its_download_leads_to_the_download`).
+    /// Picking a language picks a voice of it, unless the voice already speaks it
     /// (pinned by `app::tests::picking_a_language_picks_a_voice_that_speaks_it`).
     pub(super) fn translate_picker(&mut self, ui: &mut egui::Ui) {
+        let p = theme::palette(ui.ctx());
         if !self.translation.downloaded {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                icons::icon(ui, Icon::Captions, 14.0, p.muted);
+                let offered = ui.add(Button::ghost("Translate…")).on_hover_text(format!(
+                    "Download {} ({}) on About to read a file in another language",
+                    translation::LABEL,
+                    model_cache::size(translation::DOWNLOAD_BYTES)
+                ));
+                if offered.clicked() {
+                    self.open_about();
+                    self.translation.step = Some(Step::ConfirmDownload);
+                    self.translation.error = None;
+                }
+            });
             return;
         }
-        let p = theme::palette(ui.ctx());
         let chosen = self.translate_to;
         let label = chosen.map_or(UNTRANSLATED, |t| t.name).to_owned();
         ui.horizontal(|ui| {

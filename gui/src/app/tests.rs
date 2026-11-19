@@ -254,7 +254,7 @@ fn window_with(
         (outputs, Some("hdmi_sink".to_owned())),
     );
     app.cache = Some(scratch.0.join("cache"));
-    app.translation_dir = Some(scratch.0.join("translation"));
+    app.translation_dir = Some(scratch.0.join("translation/SmolLM3-3B-int4-cw-ov"));
     app.refresh_translation();
     app.session_dirs = vec![scratch.sessions()];
     app.app_title_bar = app_title_bar;
@@ -1050,12 +1050,42 @@ fn pick_language(h: &mut Harness<'_, App>, name: &str) {
 }
 
 #[test]
-fn translate_is_offered_only_once_its_model_is_downloaded() {
+fn translate_picks_a_language_only_once_its_model_is_downloaded() {
     let scratch = Scratch::new();
     let h = notes_window(&scratch, "Read me.");
     assert!(h.query_by_label("Translate").is_none());
+    assert!(h.query_by_label("Translate…").is_some());
     let h = translating_window(&scratch);
     assert!(h.query_by_label("Translate").is_some());
+    assert!(h.query_by_label("Translate…").is_none());
+}
+
+#[test]
+fn translate_before_its_download_leads_to_the_download() {
+    let scratch = Scratch::new();
+    let index = FakeIndex::recent(vec![scratch.file("notes.md", "Read me.")]);
+    let mut h = tall_window(&scratch, index);
+    wait_for(&mut h, "Read me.");
+    h.get_by_role_and_label(Role::Button, "Translate…").click();
+    wait_for(&mut h, "Downloads 1.7 GB into your home folder.");
+    assert!(h.state().about);
+    assert!(
+        !scratch
+            .read("calls")
+            .contains("--download-translation-model"),
+        "nothing downloads before Download is pressed"
+    );
+}
+
+#[test]
+fn a_copy_vinowhisper_uses_is_shared_and_not_deleted_from_here() {
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    let model = scratch.0.join("translation/SmolLM3-3B-int4-cw-ov");
+    std::fs::write(model.join(".vinowhisper-verified"), "").unwrap();
+    h.get_by_role_and_label(Role::Tab, "About").click();
+    wait_for(&mut h, "shared with vinoWhisper: delete it there.");
+    assert!(h.query_by_label("Delete translation…").is_none());
 }
 
 #[test]

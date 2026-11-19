@@ -47,9 +47,11 @@ in and exits, and `VINOSPEAK_GUI_SPEAK=1` starts reading first.
 model's delete confirmation.
 
 About's Translation row downloads SmolLM3-3B (1.7 GB, `vinospeak
---download-translation-model`) after you confirm, and deletes it again. Once
-it is there the player gets a Translate picker: pick a language and Read
-aloud translates the file into it as it reads, in a voice of that language.
+--download-translation-model`) after you confirm, and deletes it again,
+unless vinoWhisper uses the same copy. Until it is there the player's
+Translate… button opens that row; once it is, Translate is a picker: pick a
+language and Read aloud translates the file into it as it reads, in a voice
+of that language.
 The worker loads the model only for the first translated reading.
 
 About also shows the downloaded model's size, with Delete… to remove it

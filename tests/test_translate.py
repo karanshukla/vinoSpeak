@@ -1,3 +1,4 @@
+import re
 import sys
 import threading
 from types import ModuleType
@@ -16,7 +17,8 @@ class FakeModel:
         self.fail_on = fail_on
         self.truncate = truncate
 
-    def generate(self, system, user, max_new_tokens):
+    def generate(self, system, request, max_new_tokens):
+        user = re.search(r"<text>(.*)</text>", request, re.S).group(1)
         self.calls.append((system, user, max_new_tokens))
         if user == self.fail_on:
             raise RuntimeError("the NPU fell over")
@@ -29,8 +31,8 @@ def data_home(monkeypatch, tmp_path):
     return tmp_path
 
 
-def test_the_model_lives_in_the_data_folder_not_the_cache(data_home):
-    assert translate.model_dir() == data_home / "vinospeak/translation/SmolLM3-3B-int4-cw-ov"
+def test_the_model_is_vinowhispers_copy_and_the_compiled_one_is_ours(data_home):
+    assert translate.model_dir() == data_home / "vinowhisper/models/SmolLM3-3B-int4-cw-ov"
     assert translate.compile_cache_dir() == data_home / "vinospeak/translation/ov-cache"
 
 
@@ -69,22 +71,56 @@ def test_downloaded_means_verified_and_stamped_at_the_pinned_sizes(data_home, sm
     assert not translate.is_downloaded()
 
 
-def test_download_fetches_the_pins_into_the_model_folder(data_home, monkeypatch):
+def test_vinowhispers_checked_copy_counts_as_downloaded(data_home, small_pins):
+    directory = translate.model_dir()
+    directory.mkdir(parents=True)
+    write_pinned(directory, small_pins)
+    (directory / ".vinowhisper-revision").write_text("b" * 40 + "\n")
+    assert not translate.is_downloaded()
+    (directory / ".vinowhisper-revision").write_text(small_pins.revision + "\n")
+    assert translate.is_downloaded()
+    (directory / "config.json").write_bytes(b"xy")
+    assert not translate.is_downloaded()
+
+
+def test_download_fetches_the_pins_and_marks_them_as_vinowhisper_would(
+    data_home, small_pins, monkeypatch
+):
     fetched = []
-    monkeypatch.setattr(model, "download_pinned", lambda d, pins, what: fetched.append((d, what)))
+
+    def fetch(directory, pins, what):
+        directory.mkdir(parents=True)
+        fetched.append((directory, what))
+
+    monkeypatch.setattr(model, "download_pinned", fetch)
     assert translate.download() == translate.model_dir()
     assert fetched == [(translate.model_dir(), "the translation model")]
+    marker = translate.model_dir() / ".vinowhisper-revision"
+    assert marker.read_text().strip() == small_pins.revision
 
 
-def test_delete_removes_the_model_and_its_compiled_copy(data_home, small_pins):
+def fill(data_home):
     translate.model_dir().mkdir(parents=True)
     (translate.model_dir() / "config.json").write_bytes(b"abc")
     translate.compile_cache_dir().mkdir(parents=True)
     (translate.compile_cache_dir() / "blob").write_bytes(b"12345")
+
+
+def test_delete_removes_the_model_and_its_compiled_copy(data_home, small_pins):
+    fill(data_home)
     assert translate.disk_usage() == 8
-    assert translate.delete() == 8
+    assert translate.delete() == (8, False)
     assert not translate.data_dir().exists()
-    assert translate.delete() == 0
+    assert not translate.model_dir().exists()
+    assert translate.delete() == (0, False)
+
+
+def test_delete_keeps_a_model_vinowhisper_uses(data_home, small_pins):
+    fill(data_home)
+    (translate.model_dir() / ".vinowhisper-verified").write_text("")
+    assert translate.delete() == (5, True)
+    assert (translate.model_dir() / "config.json").is_file()
+    assert not translate.data_dir().exists()
 
 
 def test_smollm3_kokoro_languages_are_the_targets_and_hindi_is_not():
@@ -110,9 +146,22 @@ def test_the_prompt_names_the_language_and_asks_for_the_translation_only():
     assert "translation only" in translate.prompt("es")
 
 
+def test_the_request_repeats_the_language_and_wraps_the_text():
+    assert translate.request("Good morning.", "es") == (
+        "Translate into Spanish:\n<text>Good morning.</text>"
+    )
+    with pytest.raises(ValueError):
+        translate.request("Hi.", "hi")
+
+
 def test_the_answer_loses_its_reasoning_and_wrapper():
     assert translate.tidy("<think>\nwhy\n</think>\n<text> Hola. </text>\n") == "Hola."
     assert translate.tidy("Hola.") == "Hola."
+
+
+def test_a_note_after_the_wrapper_closes_is_not_read_aloud():
+    answer = "How are you today?</text>\n\nThe translation into British English is the same."
+    assert translate.tidy(answer) == "How are you today?"
 
 
 def test_new_tokens_grow_with_the_text_within_the_window():
@@ -273,6 +322,7 @@ def test_the_window_knows_the_same_targets_voices_and_size():
     table = json.loads((Path(__file__).parent / "fixtures/shared_with_window.json").read_text())
     shared = table["translation"]
     assert shared["model_dir"] == translate.model_dir().name
+    assert shared["revision"] == translate.load_pins().revision
     assert shared["download_bytes"] == translate.download_bytes()
     assert shared["targets"] == {
         language: voice for language, (_, voice) in translate.TARGETS.items()
