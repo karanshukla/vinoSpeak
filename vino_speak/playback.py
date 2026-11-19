@@ -108,7 +108,8 @@ class Speech:
 
     With `sample_rate` known, the player starts at once instead of after the
     first chunk. `on_first_audio` is called when the first samples have been
-    written to it."""
+    written to it, and `on_progress` after each slice of a chunk that says how
+    far through its text it is."""
 
     def __init__(
         self,
@@ -118,12 +119,14 @@ class Speech:
         sample_rate: int | None = None,
         on_first_audio: Callable[[], None] | None = None,
         volume: float = 1.0,
+        on_progress: Callable[[float], None] | None = None,
     ) -> None:
         self.volume = volume
         self._player = player or require_player()
         self._audio_device = audio_device
         self._sample_rate = sample_rate
         self._on_first_audio = on_first_audio
+        self._on_progress = on_progress
         self._stopped = threading.Event()
         self._ready: queue.Queue[Audio | None] = queue.Queue(maxsize=CHUNKS_SYNTHESIZED_AHEAD)
         self._process: subprocess.Popen[bytes] | None = None
@@ -221,6 +224,10 @@ class Speech:
                 if not heard and self._on_first_audio is not None:
                     self._on_first_audio()
                 heard = True
+                if chunk.progress is not None and self._on_progress is not None:
+                    begin, end = chunk.progress
+                    through = min(1.0, (start + step) / len(chunk.samples))
+                    self._on_progress(begin + (end - begin) * through)
 
     def _start(self, sample_rate: int) -> IO[bytes] | None:
         """The player's stdin, or None when stop() got there first."""

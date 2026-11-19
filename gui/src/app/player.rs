@@ -23,6 +23,9 @@ const TRANSPORT_HEIGHT: f32 = 52.0;
 /// go two by two (pinned by `app::tests::the_settings_go_two_by_two_when_narrow`).
 const MIN_SETTING_WIDTH: f32 = 160.0;
 const SETTING_GAP: f32 = 12.0;
+/// The state and clock beside the button, wide enough for "Translating…" so
+/// the progress bar after it keeps its place as the state changes.
+const STATE_WIDTH: f32 = 150.0;
 
 /// A setting's heading and the picker drawn under it.
 type Setting = (&'static str, fn(&mut App, &mut egui::Ui));
@@ -160,10 +163,15 @@ impl App {
             } else {
                 self.read_aloud_button(ui);
             }
+            let done = self.reading.as_ref().map(|r| r.done);
             let right = egui::Layout::right_to_left(egui::Align::Center);
             ui.with_layout(right, |ui| {
+                ui.spacing_mut().item_spacing.x = 20.0;
                 let size = egui::vec2(super::volume::VOLUME_WIDTH, BUTTON_DIAMETER);
                 ui.allocate_ui_with_layout(size, layout, |ui| self.volume_controls(ui));
+                if let Some(done) = done.filter(|_| speaking_this) {
+                    widgets::progress(ui, done, ui.available_width());
+                }
             });
         });
     }
@@ -222,6 +230,7 @@ impl App {
         }
         let heard = reading.heard;
         ui.vertical(|ui| {
+            ui.set_min_width(STATE_WIDTH);
             ui.spacing_mut().item_spacing.y = 0.0;
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;

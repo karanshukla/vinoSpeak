@@ -1299,6 +1299,7 @@ fn the_choices_stay_put_when_a_reading_starts() {
             stop_sent: None,
             translated_into: crate::translation::target("fr-fr"),
             heard,
+            done: 0.0,
         });
         h.run_steps(3);
         assert!(h.query_by_label("Stop").is_some());
@@ -1339,4 +1340,29 @@ fn a_restored_language_brings_a_voice_that_speaks_it() {
     let state = h.state();
     assert_eq!(state.translate_to.map(|t| t.language), Some("es"));
     assert_eq!(state.voice.language, "es");
+}
+
+#[test]
+fn the_bar_shows_how_far_the_reading_is_and_never_goes_back() {
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    h.state_mut().reading = Some(crate::speech::Reading {
+        id: 7,
+        file: scratch.0.join("notes.md"),
+        started: Instant::now(),
+        stop_sent: None,
+        translated_into: None,
+        heard: true,
+        done: 0.0,
+    });
+    for (done, expected) in [(0.4, 0.4), (0.2, 0.4), (0.9, 0.9)] {
+        h.state_mut().on_progress(7, done);
+        assert_eq!(h.state().reading.as_ref().unwrap().done, expected);
+    }
+    h.state_mut().on_progress(8, 1.0);
+    assert_eq!(
+        h.state().reading.as_ref().unwrap().done,
+        0.9,
+        "another reading's"
+    );
 }

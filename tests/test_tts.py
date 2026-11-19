@@ -338,6 +338,7 @@ class FakeSpeech:
         sample_rate=None,
         on_first_audio=None,
         volume=1.0,
+        on_progress=None,
         *,
         interrupt=False,
     ):
@@ -498,3 +499,43 @@ def test_a_trailing_symbol_kokoro_cant_end_on_is_not_sent(fake_runtime):
     synthesizer.synthesize("Hola amigos.»", language="es")
     assert synthesizer.synthesize("—", language="es").samples.size == 0
     assert FakePipeline.instances[0].calls == [("Hola amigos.", "es", 1.0)]
+
+
+def test_each_chunk_says_how_far_through_the_text_it_is(fake_runtime):
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+    text = "First. " + "This second sentence is long enough to be a chunk of its own here. " * 3
+    progress = [audio.progress for audio in synthesizer.stream(text)]
+    assert progress[0][0] == 0.0
+    assert progress[-1][1] == pytest.approx(1.0)
+    assert all(a[1] == pytest.approx(b[0]) for a, b in zip(progress, progress[1:], strict=False))
+
+
+class Pieces:
+    """Translates each piece of `chunks(text, MAX_PIECE_CHARS)` to itself,
+    the second to nothing."""
+
+    def stream(self, text, language):
+        from vino_speak.text import chunks
+        from vino_speak.translate import MAX_PIECE_CHARS
+
+        for i, piece in enumerate(chunks(text, MAX_PIECE_CHARS)):
+            yield "" if i == 1 else piece
+
+
+def test_a_translated_chunk_takes_its_source_pieces_share(fake_runtime):
+    np.arange(2, dtype=np.float32).tofile(fake_runtime / "voices" / "ef_dora.bin")
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+    text = "Uno. " + "Dos tres cuatro cinco seis siete ocho nueve diez once doce. " * 40
+    progress = [
+        a.progress
+        for a in synthesizer.stream(text, "ef_dora", translate_to="es", translator=Pieces())
+    ]
+    assert progress[0][0] == 0.0
+    assert progress[-1][1] == pytest.approx(1.0), "the last piece ends the text"
+    from vino_speak.text import chunks
+    from vino_speak.translate import MAX_PIECE_CHARS
+
+    sources = [len(c) for c in chunks(text, MAX_PIECE_CHARS)]
+    gaps = [b[0] - a[1] for a, b in zip(progress, progress[1:], strict=False)]
+    skipped = sources[1] / sum(sources)
+    assert max(gaps) == pytest.approx(skipped), "the untranslated piece's share is skipped"

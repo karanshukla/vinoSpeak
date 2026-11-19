@@ -89,6 +89,7 @@ impl App {
                     stop_sent: None,
                     translated_into: target,
                     heard: false,
+                    done: 0.0,
                 });
             }
             Err(e) => {
@@ -140,6 +141,14 @@ impl App {
         }
     }
 
+    /// The bar moves on for this reading and never back (pinned by
+    /// `app::tests::the_bar_shows_how_far_the_reading_is_and_never_goes_back`).
+    pub(super) fn on_progress(&mut self, id: u64, done: f32) {
+        if let Some(reading) = self.reading.as_mut().filter(|r| r.id == id) {
+            reading.done = reading.done.max(done);
+        }
+    }
+
     /// Apply one worker event; how the reading with id `current` ended, if
     /// this event ends it. A worker that exits with no reading under way ends
     /// none, and the next Read aloud starts another (pinned by
@@ -160,6 +169,10 @@ impl App {
                         self.status = format!("Speaking {} in {}", file_name(reading), target.name);
                     }
                 }
+                None
+            }
+            Event::Progress { id, done } => {
+                self.on_progress(id, done);
                 None
             }
             Event::Done { id } if Some(id) == current => Some(Ended::Finished),

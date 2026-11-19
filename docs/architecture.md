@@ -219,6 +219,15 @@ a queue of one chunk between them. One chunk waiting is enough to keep
 playback fed without spending energy far ahead of a `stop()`
 (`test_synthesis_runs_one_chunk_ahead_of_a_player_that_is_not_reading`).
 
+Progress is measured in text, not time: the length of the audio isn't known
+until the last chunk is synthesized. Each chunk carries the share of the
+reading's text it covers, and the player moves through that share as its
+0.1 s slices are written. A translated chunk takes its source piece's share,
+so a short French sentence for a long English one moves the bar as far as the
+English. The worker sends a `progress` event each half percent; the window's
+bar never moves back. It is close, not exact: the pipe ahead of the player
+holds a fraction of a second, and speech isn't evenly paced by characters.
+
 The window's volume is the reading's own, not the output's: `Speech` scales
 the samples as it writes them, so it works the same through all three
 players and never moves the desktop's volume for other apps. A chunk is

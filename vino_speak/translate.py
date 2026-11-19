@@ -320,8 +320,10 @@ class Translator:
         return chunks(text, MAX_PIECE_CHARS)
 
     def stream(self, text: str, language: str) -> Iterator[str]:
-        """Each piece translated, the next one translated while this one is
-        spoken; nothing is translated past a consumer that stopped."""
+        """Each of `pieces(text)` translated, in order and one for one (an
+        empty answer too, so a consumer can tell how far through the source it
+        is); the next is translated while this one is spoken, and nothing past
+        a consumer that stopped."""
         target_name(language)
         ready: queue.Queue[str | BaseException | None] = queue.Queue(maxsize=1)
         stopped = threading.Event()
@@ -342,13 +344,12 @@ class Translator:
             while (item := ready.get()) is not None:
                 if isinstance(item, BaseException):
                     raise item
-                if item:
-                    yield item
+                yield item
         finally:
             stopped.set()
 
     def translate(self, text: str, language: str) -> str:
-        return "\n\n".join(self.stream(text, language))
+        return "\n\n".join(piece for piece in self.stream(text, language) if piece)
 
     def _watch(self) -> None:
         """Once per process, a thread that lets the model go once idle."""

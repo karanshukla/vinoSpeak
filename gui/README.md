@@ -42,7 +42,8 @@ desktop's, and a change is heard mid-reading.
 
 Checked without anyone at the screen: `VINOSPEAK_GUI_QUERY` searches,
 `VINOSPEAK_GUI_SCREENSHOT=out.png` saves the window once the first hit's text is
-in and exits, and `VINOSPEAK_GUI_SPEAK=1` starts reading first.
+in and exits, and `VINOSPEAK_GUI_SPEAK=1` starts reading first (a number
+above 1 reads that many seconds before the screenshot, rather than 4).
 `VINOSPEAK_GUI_ABOUT=1` opens the About page, and `=delete` opens it at the
 model's delete confirmation.
 
