@@ -22,7 +22,7 @@ own telemetry is blocked.
 - **Starts talking in about 1.5 s on the NPU**, however long the text: the first
   sentence plays while the rest is synthesized.
 - **41 Kokoro voices** in US/UK English, Spanish, French, Hindi, Italian and
-  Brazilian Portuguese, at 0.5x to 2x speed.
+  Brazilian Portuguese, at 0.5x to 2x speed, or a blend of several.
 - **Plays or saves**: your speakers via PipeWire/PulseAudio/ALSA, or a WAV.
 - **NPU, GPU or CPU.** CPU works with no driver at all.
 - A [window](gui/) (proof of concept) to find a file with vinoSearch and listen
@@ -70,12 +70,15 @@ vinospeak --file notes.md                          # read a file aloud
 vinospeak --file notes.md --print-text             # see what it would say, no model load
 some-command | vinospeak --file -                  # plain text from stdin
 vinospeak --file 2026-10-27-140512.vwsession       # a vinoWhisper summary
-vinospeak "Hola." --voice ef_dora --language es --speed 1.2 --device CPU
+vinospeak "Hola." --voice ef_dora --speed 1.2 --device CPU    # Spanish: the voice's language
+vinospeak "Hello." --voice "af_heart(2)+bm_george(1)"            # a blend of two voices
 ```
 
 | Option | What it does |
 |---|---|
-| `--voice`, `--language`, `--speed` | Kokoro voice (default `af_heart`), language, 0.5 to 2.0 |
+| `--voice`, `--speed` | Kokoro voice (default `af_heart`) or a blend like `af_heart(2)+bm_george(1)`; 0.5 to 2.0 |
+| `--list-voices` | Every voice, its language and accent |
+| `--language` | Read as this language instead of the voice's own |
 | `--device` | `NPU` (default), `GPU` or `CPU` |
 | `--audio-device` | A sink from `pactl list short sinks`, or an ALSA device |
 | `--kind` | Read `--file` as `plain`, `markdown` or `document` |

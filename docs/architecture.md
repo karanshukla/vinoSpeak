@@ -109,6 +109,18 @@ A chunk is never cut after an abbreviation or an initial (`e.g.`, `Dr.`,
 `J. R.`): Kokoro's pitch falls at the end of a chunk, and it would fall
 mid-sentence.
 
+## Voices and blends
+
+A voice is a `(510, 1, 256)` float32 embedding, one style vector per input
+length, and Kokoro mixes voices by taking their weighted mean, the same rule
+Kokoro-FastAPI and kokoro's own `KPipeline` use. A blend is mixed once and
+kept with the loaded voices under one spelling (`voices.canonical`), so
+`af_heart(2)+bm_george(2)` and `af_heart+bm_george` share an embedding.
+Checked on the real pipeline on CPU, 2026-11-18.
+
+OpenVINO GenAI 2026.4's Kokoro refuses `ja` and `zh`, so the nine Japanese
+and Mandarin voices in the model aren't offered, as in the window's picker.
+
 ## Playback
 
 Players are tried in the order `pw-play`, `paplay`, `aplay`: PipeWire is the

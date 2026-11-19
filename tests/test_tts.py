@@ -385,3 +385,42 @@ def test_synthesizer_speak_plays_on_the_given_device(fake_runtime, monkeypatch):
     assert speech.volume == 0.4
     assert speech.sample_rate == 24000
     assert len(speech.chunks) == 1
+
+
+def test_a_blend_is_the_weighted_mean_of_its_voices():
+    a = np.asarray([1.0, 0.0], dtype=np.float32)
+    b = np.asarray([0.0, 1.0], dtype=np.float32)
+    mixed = tts.blend([(a, 0.75), (b, 0.25)])
+    np.testing.assert_allclose(mixed, [0.75, 0.25])
+    assert mixed.dtype == np.float32
+
+
+def test_a_blend_reaches_the_pipeline_as_one_embedding(fake_runtime):
+    np.asarray([4.0, 0.0], dtype=np.float32).tofile(fake_runtime / "voices" / "bm_george.bin")
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+
+    synthesizer.synthesize("Hello", voice="af_heart(1)+bm_george(1)")
+
+    embedding = next(iter(synthesizer._voices.values()))
+    np.testing.assert_allclose(embedding.data, [2.0, 0.5])
+
+
+def test_a_blend_naming_a_missing_voice_is_refused(fake_runtime):
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+    with pytest.raises(ValueError, match="'bm_nobody' was not found"):
+        synthesizer.synthesize("Hello", voice="af_heart+bm_nobody")
+
+
+@pytest.mark.parametrize(
+    ("voice", "language", "spoken_as"),
+    [("af_heart", None, "en-us"), ("ef_dora", None, "es"), ("ef_dora", "en-gb", "en-gb")],
+)
+def test_the_language_is_the_voices_own_unless_one_is_asked_for(
+    fake_runtime, voice, language, spoken_as
+):
+    np.arange(2, dtype=np.float32).tofile(fake_runtime / "voices" / "ef_dora.bin")
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+
+    synthesizer.synthesize("Hola", voice=voice, language=language)
+
+    assert FakePipeline.instances[0].calls[-1][1] == spoken_as

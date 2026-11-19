@@ -5,7 +5,7 @@ vinoSpeak's GUI for now; it may change without notice.
 Requests, one JSON object a line on stdin:
 
     {"op": "speak", "id": 1, "text": "...", "voice": "af_heart",
-     "language": "en-us", "speed": 1.0, "audio_device": null, "volume": 1.0}
+     "language": "en-us" (or null: the voice's own), "speed": 1.0, "audio_device": null, "volume": 1.0}
     {"op": "volume", "volume": 0.5}   (the reading playing, from its next tenth of a second)
     {"op": "stop"}
 
@@ -30,7 +30,7 @@ from collections.abc import Callable, Iterable
 from typing import IO, Any, Protocol
 
 from .playback import Speech
-from .tts import DEFAULT_LANGUAGE, DEFAULT_VOICE
+from .tts import DEFAULT_VOICE
 
 # Synthesized once after loading and thrown away (pinned by
 # `test_serve.py::test_main_warms_up_says_ready_then_serves`).
@@ -47,7 +47,7 @@ class Speaker(Protocol):
         self,
         text: str,
         voice: str = ...,
-        language: str = ...,
+        language: str | None = ...,
         speed: float = ...,
         audio_device: str | None = ...,
         on_first_audio: Callable[[], None] | None = ...,
@@ -102,7 +102,7 @@ class Reading:
         self.speech = synthesizer.speak(
             text,
             voice if isinstance(voice, str) else DEFAULT_VOICE,
-            language if isinstance(language, str) else DEFAULT_LANGUAGE,
+            language if isinstance(language, str) else None,
             float(speed),
             audio_device if isinstance(audio_device, str) else None,
             on_first_audio=lambda: emit({"event": "first-audio", "id": self.id, "ms": _ms(asked)}),

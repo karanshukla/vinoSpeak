@@ -197,3 +197,20 @@ def test_version_prints_the_program_and_its_version(monkeypatch, capsys):
         cli.main(["--version"])
     assert exit_info.value.code == 0
     assert capsys.readouterr().out == "vinospeak 1.2.3\n"
+
+
+def test_list_voices_prints_each_voice_and_its_language_without_a_model(monkeypatch, capsys):
+    monkeypatch.setattr(model, "ensure_model", lambda *a, **k: pytest.fail("loaded the model"))
+    cli.main(["--list-voices"])
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 41
+    assert lines[0].split() == ["af_alloy", "en-us", "female", "American", "English"]
+    assert "(default)" in next(line for line in lines if line.startswith("af_heart"))
+
+
+def test_without_language_the_voice_chooses_it(monkeypatch):
+    asked = {}
+    monkeypatch.setattr(cli, "speak", lambda text, **kwargs: asked.update(kwargs))
+    cli.main(["Hola.", "--voice", "ef_dora"])
+    assert asked["language"] is None
+    assert asked["voice"] == "ef_dora"

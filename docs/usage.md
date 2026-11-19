@@ -29,6 +29,21 @@ Abbreviations like `e.g.` and `Dr.` don't end a sentence.
 `--print-text` prints what would be spoken and exits, without loading the
 model.
 
+## Voices
+
+```bash
+vinospeak --list-voices                                   # id, language, gender, accent
+vinospeak "Bonjour." --voice ff_siwis                      # read as French, the voice's language
+vinospeak "Hello." --voice ff_siwis --language en-us       # a French voice reading English
+vinospeak "Hello." --voice "af_heart(2)+bm_george(1)"       # two thirds Heart, one third George
+```
+
+A voice's first letter says its language, so `--language` is only needed to
+read text in another one. A blend mixes up to 8 voices by weight (the
+weights needn't add up to anything; `af_heart+af_bella` is half each) and
+reads in its first voice's language. The window's worker and the Python API
+take the same blends.
+
 ## vinoWhisper sessions
 
 ```bash

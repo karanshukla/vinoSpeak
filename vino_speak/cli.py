@@ -6,11 +6,10 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-from . import __version__, model, readable, serve, session
+from . import __version__, model, readable, serve, session, voices
 from .model import default_model_dir
 from .tts import (
     DEFAULT_DEVICE,
-    DEFAULT_LANGUAGE,
     DEFAULT_VOICE,
     LANGUAGES,
     Synthesizer,
@@ -74,8 +73,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Play on this output instead of the default: a PipeWire or PulseAudio sink "
         "name (pactl list short sinks), or an ALSA device.",
     )
-    parser.add_argument("--voice", default=DEFAULT_VOICE, help="Kokoro voice identifier.")
-    parser.add_argument("--language", choices=LANGUAGES, default=DEFAULT_LANGUAGE)
+    parser.add_argument(
+        "--voice",
+        default=DEFAULT_VOICE,
+        help="Kokoro voice (--list-voices), or a blend of up to "
+        f"{voices.MAX_BLEND} with weights: af_heart(2)+bm_george(1).",
+    )
+    parser.add_argument(
+        "--list-voices", action="store_true", help="List the voices and the language of each."
+    )
+    parser.add_argument(
+        "--language",
+        choices=LANGUAGES,
+        help="Language to read the text as (default: the voice's own, so ef_dora reads Spanish).",
+    )
     parser.add_argument("--speed", type=float, default=1.0)
     parser.add_argument(
         "--device",
@@ -120,6 +131,12 @@ def delete_model(parser: argparse.ArgumentParser) -> None:
         f"Deleted the model and its compiled cache ({size(freed)}) from {model.cache_dir()}. "
         "The next run downloads it again."
     )
+
+
+def list_voices() -> None:
+    for voice in voices.available():
+        default = "  (default)" if voice.id == DEFAULT_VOICE else ""
+        print(f"{voice.id:<14}{voice.language:<7}{voice.gender:<8}{voice.accent}{default}")
 
 
 def manage_model(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> None:
@@ -185,6 +202,9 @@ def play_or_save(parser: argparse.ArgumentParser, arguments: argparse.Namespace,
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     arguments = parser.parse_args(argv)
+    if arguments.list_voices:
+        list_voices()
+        return
     if arguments.model_status or arguments.delete_model:
         manage_model(parser, arguments)
         return

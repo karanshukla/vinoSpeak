@@ -14,6 +14,7 @@ vino_speak/
   text.py     chunks(): first sentence alone, then chunks that at most double
   playback.py Speech: raw float32 into one pw-play/paplay/aplay process, stop()
   model.py    cache dir, pinned download, verify(), delete_cached(); no OpenVINO import
+  voices.py   voice ids, the voices on offer (read from the pins), blends; no numpy
   readable.py a file as text worth hearing: markdown, extracted documents, plain
   session.py  a vinoWhisper .vwsession read as its summary or transcript
   serve.py    vinospeak --serve: the window's worker, JSON lines on stdin/stdout

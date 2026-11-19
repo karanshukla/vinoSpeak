@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import threading
 import warnings
 from collections.abc import Callable, Iterator
@@ -11,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import ovfetch
+from . import ovfetch, voices
 from .model import compile_cache_dir, default_model_dir, ensure_model
 from .playback import Speech, require_player
 from .text import chunks
@@ -29,7 +28,6 @@ MIN_SPEED, MAX_SPEED = 0.5, 2.0
 # chunk exists (pinned by
 # `test_playback.py::test_with_the_rate_known_the_player_starts_before_the_first_chunk`).
 SAMPLE_RATE = 24000
-VOICE_PATTERN = re.compile(r"[a-z]{2}_[a-z0-9_]+\Z")
 # Undoes OpenVINO 2026.4's CPU pin on Kokoro's vocoder (docs/architecture.md,
 # "The NPU vocoder override"). Remove with #7.
 NPU_PROPERTIES = {"NPUW_SUBMODEL_DEVICE": ""}
@@ -46,18 +44,22 @@ class Audio:
     sample_rate: int
 
 
-def validate_inputs(text: str, voice: str, speed: float, language: str = DEFAULT_LANGUAGE) -> None:
+def language_for(voice: str, language: str | None) -> str:
+    """The language asked for, or else the one the voice speaks."""
+    return language or voices.language_of(voice) or DEFAULT_LANGUAGE
+
+
+def validate_inputs(text: str, voice: str, speed: float, language: str | None = None) -> None:
     if not text.strip():
         raise ValueError("Text must not be empty.")
-    if not VOICE_PATTERN.fullmatch(voice):
-        raise ValueError("Voice must be a Kokoro voice identifier, such as 'af_heart'.")
+    voices.parse(voice)
     if not MIN_SPEED <= speed <= MAX_SPEED:
         raise ValueError(f"Speed must be between {MIN_SPEED} and {MAX_SPEED}.")
-    if language not in LANGUAGES:
+    if language is not None and language not in LANGUAGES:
         raise ValueError(f"Unsupported language '{language}'.")
 
 
-def load_voice_embedding(voice_path: Path, expected_shape: Any, openvino: Any) -> Any:
+def read_voice(voice_path: Path, expected_shape: Any) -> NDArray[np.float32]:
     import numpy as np
 
     values = np.fromfile(voice_path, dtype=np.float32)
@@ -68,7 +70,22 @@ def load_voice_embedding(voice_path: Path, expected_shape: Any, openvino: Any) -
             f"Voice embedding has {values.size} values, but the model expects "
             f"{expected_size} for shape {shape}."
         )
-    return openvino.Tensor(values.reshape(shape))
+    return values.reshape(shape)
+
+
+def load_voice_embedding(voice_path: Path, expected_shape: Any, openvino: Any) -> Any:
+    return openvino.Tensor(read_voice(voice_path, expected_shape))
+
+
+def blend(parts: list[tuple[NDArray[np.float32], float]]) -> NDArray[np.float32]:
+    """The weighted mean of voice embeddings, Kokoro's way of mixing voices
+    (pinned by `test_tts.py::test_a_blend_is_the_weighted_mean_of_its_voices`)."""
+    import numpy as np
+
+    mixed = np.zeros_like(parts[0][0])
+    for embedding, weight in parts:
+        mixed += np.float32(weight) * embedding
+    return mixed
 
 
 def get_audio_data(speech: Any, openvino: Any) -> NDArray[np.float32]:
@@ -173,31 +190,34 @@ class Synthesizer:
         return Audio(samples, int(result.output_sample_rate))
 
     def _voice(self, voice: str) -> Any:
-        if voice not in self._voices:
-            voice_path = self.model_dir / "voices" / f"{voice}.bin"
-            if not voice_path.is_file():
-                raise ValueError(f"Voice '{voice}' was not found in {voice_path.parent}.")
-            self._voices[voice] = load_voice_embedding(
-                voice_path, self._pipeline.get_speaker_embedding_shape(), self._ov
-            )
-        return self._voices[voice]
+        key = voices.canonical(voice)
+        if key not in self._voices:
+            shape = self._pipeline.get_speaker_embedding_shape()
+            parts = []
+            for voice_id, weight in voices.parse(voice):
+                voice_path = self.model_dir / "voices" / f"{voice_id}.bin"
+                if not voice_path.is_file():
+                    raise ValueError(f"Voice '{voice_id}' was not found in {voice_path.parent}.")
+                parts.append((read_voice(voice_path, shape), weight))
+            self._voices[key] = self._ov.Tensor(blend(parts))
+        return self._voices[key]
 
     def synthesize(
         self,
         text: str,
         voice: str = DEFAULT_VOICE,
-        language: str = DEFAULT_LANGUAGE,
+        language: str | None = None,
         speed: float = 1.0,
     ) -> Audio:
         validate_inputs(text, voice, speed, language)
         with self._lock:
-            return self._generate(text, voice, language, speed)
+            return self._generate(text, voice, language_for(voice, language), speed)
 
     def stream(
         self,
         text: str,
         voice: str = DEFAULT_VOICE,
-        language: str = DEFAULT_LANGUAGE,
+        language: str | None = None,
         speed: float = 1.0,
     ) -> Iterator[Audio]:
         """The text a chunk at a time, synthesized as it is consumed. The
@@ -209,7 +229,7 @@ class Synthesizer:
         self,
         text: str,
         voice: str = DEFAULT_VOICE,
-        language: str = DEFAULT_LANGUAGE,
+        language: str | None = None,
         speed: float = 1.0,
         audio_device: str | None = None,
         on_first_audio: Callable[[], None] | None = None,
@@ -231,7 +251,7 @@ def synthesize(
     text: str,
     output: Path,
     voice: str = DEFAULT_VOICE,
-    language: str = DEFAULT_LANGUAGE,
+    language: str | None = None,
     speed: float = 1.0,
     device: str = DEFAULT_DEVICE,
     model_dir: Path | None = None,
@@ -252,7 +272,7 @@ def synthesize(
 def speak(
     text: str,
     voice: str = DEFAULT_VOICE,
-    language: str = DEFAULT_LANGUAGE,
+    language: str | None = None,
     speed: float = 1.0,
     device: str = DEFAULT_DEVICE,
     model_dir: Path | None = None,

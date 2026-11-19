@@ -90,7 +90,7 @@ def test_stop_and_a_new_speak_end_the_reading_before():
     )
     assert {"event": "done", "id": 1, "stopped": True} in events
     assert {"event": "done", "id": 2, "stopped": True} in events
-    assert synthesizer.requests[0] == ("A long read.", "af_heart", "en-us", 1.0, "hdmi_sink")
+    assert synthesizer.requests[0] == ("A long read.", "af_heart", None, 1.0, "hdmi_sink")
 
 
 def test_a_volume_changes_the_reading_playing_without_stopping_it():
