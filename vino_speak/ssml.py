@@ -9,7 +9,10 @@ Kokoro can't do pitch, volume or emphasis."""
 from __future__ import annotations
 
 import re
-import xml.etree.ElementTree as ET
+
+# Safe here because parse() refuses any DTD first: with no DTD there are no
+# entities to expand or fetch, which is all defusedxml would add.
+import xml.etree.ElementTree as ET  # nosec B405
 from dataclasses import dataclass, replace
 
 from . import voices
@@ -33,6 +36,9 @@ PERCENT = re.compile(r"([+-]?\d+(?:\.\d+)?)%\Z")
 NUMBER = re.compile(r"\d+(?:\.\d+)?\Z")
 SPELLED = frozenset({"characters", "spell-out", "verbatim"})
 DIGITS = frozenset({"digits", "telephone"})
+# SSML needs no DTD, and refusing one leaves no entities to expand or fetch
+# (pinned by `test_ssml.py::test_a_dtd_or_entity_is_refused_before_parsing`).
+DTD = re.compile(r"<!\s*(?:DOCTYPE|ENTITY)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -174,8 +180,11 @@ class _Reader:
 def parse(text: str) -> list[Part]:
     """SSML as the text to say, each piece with its own voice, language and
     rate, and the pauses between them."""
+    if DTD.search(text):
+        raise ValueError("SSML can't have a DOCTYPE or entities.")
     try:
-        root = ET.fromstring(text.strip())
+        # The DTD check above leaves expat nothing to expand or fetch.
+        root = ET.fromstring(text.strip())  # nosec B314
     except ET.ParseError as error:
         raise ValueError(f"The SSML isn't well-formed XML: {error}.") from None
     if _local(root.tag) != "speak":

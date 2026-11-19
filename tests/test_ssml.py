@@ -123,3 +123,22 @@ def test_malformed_xml_is_refused(text):
 def test_a_root_other_than_speak_is_refused():
     with pytest.raises(ValueError, match="one <speak>"):
         ssml.parse("<speaking>x</speaking>")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '<!DOCTYPE speak [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;">]><speak>&b;</speak>',
+        "<speak><!doctype x></speak>",
+        '<!DOCTYPE speak SYSTEM "file:///etc/passwd"><speak>x</speak>',
+        "<speak><! ENTITY x 'y'></speak>",
+    ],
+)
+def test_a_dtd_or_entity_is_refused_before_parsing(text, monkeypatch):
+    monkeypatch.setattr(ssml.ET, "fromstring", lambda *a: pytest.fail("parsed"))
+    with pytest.raises(ValueError, match="DOCTYPE or entities"):
+        ssml.parse(text)
+
+
+def test_the_five_xml_escapes_still_work():
+    assert ssml.parse("<speak>Fish &amp; chips &lt;3</speak>") == [Say("Fish & chips <3")]
