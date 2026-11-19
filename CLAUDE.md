@@ -20,6 +20,7 @@ vino_speak/
   readable.py a file as text worth hearing: markdown, extracted documents, plain
   session.py  a vinoWhisper .vwsession read as its summary or transcript
   serve.py    vinospeak --serve: the window's worker, JSON lines on stdin/stdout
+  api_server.py  vinospeak --http: OpenAI's /v1/audio/speech on loopback (stdlib http.server)
   cli.py      argparse front end for vinospeak; one function per mode
   doctor.py   vinospeak-doctor: packages, devices, ovfetch notes, model pin check
   ovfetch.py  `ovfetch detect` read into notes (advisory, never a FAIL)

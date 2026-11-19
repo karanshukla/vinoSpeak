@@ -29,6 +29,9 @@ own telemetry is blocked.
 - **Plays or saves**: your speakers via PipeWire/PulseAudio/ALSA, or a WAV,
   FLAC, OGG, Opus or MP3, with SRT or WebVTT subtitles timed to it.
 - **NPU, GPU or CPU.** CPU works with no driver at all.
+- **OpenAI's speech API on localhost**: `vinospeak --http` serves
+  `/v1/audio/speech`, so Open WebUI, Home Assistant or any OpenAI client can
+  use it.
 - A [window](gui/) (proof of concept) to find a file with vinoSearch and listen
   to it, and a Python API.
 
@@ -91,6 +94,7 @@ vinospeak "Hello." --voice "af_heart(2)+bm_george(1)"            # a blend of tw
 | `--kind` | Read `--file` as `plain`, `markdown` or `document` |
 | `--lexicon` | Respell words from this TOML file instead of `~/.config/vinospeak/lexicon.toml` |
 | `--part` | `summary` or `transcript` of a vinoWhisper session |
+| `--http [HOST:]PORT` | Serve OpenAI's `/v1/audio/speech` (default `127.0.0.1:8880`) |
 | `--model-status`, `--delete-model` | Show or delete the downloaded model |
 | `--model-dir` | Use your own model directory, unchecked |
 

@@ -42,7 +42,11 @@ class FakeSoundFile:
     def __exit__(self, *exc):
         from pathlib import Path
 
-        Path(self.path).write_bytes(f"{self.format}/{self.subtype}".encode())
+        saved = f"{self.format}/{self.subtype}".encode()
+        if hasattr(self.path, "write"):
+            self.path.write(saved)
+        else:
+            Path(self.path).write_bytes(saved)
 
     def write(self, samples):
         self.writes.append(np.array(samples))

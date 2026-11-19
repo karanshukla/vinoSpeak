@@ -114,6 +114,39 @@ vinospeak --file 2026-10-27-140512.vwsession --part transcript
 A machine-written summary is said to be one before it is read. The transcript
 starts with the day it was recorded, and its timestamps are dropped.
 
+## OpenAI's speech API
+
+```bash
+vinospeak --http                 # http://127.0.0.1:8880/v1, Kokoro-FastAPI's port
+vinospeak --http 9000 --device CPU
+```
+
+It keeps one model loaded and answers what OpenAI's `POST /v1/audio/speech`
+takes, so a client set up for OpenAI or Kokoro-FastAPI only needs its base URL
+changed to `http://127.0.0.1:8880/v1` (any API key will do):
+
+```bash
+curl http://127.0.0.1:8880/v1/audio/speech -H 'Content-Type: application/json' \
+  -d '{"model": "tts-1", "input": "Hello.", "voice": "nova"}' -o hello.mp3
+```
+
+| Field | Taken as |
+|---|---|
+| `input` | The text, plain or SSML, respelled by your lexicon; up to 100,000 characters |
+| `voice` | A Kokoro voice or blend, or OpenAI's name (`alloy`, `nova`, `onyx`, ...) for the Kokoro voice of that name or the nearest kind |
+| `speed` | 0.5 to 2 (OpenAI allows 0.25 to 4; outside Kokoro's range is refused, not changed) |
+| `response_format` | `mp3` (default), `opus`, `flac`, `wav`, or `pcm`: 24 kHz 16-bit mono, streamed as each chunk is ready. No `aac` |
+| `model`, `instructions` | Accepted and ignored |
+
+The language is the voice's own. `GET /v1/audio/voices` lists the voices and
+`GET /v1/models` the model under OpenAI's names. Only `pcm` starts sending
+before the whole text is synthesized; the encoded formats are sent once the
+text is done.
+
+It listens on 127.0.0.1 only. To serve another address, set
+`VINOSPEAK_API_KEY` and send it as `Authorization: Bearer ...`; see
+[SECURITY.md](../SECURITY.md).
+
 ## The model on disk
 
 The model is fetched from Hugging Face at one pinned commit, and every file is

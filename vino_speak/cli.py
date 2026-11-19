@@ -7,7 +7,18 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from . import __version__, lexicon, model, readable, script, serve, session, ssml, voices
+from . import (
+    __version__,
+    api_server,
+    lexicon,
+    model,
+    readable,
+    script,
+    serve,
+    session,
+    ssml,
+    voices,
+)
 from .model import default_model_dir
 from .tts import (
     DEFAULT_DEVICE,
@@ -48,6 +59,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Keep the model loaded and take requests on stdin (vinoSpeak's window uses this; "
         "the protocol is private).",
+    )
+    parser.add_argument(
+        "--http",
+        metavar="[HOST:]PORT",
+        nargs="?",
+        const=str(api_server.DEFAULT_PORT),
+        help="Keep the model loaded and serve OpenAI's /v1/audio/speech on this port "
+        f"(default {api_server.DEFAULT_PORT}, on 127.0.0.1; another host needs "
+        f"{api_server.API_KEY_VARIABLE}).",
     )
     parser.add_argument(
         "--model-status",
@@ -206,6 +226,22 @@ def progress_reporter() -> Callable[[int, int], None] | None:
     return report
 
 
+def serve_http(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> None:
+    others = (arguments.text, arguments.file, arguments.output, arguments.audio_device)
+    if any(o is not None for o in others) or arguments.print_text or arguments.serve:
+        parser.error(
+            "--http takes its text from requests; give it only --device, --model-dir, --lexicon"
+        )
+    respellings = load_lexicon(parser, arguments)
+    try:
+        api_server.main(
+            arguments.http,
+            lambda: Synthesizer(arguments.device, arguments.model_dir, respellings),
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        parser.error(str(error))
+
+
 def load_lexicon(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> lexicon.Lexicon:
     try:
         return lexicon.load(arguments.lexicon)
@@ -272,6 +308,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     if arguments.model_status or arguments.delete_model:
         manage_model(parser, arguments)
+        return
+    if arguments.http is not None:
+        serve_http(parser, arguments)
         return
     if arguments.serve:
         serve_requests(parser, arguments)
