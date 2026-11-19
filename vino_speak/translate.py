@@ -57,6 +57,8 @@ _OPENING = re.compile(r"\A\s*<text>")
 # matched its sha256, and a stamp once it has used it.
 VINOWHISPER_REVISION = ".vinowhisper-revision"
 VINOWHISPER_VERIFIED = ".vinowhisper-verified"
+VINOWHISPER_FLATPAK = "io.github.karanshukla.vinowhisper"
+MODEL_NAME = "SmolLM3-3B-int4-cw-ov"
 
 
 def _data_home() -> Path:
@@ -69,10 +71,25 @@ def data_dir() -> Path:
     return _data_home() / "vinospeak" / "translation"
 
 
-def model_dir() -> Path:
+def native_model_dir() -> Path:
     """vinoWhisper's folder for the same pinned model, so installing either
-    app after the other leaves one copy."""
-    return _data_home() / "vinowhisper" / "models" / "SmolLM3-3B-int4-cw-ov"
+    app after the other leaves one copy. Downloads go here."""
+    return _data_home() / "vinowhisper" / "models" / MODEL_NAME
+
+
+def flatpak_model_dir() -> Path:
+    """The same folder inside vinoWhisper's Flatpak, read but never written."""
+    flatpak = Path.home() / ".var" / "app" / VINOWHISPER_FLATPAK / "data"
+    return flatpak / "vinowhisper" / "models" / MODEL_NAME
+
+
+def model_dir() -> Path:
+    """The first downloaded copy, native before the Flatpak's; the native
+    folder when there is none."""
+    for directory in (native_model_dir(), flatpak_model_dir()):
+        if _holds_the_model(directory):
+            return directory
+    return native_model_dir()
 
 
 def compile_cache_dir() -> Path:
@@ -97,7 +114,10 @@ def _vinowhisper_revision(directory: Path) -> str | None:
 def is_downloaded(directory: Path | None = None) -> bool:
     """Every pinned file there at its pinned size, after a verified download
     by vinoSpeak or by vinoWhisper."""
-    directory = directory or model_dir()
+    return _holds_the_model(directory or model_dir())
+
+
+def _holds_the_model(directory: Path) -> bool:
     pins = load_pins()
     checked = model.is_stamped(directory, pins) or _vinowhisper_revision(directory) == pins.revision
     return checked and not model.verify(directory, pins, full=False)
@@ -106,7 +126,7 @@ def is_downloaded(directory: Path | None = None) -> bool:
 def download(directory: Path | None = None) -> Path:
     """Download and verify the pins, then mark it the way vinoWhisper does,
     so vinoWhisper takes it as its own."""
-    directory = directory or model_dir()
+    directory = directory or native_model_dir()
     pins = load_pins()
     model.download_pinned(directory, pins, "the translation model")
     (directory / VINOWHISPER_REVISION).write_text(pins.revision + "\n", encoding="utf-8")
@@ -114,7 +134,8 @@ def download(directory: Path | None = None) -> Path:
 
 
 def used_by_vinowhisper(directory: Path | None = None) -> bool:
-    return ((directory or model_dir()) / VINOWHISPER_VERIFIED).is_file()
+    directory = directory or model_dir()
+    return directory == flatpak_model_dir() or (directory / VINOWHISPER_VERIFIED).is_file()
 
 
 def disk_usage() -> int:
@@ -124,12 +145,13 @@ def disk_usage() -> int:
 def delete() -> tuple[int, bool]:
     """Delete the compiled copy, and the model unless vinoWhisper uses it;
     the bytes freed and whether the model was kept for vinoWhisper."""
-    kept = used_by_vinowhisper()
+    directory = model_dir()
+    kept = used_by_vinowhisper(directory)
     freed = model.disk_usage(data_dir()) if data_dir().is_dir() else 0
     shutil.rmtree(data_dir(), ignore_errors=True)
-    if not kept and model_dir().is_dir():
-        freed += model.disk_usage(model_dir())
-        shutil.rmtree(model_dir(), ignore_errors=True)
+    if not kept and directory.is_dir():
+        freed += model.disk_usage(directory)
+        shutil.rmtree(directory, ignore_errors=True)
     return freed, kept
 
 

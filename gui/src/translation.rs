@@ -23,6 +23,8 @@ const VERIFIED: &str = ".vinospeak-verified";
 /// What vinoWhisper writes: the revision after checking it, a stamp once it used it.
 const VINOWHISPER_REVISION: &str = ".vinowhisper-revision";
 const VINOWHISPER_VERIFIED: &str = ".vinowhisper-verified";
+/// vinoWhisper's Flatpak, whose copy is read but never deleted from here.
+const VINOWHISPER_FLATPAK: &str = "io.github.karanshukla.vinowhisper";
 /// What the download adds up to (translate.py's `download_bytes()`).
 pub const DOWNLOAD_BYTES: u64 = 1_702_009_152;
 
@@ -73,17 +75,30 @@ pub fn target(language: &str) -> Option<Target> {
     TARGETS.iter().copied().find(|t| t.language == language)
 }
 
-/// `$XDG_DATA_HOME/vinowhisper/models/SmolLM3-3B-int4-cw-ov`, or under `~/.local/share`.
+/// The first downloaded copy, native before the Flatpak's, else the native
+/// folder (translate.py's `model_dir()`).
 pub fn dir() -> Option<PathBuf> {
-    dir_from(std::env::var_os("XDG_DATA_HOME"), std::env::var_os("HOME"))
+    let found = dirs_from(std::env::var_os("XDG_DATA_HOME"), std::env::var_os("HOME"));
+    found
+        .iter()
+        .find(|dir| downloaded(dir))
+        .or(found.first())
+        .cloned()
 }
 
-fn dir_from(xdg_data_home: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
-    xdg_data_home
+/// `$XDG_DATA_HOME/vinowhisper/models/SmolLM3-3B-int4-cw-ov` (or under
+/// `~/.local/share`), then the same inside vinoWhisper's Flatpak.
+fn dirs_from(xdg_data_home: Option<OsString>, home: Option<OsString>) -> Vec<PathBuf> {
+    let models = |data: PathBuf| data.join("vinowhisper").join("models").join(MODEL_DIR);
+    let home = home.map(PathBuf::from);
+    let native = xdg_data_home
         .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
-        .or_else(|| home.map(|home| Path::new(&home).join(".local/share")))
-        .map(|data| data.join("vinowhisper").join("models").join(MODEL_DIR))
+        .or_else(|| home.as_ref().map(|home| home.join(".local/share")))
+        .map(models);
+    let flatpak =
+        home.map(|home| models(home.join(".var/app").join(VINOWHISPER_FLATPAK).join("data")));
+    native.into_iter().chain(flatpak).collect()
 }
 
 /// Whether vinospeak or vinoWhisper finished downloading and checking it.
@@ -96,6 +111,9 @@ pub fn downloaded(model: &Path) -> bool {
 /// Whether vinoWhisper uses it, so deleting it here would take it from vinoWhisper.
 pub fn used_by_vinowhisper(model: &Path) -> bool {
     model.join(VINOWHISPER_VERIFIED).is_file()
+        || model
+            .components()
+            .any(|c| c.as_os_str() == VINOWHISPER_FLATPAK)
 }
 
 fn run(vinospeak: &Path, flag: &str) -> Result<String> {
@@ -156,20 +174,28 @@ mod tests {
     }
 
     #[test]
-    fn the_folder_is_vinowhispers_in_the_data_folder() {
+    fn the_folders_are_vinowhispers_native_then_its_flatpaks() {
         let home = Some(OsString::from("/home/k"));
-        let shared = "/home/k/.local/share/vinowhisper/models/SmolLM3-3B-int4-cw-ov";
-        assert_eq!(dir_from(None, home.clone()), Some(PathBuf::from(shared)));
-        assert_eq!(
-            dir_from(Some(OsString::new()), home.clone()),
-            Some(PathBuf::from(shared))
+        let native = PathBuf::from("/home/k/.local/share/vinowhisper/models/SmolLM3-3B-int4-cw-ov");
+        let flatpak = PathBuf::from(
+            "/home/k/.var/app/io.github.karanshukla.vinowhisper/data/vinowhisper/models/SmolLM3-3B-int4-cw-ov",
         );
         assert_eq!(
-            dir_from(Some("/x/data".into()), home),
-            Some(PathBuf::from(
-                "/x/data/vinowhisper/models/SmolLM3-3B-int4-cw-ov"
-            ))
+            dirs_from(None, home.clone()),
+            [native.clone(), flatpak.clone()]
         );
+        assert_eq!(
+            dirs_from(Some(OsString::new()), home.clone()),
+            [native, flatpak.clone()]
+        );
+        assert_eq!(
+            dirs_from(Some("/x/data".into()), home),
+            [
+                PathBuf::from("/x/data/vinowhisper/models/SmolLM3-3B-int4-cw-ov"),
+                flatpak.clone()
+            ]
+        );
+        assert!(used_by_vinowhisper(&flatpak), "never deleted from here");
     }
 
     fn scratch(name: &str) -> PathBuf {

@@ -126,7 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--download-translation-model",
         action="store_true",
         help=f"Download the translation model ({translate.LABEL}, about 1.7 GB) "
-        f"into {translate.model_dir()}, shared with vinoWhisper.",
+        f"into {translate.native_model_dir()}, shared with vinoWhisper.",
     )
     parser.add_argument(
         "--delete-translation-model",
@@ -210,7 +210,7 @@ def translation_model(parser: argparse.ArgumentParser, arguments: argparse.Names
         return
     print(
         f"Downloading {translate.LABEL} ({size(translate.download_bytes())}) "
-        f"into {translate.model_dir()}",
+        f"into {translate.native_model_dir()}",
         file=sys.stderr,
     )
     try:

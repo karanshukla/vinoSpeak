@@ -33,6 +33,7 @@ def data_home(monkeypatch, tmp_path):
 
 def test_the_model_is_vinowhispers_copy_and_the_compiled_one_is_ours(data_home):
     assert translate.model_dir() == data_home / "vinowhisper/models/SmolLM3-3B-int4-cw-ov"
+    assert translate.native_model_dir() == translate.model_dir()
     assert translate.compile_cache_dir() == data_home / "vinospeak/translation/ov-cache"
 
 
@@ -81,6 +82,41 @@ def test_vinowhispers_checked_copy_counts_as_downloaded(data_home, small_pins):
     assert translate.is_downloaded()
     (directory / "config.json").write_bytes(b"xy")
     assert not translate.is_downloaded()
+
+
+def flatpak_copy(pins):
+    directory = translate.flatpak_model_dir()
+    directory.mkdir(parents=True)
+    write_pinned(directory, pins)
+    (directory / ".vinowhisper-revision").write_text(pins.revision + "\n")
+    return directory
+
+
+def test_the_flatpaks_copy_is_found_under_var_app(data_home, small_pins):
+    from pathlib import Path
+
+    assert translate.flatpak_model_dir() == Path.home() / (
+        ".var/app/io.github.karanshukla.vinowhisper/data/vinowhisper/models/SmolLM3-3B-int4-cw-ov"
+    )
+    assert not translate.is_downloaded()
+    directory = flatpak_copy(small_pins)
+    assert translate.is_downloaded()
+    assert translate.model_dir() == directory
+
+
+def test_a_native_copy_comes_before_the_flatpaks(data_home, small_pins):
+    flatpak_copy(small_pins)
+    native = translate.native_model_dir()
+    native.mkdir(parents=True)
+    write_pinned(native, small_pins)
+    model._stamp(native, small_pins)
+    assert translate.model_dir() == native
+
+
+def test_delete_never_touches_the_flatpaks_copy(data_home, small_pins):
+    directory = flatpak_copy(small_pins)
+    assert translate.delete() == (0, True)
+    assert (directory / "config.json").is_file()
 
 
 def test_download_fetches_the_pins_and_marks_them_as_vinowhisper_would(

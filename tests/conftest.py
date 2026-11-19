@@ -16,6 +16,7 @@ def no_real_data_home(monkeypatch, tmp_path_factory):
     """A developer's ~/.local/share (where vinoWhisper may keep the translation
     model) must not be read by a test."""
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path_factory.mktemp("data")))
+    monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home")))
 
 
 class FakeTensor:

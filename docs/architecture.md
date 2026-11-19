@@ -161,7 +161,9 @@ delete leaves a copy vinoWhisper has used (it wrote `.vinowhisper-verified`),
 and deletes only its compiled copy in `$XDG_DATA_HOME/vinospeak/translation/`.
 Both stay out of the cache: a 1.7 GB opt-in shouldn't vanish with a cache
 clean, and the window's Kokoro row sums the cache folder. vinoWhisper's Flatpak
-keeps its copy under `~/.var/app`, which vinoSpeak doesn't look in.
+keeps its copy under `~/.var/app/io.github.karanshukla.vinowhisper/data/`:
+vinoSpeak uses it when there is no native copy, never downloads into it and
+never deletes it, since it belongs to the sandbox.
 
 The window shows Translate… before the model is downloaded, as a button
 that opens About at the download confirmation: hidden until then, nobody

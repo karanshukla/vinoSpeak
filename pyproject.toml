@@ -53,9 +53,9 @@ vinospeak-doctor = "vino_speak.doctor:main"
 [tool.setuptools.packages.find]
 include = ["vino_speak*"]
 
-# Dropping either from the wheel fails quietly: the pins are read at run time.
+# Read at run time (pinned by `test_model.py::test_every_data_file_is_in_the_wheel`).
 [tool.setuptools.package-data]
-vino_speak = ["model_pins.json", "py.typed"]
+vino_speak = ["model_pins.json", "translation_pins.json", "py.typed"]
 
 # ── uv ────────────────────────────────────────────────────────────────────────
 

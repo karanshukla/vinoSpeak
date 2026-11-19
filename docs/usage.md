@@ -45,8 +45,8 @@ for you: `--translate` without it says how. The model is
 export vinoWhisper uses for its cleanup and summaries, pinned to the same
 revision and hashes. It is kept in vinoWhisper's folder,
 `~/.local/share/vinowhisper/models/` (`$XDG_DATA_HOME`), so the two apps
-share one copy: if vinoWhisper already downloaded it, vinoSpeak uses that and
-downloads nothing. vinoWhisper doesn't have to be installed.
+share one copy: if vinoWhisper already downloaded it, natively or as a
+Flatpak, vinoSpeak uses that and downloads nothing. vinoWhisper doesn't have to be installed.
 `--delete-translation-model` keeps a copy vinoWhisper has used.
 
 It is loaded at the first translation, never at start, on the same

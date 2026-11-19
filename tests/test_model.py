@@ -51,6 +51,16 @@ def test_shipped_pins_are_in_the_package_data():
     assert json.loads(model.PINS_PATH.read_text(encoding="utf-8"))["schema"] == 1
 
 
+def test_every_data_file_is_in_the_wheel():
+    import tomllib
+
+    root = Path(__file__).parent.parent
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    shipped = set(project["tool"]["setuptools"]["package-data"]["vino_speak"])
+    data = {p.name for p in (root / "vino_speak").iterdir() if p.is_file() and p.suffix != ".py"}
+    assert data <= shipped, f"not in package-data: {sorted(data - shipped)}"
+
+
 def test_default_model_dir_follows_xdg_cache_home(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     assert model.default_model_dir() == tmp_path / "vinospeak" / "kokoro-82m-int8-ov"
