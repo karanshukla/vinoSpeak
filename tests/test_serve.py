@@ -1,10 +1,16 @@
 import io
 import json
+import sys
 import threading
+from types import ModuleType
 
+import numpy as np
 import pytest
+from conftest import FakeSoundFile
 
-from vino_speak import cli, serve
+from vino_speak import cli, script, serve
+from vino_speak.lexicon import Lexicon
+from vino_speak.tts import Audio
 
 
 class FakeSpeech:
@@ -39,6 +45,18 @@ class FakeSynthesizer:
         self.warmed = []
         self.requests = []
         self.speeches = []
+        self.rendered = []
+        self.lexicon = None
+        self.render_gate = None
+
+    def plan(self, text, voice="af_heart", language=None, speed=1.0, by_sentence=False):
+        return script.plan(text, voice, language, speed, self.lexicon, by_sentence)
+
+    def render(self, step):
+        if self.render_gate is not None:
+            self.render_gate.wait(5)
+        self.rendered.append((step.text, step.voice, step.language))
+        return Audio(np.zeros(2400, dtype=np.float32), 24000)
 
     def synthesize(self, text, voice="af_heart"):
         self.warmed.append((text, voice))
@@ -73,12 +91,146 @@ class FakeSynthesizer:
         return speech
 
 
-def run(*requests, translators=serve._no_translator):
+def run(*requests, translators=serve._no_translator, lexicons=Lexicon, synthesizer=None):
     events = []
-    synthesizer = FakeSynthesizer()
+    synthesizer = synthesizer or FakeSynthesizer()
     lines = [r if isinstance(r, str) else json.dumps(r) for r in requests]
-    serve.serve(synthesizer, lines, events.append, translators)
+    serve.serve(synthesizer, lines, events.append, translators, lexicons)
     return synthesizer, events
+
+
+@pytest.fixture
+def fake_soundfile(monkeypatch):
+    FakeSoundFile.opened.clear()
+    soundfile = ModuleType("soundfile")
+    soundfile.SoundFile = FakeSoundFile
+    monkeypatch.setitem(sys.modules, "soundfile", soundfile)
+
+
+def until(events, kind):
+    """Wait for a thread of the worker's to send an event of this kind."""
+    import time
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if any(e["event"] == kind for e in list(events)):
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"no {kind} event in {events}")
+
+
+def then_wait(events, kind, *requests):
+    """The requests as lines, then stdin held open until an event of `kind`,
+    as the window holds it open: its closing cancels a save."""
+    for request in requests:
+        yield json.dumps(request)
+    until(events, kind)
+
+
+def save_request(tmp_path, **extra):
+    return {
+        "op": "save",
+        "id": 9,
+        "text": "One sentence. And another one.",
+        "voice": "bm_george",
+        "language": "en-gb",
+        "speed": 1.0,
+        "output": str(tmp_path / "notes.mp3"),
+        **extra,
+    }
+
+
+def test_a_save_writes_the_file_and_its_subtitles_with_progress(tmp_path, fake_soundfile):
+    synthesizer, events = FakeSynthesizer(), []
+    request = save_request(tmp_path, subtitles=str(tmp_path / "notes.srt"))
+    serve.serve(synthesizer, then_wait(events, "saved", request), events.append)
+    assert (tmp_path / "notes.mp3").read_bytes() == b"MP3/MPEG_LAYER_III"
+    assert "One sentence." in (tmp_path / "notes.srt").read_text()
+    assert synthesizer.rendered[0][1:] == ("bm_george", "en-gb")
+    saving = [e["done"] for e in events if e["event"] == "saving"]
+    assert saving == sorted(saving) and saving[-1] == 1.0
+    assert events[-1] == {"event": "saved", "id": 9, "seconds": 0.2}
+
+
+def test_a_save_goes_on_beside_the_reading(tmp_path, fake_soundfile):
+    synthesizer, events = FakeSynthesizer(), []
+    lines = then_wait(
+        events, "saved", {"op": "speak", "id": 1, "text": "Hello"}, save_request(tmp_path)
+    )
+    serve.serve(synthesizer, lines, events.append)
+    kinds = [e["event"] for e in events]
+    assert kinds.index("saved") < kinds.index("done")
+    assert not any(e["event"] == "error" for e in events)
+
+
+def test_a_cancelled_save_leaves_nothing_and_says_so(tmp_path, fake_soundfile):
+    synthesizer, events = FakeSynthesizer(), []
+    synthesizer.render_gate = threading.Event()
+    saving = serve.Saving(synthesizer, save_request(tmp_path), events.append, serve._no_translator)
+    until_rendering = threading.Timer(0.05, synthesizer.render_gate.set)
+    saving.cancelled.set()
+    until_rendering.start()
+    saving.thread.join(5)
+    assert events == [{"event": "save-cancelled", "id": 9}]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_cancel_save_and_a_second_save_cancel_the_one_under_way(tmp_path, fake_soundfile):
+    synthesizer, events = FakeSynthesizer(), []
+    synthesizer.render_gate = threading.Event()
+    threading.Timer(0.2, synthesizer.render_gate.set).start()
+    second = save_request(tmp_path, id=10, output=str(tmp_path / "b.wav"))
+    lines = then_wait(events, "saved", save_request(tmp_path), second)
+    serve.serve(synthesizer, lines, events.append)
+    assert {"event": "save-cancelled", "id": 9} in events
+    assert events[-1]["event"] == "saved" and events[-1]["id"] == 10
+    assert [p.name for p in tmp_path.iterdir()] == ["b.wav"]
+
+
+def test_a_translated_save_is_translated_whole_then_read_in_that_language(tmp_path, fake_soundfile):
+    synthesizer, events = FakeSynthesizer(), []
+    request = save_request(tmp_path, translate="es", voice="ef_dora")
+    serve.serve(synthesizer, then_wait(events, "saved", request), events.append, FakeTranslator)
+    said = " ".join(text for text, _, _ in synthesizer.rendered)
+    assert said == "[es] One sentence. And another one."
+    assert {(voice, language) for _, voice, language in synthesizer.rendered} == {("ef_dora", "es")}
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"output": None}, "needs an output file"),
+        ({"output": "/tmp/a.aiff"}, "saved as one of"),
+        ({"subtitles": "/tmp/a.txt"}, ".srt or .vtt"),
+        ({"text": "  "}, "needs text"),
+    ],
+)
+def test_a_save_that_cant_be_done_is_refused_before_it_starts(tmp_path, change, message):
+    _, events = run(save_request(tmp_path) | change)
+    assert events[0]["event"] == "error" and message in events[0]["message"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_lexicon_is_read_again_and_the_next_reading_respells_with_it():
+    lexicons = iter([Lexicon({"kubectl": "cube control"})])
+    synthesizer, events = run(
+        {"op": "lexicon"},
+        {"op": "speak", "id": 1, "text": "end"},
+        lexicons=lambda: next(lexicons),
+    )
+    assert synthesizer.lexicon.apply("kubectl") == "cube control"
+    assert events[0]["event"] == "started"
+
+
+def test_a_lexicon_that_wont_parse_is_an_error_and_the_old_one_stays():
+    def broken():
+        raise ValueError("lexicon.toml isn't valid TOML")
+
+    synthesizer = FakeSynthesizer()
+    synthesizer.lexicon = Lexicon({"a": "b"})
+    _, events = run({"op": "lexicon", "id": 4}, lexicons=broken, synthesizer=synthesizer)
+    assert events == [{"event": "error", "id": 4, "message": "lexicon.toml isn't valid TOML"}]
+    assert synthesizer.lexicon.words == {"a": "b"}
 
 
 class FakeTranslator:
@@ -296,14 +448,16 @@ def test_cli_serve_loads_the_device_asked_for(monkeypatch):
     monkeypatch.setattr(
         cli, "Synthesizer", lambda device, model_dir, lexicon: loaded.append(device)
     )
-    monkeypatch.setattr(cli.serve, "main", lambda make, translators: make())
+    monkeypatch.setattr(cli.serve, "main", lambda make, translators, lexicons: make())
     cli.main(["--serve", "--device", "CPU"])
     assert loaded == ["CPU"]
 
 
 def test_cli_serve_makes_a_translator_only_once_its_model_is_downloaded(monkeypatch):
     made = {}
-    monkeypatch.setattr(cli.serve, "main", lambda make, translators: made.update(t=translators))
+    monkeypatch.setattr(
+        cli.serve, "main", lambda make, translators, lexicons: made.update(t=translators)
+    )
     cli.main(["--serve", "--device", "CPU"])
     monkeypatch.setattr(cli.translate, "is_downloaded", lambda: False)
     with pytest.raises(ValueError, match="isn't downloaded"):

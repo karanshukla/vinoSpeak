@@ -251,6 +251,7 @@ def serve_requests(parser: argparse.ArgumentParser, arguments: argparse.Namespac
     serve.main(
         lambda: Synthesizer(arguments.device, arguments.model_dir, respellings),
         lambda: downloaded_translator(arguments.device),
+        lambda: lexicon.load(arguments.lexicon),
     )
 
 
