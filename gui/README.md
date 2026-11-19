@@ -53,6 +53,10 @@ unless vinoWhisper uses the same copy. Until it is there the player's
 Translate… button opens that row; once it is, Translate is a picker: pick a
 language and Read aloud translates the file into it as it reads, in a voice
 of that language. The voice picker then lists only that language's voices.
+While it reads, the window shows the translation as each piece arrives, with
+the piece being spoken tinted; Translation / Original above it switches back
+to the file's own text. The translation stays with that file until the next
+reading.
 
 The player is two rows that never reflow: the transport (Read aloud or Stop,
 what it is doing, the volume) and the settings for the next reading

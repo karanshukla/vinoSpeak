@@ -225,7 +225,9 @@ reading's text it covers, and the player moves through that share as its
 0.1 s slices are written. A translated chunk takes its source piece's share,
 so a short French sentence for a long English one moves the bar as far as the
 English. The worker sends a `progress` event each half percent; the window's
-bar never moves back. It is close, not exact: the pipe ahead of the player
+bar never moves back. Each `translated` event carries its piece's share the
+same way (`translate.spans`), so the window marks the piece whose share the
+progress is in: the one being spoken, give or take the pipe. It is close, not exact: the pipe ahead of the player
 holds a fraction of a second, and speech isn't evenly paced by characters.
 
 The window's volume is the reading's own, not the output's: `Speech` scales

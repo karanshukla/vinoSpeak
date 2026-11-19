@@ -91,7 +91,36 @@ def test_a_translation_is_asked_for_and_each_piece_is_announced():
     )
     assert translator.asked == [("end", "es")]
     assert synthesizer.translated == ["[es] end"]
-    assert {"event": "translated", "id": 3, "text": "[es] end"} in events
+    assert {"event": "translated", "id": 3, "text": "[es] end", "start": 0.0, "end": 1.0} in events
+
+
+class PieceTranslator:
+    """One answer per piece, the second empty, as a model may give."""
+
+    def stream(self, text, language):
+        from vino_speak.text import chunks
+        from vino_speak.translate import MAX_PIECE_CHARS
+
+        for n, _ in enumerate(chunks(text, MAX_PIECE_CHARS)):
+            yield "" if n == 1 else f"piece {n}"
+
+
+def test_each_translated_piece_is_sent_with_where_it_lies():
+    sentence = "This sentence is here to be about one hundred characters long so the piece sizes are easy. "
+    text = sentence * 40
+    synthesizer, events = run(
+        {"op": "speak", "id": 4, "text": text, "translate": "es"},
+        {"op": "stop"},
+        translators=PieceTranslator,
+    )
+    from vino_speak.translate import spans
+
+    sent = [e for e in events if e["event"] == "translated"]
+    where = spans(text)
+    assert [e["text"] for e in sent] == [f"piece {n}" for n in range(len(where)) if n != 1]
+    assert (sent[0]["start"], sent[0]["end"]) == (0.0, round(where[0][1], 4))
+    assert (sent[1]["start"], sent[1]["end"]) == tuple(round(x, 4) for x in where[2])
+    assert synthesizer.translated[1] == "", "an empty piece is still passed on, unannounced"
 
 
 def test_without_translate_no_translator_is_made():

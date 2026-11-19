@@ -272,6 +272,18 @@ def test_long_text_is_translated_in_pieces_that_fit_the_window():
     assert all("into French" in system for system, _, _ in fake.calls)
 
 
+def test_the_spans_cover_the_text_piece_by_piece():
+    sentence = "This sentence is here to be about one hundred characters long so the piece sizes are easy. "
+    text = sentence * 40
+    sources = chunks(text, translate.MAX_PIECE_CHARS)
+    spans = translate.spans(text)
+    assert len(spans) == len(sources) > 2
+    assert spans[0][0] == 0.0 and spans[-1][1] == 1.0
+    assert all(a[1] == b[0] for a, b in zip(spans, spans[1:], strict=False))
+    total = sum(map(len, sources))
+    assert spans[0][1] == len(sources[0]) / total
+
+
 def test_stream_yields_each_piece_and_raises_what_went_wrong():
     translator = translate.Translator("CPU", load=lambda: FakeModel(fail_on="Two is here."))
     stream = translator.stream("One. Two is here.", "es")

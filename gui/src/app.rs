@@ -115,6 +115,10 @@ pub struct App {
     /// Started with the first preview, kept for the window's lifetime.
     worker: Option<Worker>,
     reading: Option<Reading>,
+    /// The last translated reading's text, as far as it has been translated.
+    translated: Option<crate::speech::Translated>,
+    /// The original text in place of the translation, by the reader's toggle.
+    show_original: bool,
     status: String,
     tx: mpsc::Sender<Reply>,
     rx: mpsc::Receiver<Reply>,
@@ -213,6 +217,8 @@ impl App {
             output: None,
             worker: None,
             reading: None,
+            translated: None,
+            show_original: false,
             status: String::new(),
             tx,
             rx,
