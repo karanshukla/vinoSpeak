@@ -1,362 +1,401 @@
 # Architecture
 
-Why vinoSpeak is built the way it is, with the measurements behind each
-choice. Every number here is n=1 on the machine named beside it.
+Design decisions for vinoSpeak along with the measurements behind each choice.
+All measurements below are `n=1` on the machine noted beside them.
 
 ## Layout
 
-| Module | Job |
+| Module | Responsibility |
 |---|---|
-| `vino_speak/tts.py` | `Synthesizer` (the loaded pipeline) and the one-shot `synthesize()` / `speak()` |
-| `vino_speak/text.py` | `chunks()`: the text cut into pieces synthesized one at a time |
-| `vino_speak/playback.py` | `Speech`: raw samples into one player process, with `stop()` |
-| `vino_speak/model.py` | The cache directory, the pinned download and its verification |
-| `vino_speak/readable.py` | A file as text worth hearing: markdown, extracted documents, plain text |
-| `vino_speak/session.py` | A vinoWhisper `.vwsession` read as its summary or transcript |
-| `vino_speak/serve.py` | `vinospeak --serve`, the window's worker |
-| `vino_speak/cli.py`, `doctor.py` | The `vinospeak` and `vinospeak-doctor` commands |
-| `vino_speak/ovfetch.py` | `ovfetch detect` read into notes, and the NPU compiler preload |
-| `gui/` | The window (Rust, egui); see [gui/README.md](../gui/README.md) |
+| `vino_speak/tts.py` | `Synthesizer` (loaded pipeline) and one-shot `synthesize()` / `speak()` helpers |
+| `vino_speak/text.py` | `chunks()` for splitting text into pieces synthesized one at a time |
+| `vino_speak/playback.py` | `Speech`: streams raw audio samples into a player process with `stop()` support |
+| `vino_speak/model.py` | Cache directory layout, pinned model downloads, and hash verification |
+| `vino_speak/readable.py` | Converts Markdown, extracted documents, and plain text into speakable text |
+| `vino_speak/session.py` | Reads vinoWhisper `.vwsession` bundles as summary or transcript |
+| `vino_speak/serve.py` | `vinospeak --serve`, the background worker for the desktop window |
+| `vino_speak/cli.py`, `doctor.py` | The `vinospeak` and `vinospeak-doctor` CLI commands |
+| `vino_speak/ovfetch.py` | Parses `ovfetch detect` output into diagnostic notes and preloads the NPU compiler |
+| `gui/` | Desktop window (Rust, egui); see [gui/README.md](../gui/README.md) |
 
-`import vino_speak` imports no OpenVINO, numpy or huggingface_hub. The heavy
-imports happen inside `Synthesizer.__init__` and `ensure_model()`.
+Importing `vino_speak` does not import OpenVINO, NumPy, or `huggingface_hub`.
+Those heavier imports happen inside `Synthesizer.__init__` and `ensure_model()`.
 
 ## Telemetry
 
 OpenVINO bundles `openvino_telemetry`, loaded through `ovc` when `openvino` is
-imported. It takes a missing `~/intel/openvino_telemetry` consent file as
-consent and reports usage to Google Analytics.
+imported. If `~/intel/openvino_telemetry` does not exist, OpenVINO treats its
+absence as opt-in consent and reports usage to Google Analytics.
 
-`vino_speak/__init__.py` puts a `None` entry in `sys.modules` for it, which
-makes it unimportable in this process, so `ovc` falls back to its no-op stub.
-The entry has to be there before `openvino` is imported, which is why it sits
-at the top of the package: every entry point imports the package first. The
-consent file is left alone, since it is the user's choice for their other
-OpenVINO tools. `tests/test_telemetry.py` pins both halves.
+`vino_speak/__init__.py` inserts `None` into `sys.modules` for
+`openvino_telemetry`, making it unimportable in the current process so `ovc`
+falls back to its no-op stub. Because this must happen before `openvino` is
+imported, it runs at the top of the package (every entry point imports the
+package first). The user's consent file is left untouched for other OpenVINO
+tools. `tests/test_telemetry.py` verifies both behaviors.
 
 ## The NPU vocoder override
 
-OpenVINO 2026.4 pins Kokoro's vocoder to the CPU, for an NPU compiler bug
-that driver 1.32.0 on Wildcat Lake doesn't have (2026-10-17). vinoSpeak
-passes `NPUW_SUBMODEL_DEVICE=""` on the NPU to undo the pin, so the whole
-model runs there.
+OpenVINO 2026.4 pins Kokoro's vocoder to the CPU to work around an NPU compiler
+bug that driver 1.32.0 on Wildcat Lake does not exhibit (verified 2026-10-17).
+vinoSpeak passes `NPUW_SUBMODEL_DEVICE=""` on the NPU to clear that pin so the
+entire model runs on the NPU.
 
-Other drivers may have the bug, so the override can fail in two places, and
-both fall back to OpenVINO's pin with a `RuntimeWarning`:
+Because other drivers may still hit the bug, vinoSpeak handles two failure paths
+by falling back to OpenVINO's default pin with a `RuntimeWarning`:
 
-- The pipeline won't compile with the override: it is built again without it.
-- The first `generate()` raises or returns non-finite samples: until one
-  `generate()` has worked with the override, a failure may be the compiler bug
-  it exposes, so it gets one retry with the pin. After one success, errors are
-  raised as they are.
+- **Compilation failure:** If the pipeline fails to compile with the override,
+  vinoSpeak rebuilds it without the override.
+- **First generation failure:** If the first `generate()` call raises or returns
+  non-finite samples, vinoSpeak retries once with the pin. Once a single
+  `generate()` call succeeds with the override, subsequent errors propagate
+  normally.
 
-Speech still works on the pin but saves no battery (vinoSpeak#12). The
-override goes away with vinoSpeak#7. The tests are
+Speech still works with the CPU pin, though without the NPU battery savings
+(vinoSpeak#12). This override will be removed in vinoSpeak#7. Pinned by
 `test_an_npu_that_cant_compile_the_vocoder_falls_back_to_the_pin`,
 `test_a_first_generate_that_fails_on_the_npu_retries_with_the_pin`,
-`test_non_finite_audio_on_the_npu_retries_with_the_pin` and
+`test_non_finite_audio_on_the_npu_retries_with_the_pin`, and
 `test_once_the_override_has_worked_errors_are_not_retried` in
 `tests/test_tts.py`.
 
 ## The NPU compiler preload
 
-Fedora's `intel-npu-driver` 1.32.0 rpm ships no NPU compiler. `ovfetch npu
-install` (ovfetch 0.6.0) puts Intel's in `~/.local/lib/ovfetch-npu`, and
-`ovfetch.preload()` loads each line of that prefix's `ovfetch-preload.txt`
-with `RTLD_GLOBAL` before the first pipeline or `Core()`.
+Fedora's `intel-npu-driver` 1.32.0 RPM does not include an NPU compiler.
+`ovfetch npu install` (ovfetch 0.6.0) installs Intel's compiler into
+`~/.local/lib/ovfetch-npu`, and `ovfetch.preload()` loads each library listed in
+that prefix's `ovfetch-preload.txt` using `RTLD_GLOBAL` before the first
+pipeline or `Core()` is constructed.
 
-The order of the list is the only safe one: a driver loaded before the Level
-Zero loader crashed (ovfetch's README, 2026-10-24). A prefix that won't load
-is fatal only when the device asked for is the NPU. `ovfetch.py` is the same
-code as vinoWhisper's on purpose.
+The load order in `ovfetch-preload.txt` is required: loading the driver before
+the Level Zero loader causes a crash (documented in ovfetch's README,
+2026-10-24). A prefix that fails to load is fatal only when targeting the NPU.
+`ovfetch.py` is intentionally identical to vinoWhisper's copy.
 
 ## ovfetch
 
-ovfetch's `detect` reports the OpenVINO range Intel records as working with
-this machine's NPU driver. Like vinoWhisper and vinoPop, vinoSpeak only
-reports that range. The bounds are pessimistic on purpose ("untested", not
-"known to fail"), so `vinospeak-doctor` shows them as warnings and nothing
-stops the NPU from being tried.
+`ovfetch detect` reports the OpenVINO version range Intel records as tested
+with the machine's NPU driver. Like vinoWhisper and vinoPop, vinoSpeak treats
+this as advisory information only: the bounds are conservative ("untested"
+rather than "known to fail"), so `vinospeak-doctor` surfaces mismatches as
+warnings without blocking NPU execution.
 
-vinoSpeak runs OpenVINO GenAI from pip (pinned in `pyproject.toml`), not ONNX
-Runtime, so it never runs `ovfetch install`. The one thing pip can't provide
-is the NPU compiler above.
+vinoSpeak installs OpenVINO GenAI from pip (pinned in `pyproject.toml`) rather
+than ONNX Runtime, so it never invokes `ovfetch install`. The only component
+pip cannot provide is the NPU compiler described above.
 
 ## The compile cache
 
-Every pipeline is given `CACHE_DIR` (`ov-cache/` beside the model). Without it
-each process compiles the model again: 6.5 s on CPU in the VM, 1.35 s from the
-cache (2026-10-29).
+Every pipeline sets `CACHE_DIR` to `ov-cache/` alongside the model files.
+Without it, each process recompiles the model from scratch: 6.5 s cold versus
+1.35 s cached on CPU in the VM (measured 2026-10-29).
 
 ## The worker's warm-up
 
-`vinospeak --serve` synthesizes "Ready." once after loading and throws it
-away. The first `generate()` costs about 2.5 s more than a warm one (VM, CPU,
-2026-10-29), and this way the first reading doesn't pay it.
+`vinospeak --serve` synthesizes `"Ready."` once after loading and discards the
+audio. The first `generate()` call takes about 2.5 s longer than subsequent warm
+calls (VM, CPU, 2026-10-29), so warming up at startup keeps that latency off
+the user's first reading.
 
 ## Chunking
 
-`chunks()` puts the first sentence alone (or its first clause, past 60
-characters, if the sentence is long), then chunks that at most double in
-length, up to 400 characters.
+`chunks()` isolates the first sentence (or its first clause past 60 characters
+if the sentence is long), then produces chunks that at most double in length up
+to 400 characters.
 
-Synthesis runs at roughly a third of real time (2026-10-17, NPU), so each
-chunk is ready before the one before it has finished playing, and the rest of
-the text goes in as few calls as that allows. Every call pays a fixed cost,
-which is why no chunk after the first is cut under 100 characters.
+Because NPU synthesis runs at roughly one-third of real time (measured
+2026-10-17, NPU), each chunk finishes before the previous one finishes playing,
+while growing the chunk size minimizes total pipeline calls. Every call carries
+fixed overhead, so no chunk after the first is split below 100 characters.
 
-A chunk is never cut after an abbreviation or an initial (`e.g.`, `Dr.`,
-`J. R.`): Kokoro's pitch falls at the end of a chunk, and it would fall
-mid-sentence.
+Chunks are never split after abbreviations or initials (`e.g.`, `Dr.`, `J. R.`),
+because Kokoro drops pitch at chunk boundaries and splitting there would sound
+like a mid-sentence full stop.
 
 ### Symbols at the end
 
-Outside English, Kokoro returns an empty waveform for a text that ends in
-certain symbols, and the reading stopped there with "The generated waveform
-is empty or contains non-finite values." Measured on the NPU, 2026-11-18,
-with "Hola amigos." followed by each symbol, in Spanish, French, Italian and
-Brazilian Portuguese: `< > | _ ` " ' « » – — …` and the curly quotes broke
-every one; `/ \ # ^ ~ =` broke some; English read them all. The same symbol
-mid-text, or at the start, was fine. A clause break after `—` or `–` ends a
-chunk on one, and SmolLM3 sometimes wraps an answer in `<…>`, so readings hit
-it. `speakable_end()` drops a trailing run of them before synthesis, outside
-English; `%`, `&`, `+`, `)` and the like are kept, since Kokoro reads them.
+Outside English, Kokoro returns an empty waveform when a text ends with certain
+punctuation or symbol characters, aborting playback with `"The generated waveform
+is empty or contains non-finite values."`.
+
+Measured on the NPU (2026-11-18) using `"Hola amigos."` plus a trailing symbol
+across Spanish, French, Italian, and Brazilian Portuguese:
+
+- **Failed in all four languages:** `< > | _ ` " ' « » – — …` and curly quotes.
+- **Failed in some languages:** `/ \ # ^ ~ =`.
+- **English:** Read all of them without error.
+- **Mid-text or leading position:** Succeeded in all tested languages.
+
+Because clause splits after `—` or `–` can leave a trailing dash and SmolLM3
+sometimes wraps responses in `<…>`, readings can hit this in practice.
+`speakable_end()` strips trailing runs of these characters before synthesis for
+non-English text, while keeping `%`, `&`, `+`, `)`, and similar symbols that
+Kokoro pronounces normally.
 
 ## Voices and blends
 
-A voice is a `(510, 1, 256)` float32 embedding, one style vector per input
-length, and Kokoro mixes voices by taking their weighted mean, the same rule
-Kokoro-FastAPI and kokoro's own `KPipeline` use. A blend is mixed once and
-kept with the loaded voices under one spelling (`voices.canonical`), so
-`af_heart(2)+bm_george(2)` and `af_heart+bm_george` share an embedding.
-Checked on the real pipeline on CPU, 2026-11-18.
+Each voice is a `(510, 1, 256)` `float32` embedding (one style vector per input
+length). Voice blends take the weighted mean of their embeddings, matching
+Kokoro-FastAPI and Kokoro's own `KPipeline`.
 
-OpenVINO GenAI 2026.4's Kokoro refuses `ja` and `zh`, so the nine Japanese
-and Mandarin voices in the model aren't offered, as in the window's picker.
+A blend is computed once and cached with the loaded voices under a canonical
+key (`voices.canonical`), so `af_heart(2)+bm_george(2)` and `af_heart+bm_george`
+share one embedding (verified against the real pipeline on CPU, 2026-11-18).
+
+OpenVINO GenAI 2026.4's Kokoro pipeline rejects `ja` and `zh`, so the nine
+Japanese and Mandarin voices present in the model are omitted from both the CLI
+and the GUI voice picker.
 
 ## SSML and the lexicon
 
-Everything spoken goes through `script.plan()`: SSML is parsed into pieces
-with their own voice, language and rate, the lexicon respells each piece's
-text (never the markup), and the pieces are cut into chunks, or into
-sentences for subtitles. A pause is a step of silence that never reaches the
-pipeline. Plans are made before the model loads, so a bad `<break>` or lexicon
-fails at once.
+All spoken input passes through `script.plan()`:
 
-Kokoro's pipeline in OpenVINO GenAI 2026.4 takes no phonemes: misaki's
-`[word](/IPA/)` is ignored (a word given 18 `ʃ` phonemes came out the length
-of the word, CPU, 2026-11-18), which is why the lexicon respells.
+1. SSML is parsed into segments carrying their own voice, language, and rate.
+2. The pronunciation lexicon respells each segment's text (never markup).
+3. Segments are split into synthesis chunks (or individual sentences when
+   generating subtitles).
+
+Pauses (`<break>`) become silence steps that never hit the synthesis pipeline.
+Planning runs before model loading so invalid `<break>` values or malformed
+lexicons fail immediately.
+
+OpenVINO GenAI 2026.4's Kokoro pipeline ignores inline phonemes—misaki's
+`[word](/IPA/)` syntax had no effect when tested with 18 `ʃ` phonemes, producing
+audio the length of the plain word (CPU, 2026-11-18)—which is why the lexicon
+uses plain-text respellings.
 
 ## Translation
 
-`--translate` runs SmolLM3-3B (vinoWhisper's INT4 channel-wise export, its
-pins copied into `translation_pins.json`) through OpenVINO GenAI's
-`LLMPipeline`, greedy, with `/no_think`, the same way vinoWhisper calls it.
-vinoSpeak loads its own copy rather than asking vinoWhisper's server: the
-vinoPilot apps stand alone. The cost is a second ~2 GB in memory while both
-run a model, which is why it is loaded only at the first translation and
-dropped after `IDLE_UNLOAD_S` (five minutes) unused.
+`--translate` runs SmolLM3-3B (vinoWhisper's INT4 channel-wise export, with pins
+copied into `translation_pins.json`) through OpenVINO GenAI's `LLMPipeline`
+using greedy decoding and `/no_think`, matching vinoWhisper.
 
-On the NPU the pipeline gets vinoWhisper's window (`MAX_PROMPT_LEN` 3072,
-`MIN_RESPONSE_LEN` 1024), so a piece is at most 1,500 characters and an
-answer at most 1,024 tokens. Pieces follow `chunks()`: the first sentence
-alone, then pieces that at most double, so the first audio waits for one
-sentence's translation, not the file's. One piece is translated ahead on its
-own thread while the one before it is synthesized and played.
+vinoSpeak loads its own instance rather than talking to vinoWhisper's server so
+each vinoPilot app stays standalone. Because running both models at once adds
+~2 GB of memory, the translation model loads lazily on the first translation and
+unloads after `IDLE_UNLOAD_S` (five minutes) of inactivity.
 
-The model lives in vinoWhisper's folder,
-`$XDG_DATA_HOME/vinowhisper/models/SmolLM3-3B-int4-cw-ov/`, so installing
-either app after the other leaves one 1.7 GB copy (the same rule as vinoPop's
-Gemma). The pins are vinoWhisper's, so each app takes the other's download:
-vinoSpeak accepts vinoWhisper's `.vinowhisper-revision` at the pinned
-revision, and writes one itself after its own verified download. vinoSpeak's
-delete leaves a copy vinoWhisper has used (it wrote `.vinowhisper-verified`),
-and deletes only its compiled copy in `$XDG_DATA_HOME/vinospeak/translation/`.
-Both stay out of the cache: a 1.7 GB opt-in shouldn't vanish with a cache
-clean, and the window's Kokoro row sums the cache folder. vinoWhisper's Flatpak
-keeps its copy under `~/.var/app/io.github.karanshukla.vinowhisper/data/`:
-vinoSpeak uses it when there is no native copy, never downloads into it and
-never deletes it, since it belongs to the sandbox. That folder is writable
-from inside the sandbox and vinoSpeak loads the model outside it, so nothing
-written there is trusted: every file is hashed against the pins before first
-use (a few seconds for 1.7 GB), and the result is kept in vinoSpeak's own
-`flatpak-verified` with each file's size, mtime, ctime and inode. The sandbox
-can set mtime back but not ctime, so any change means hashing again. The
-window shows Translate from vinoWhisper's marker alone; if the hash fails, the
-reading fails with the model's error.
+On the NPU, the pipeline uses vinoWhisper's context window (`MAX_PROMPT_LEN`
+3072, `MIN_RESPONSE_LEN` 1024), capping input pieces at 1,500 characters and
+outputs at 1,024 tokens. Pieces follow `chunks()`—the first sentence alone, then
+pieces that at most double—so playback starts after translating one sentence
+rather than the whole file. One piece is translated ahead on a background thread
+while the previous piece is synthesized and played.
 
-The window shows Translate… before the model is downloaded, as a button
-that opens About at the download confirmation: hidden until then, nobody
-found it (2026-11-18).
+### Storage and sharing with vinoWhisper
 
-The instruction goes in the user's turn as well as the system prompt, with
-the text in `<text>` tags. Measured on the Wildcat Lake NPU, 2026-11-18: with
-the text sent bare and the system prompt alone (which also said to repeat
-text already in the target language), Spanish came back untranslated for
-"Hello there.", "Good morning." and a full English sentence, and "The weather
-is lovely." came back as "What's the weather like?". With the request form,
-all six test lines came out right in Spanish and Italian. Into British
-English it once closed the `</text>` itself and added a note, so `tidy()`
-keeps only what comes before the first `</text>`. Brazilian Portuguese made
-real mistakes on the same text ("Good morning" as "Boa tarde", Thursday as
-quarta-feira): a 3B model's limit, not the prompt's.
+- **Shared directory:** The model lives in
+  `$XDG_DATA_HOME/vinowhisper/models/SmolLM3-3B-int4-cw-ov/` (same sharing rule
+  as vinoPop's Gemma), so installing both apps keeps a single 1.7 GB copy.
+- **Shared pins and markers:** Both apps share pins; vinoSpeak accepts
+  vinoWhisper's `.vinowhisper-revision` at the pinned revision and writes one
+  after its own verified download.
+- **Deletion:** Deleting the translation model leaves any copy vinoWhisper has
+  used (marked by `.vinowhisper-verified`) intact and removes only vinoSpeak's
+  compiled copy in `$XDG_DATA_HOME/vinospeak/translation/`. Keeping both outside
+  `$XDG_CACHE_HOME` prevents a cache purge from wiping a 1.7 GB opt-in download
+  and keeps the GUI's Kokoro disk-usage figure scoped to the cache directory.
+- **Flatpak fallback:** If no native copy exists, vinoSpeak can read from
+  vinoWhisper's Flatpak data directory
+  (`~/.var/app/io.github.karanshukla.vinowhisper/data/`), without downloading
+  into or deleting from that sandboxed folder. Because the sandbox can write to
+  that directory while vinoSpeak loads it outside the sandbox, every file is
+  hashed against the pins before first use (taking a few seconds for 1.7 GB) and
+  cached in vinoSpeak's own `flatpak-verified` record with each file's size,
+  mtime, ctime, and inode. Since the sandbox cannot fake `ctime`, any
+  modification forces re-hashing. The GUI shows the **Translate** control based
+  on vinoWhisper's marker alone; if verification fails at read time, the reading
+  reports the model error.
+- **Discoverability:** Before the model is downloaded, the GUI displays a
+  **Translate…** button that jumps to the Settings page's download confirmation;
+  when it was hidden beforehand, users could not find it (2026-11-18).
 
-Tested in linuxlab only with an LLM stand-in (Claude through `claude -p`),
-2026-11-19: that proves the pieces, the streaming and the worker's events, not
-SmolLM3's translations, their speed, or NPU memory with both models loaded.
-The prompt measurement above is the real model on the NPU.
+### Prompting and model limits
+
+The translation instruction is placed in both the system prompt and the user
+turn, with the source text wrapped in `<text>` tags.
+
+Measured on the Wildcat Lake NPU (2026-11-18):
+
+- With bare text and only a system prompt (which also instructed the model to
+  repeat text already in the target language), Spanish returned English
+  untranslated for `"Hello there."`, `"Good morning."`, and a full English
+  sentence, and turned `"The weather is lovely."` into `"What's the weather
+  like?"`.
+- With the `<text>` request form, all six test lines translated correctly into
+  Spanish and Italian.
+- Into British English, the model occasionally closed `</text>` early and
+  appended a note, so `tidy()` truncates at the first `</text>`.
+- Brazilian Portuguese still produced factual translation errors on the same
+  lines (`"Good morning"` -> `"Boa tarde"`, Thursday -> `quarta-feira`), which
+  is a limitation of the 3B model rather than the prompt.
+
+End-to-end streaming and worker events were also verified in `linuxlab` using an
+LLM stand-in (`claude -p`, 2026-11-19); that validates chunking, streaming, and
+worker events, while the prompt tests above ran on the real SmolLM3 model on the
+NPU (not NPU memory usage with both models loaded simultaneously).
 
 ## Playback
 
-Players are tried in the order `pw-play`, `paplay`, `aplay`: PipeWire is the
-sound server Wayland desktops run, and PulseAudio and bare ALSA cover the
-rest. `pw-play` only learned `--raw` after PipeWire 1.0 (Ubuntu 24.04 ships
-1.0.5, Debian 12 ships 0.3.65), so it is asked for its `--help` and skipped
-when `--raw` isn't in it.
+Audio players are probed in order: `pw-play`, `paplay`, then `aplay`. PipeWire
+covers modern Wayland desktops while PulseAudio and ALSA cover other setups.
+Because `pw-play` only gained `--raw` after PipeWire 1.0 (Ubuntu 24.04 ships
+1.0.5, Debian 12 ships 0.3.65), vinoSpeak checks `pw-play --help` and skips it
+if `--raw` is absent.
 
-`Speech` runs two threads, one synthesizing and one feeding the player, with
-a queue of one chunk between them. One chunk waiting is enough to keep
-playback fed without spending energy far ahead of a `stop()`
+`Speech` uses two threads—one synthesizing and one feeding the player—connected
+by a single-chunk queue. Buffering one chunk ahead keeps audio continuous while
+avoiding wasted synthesis if `stop()` is called
 (`test_synthesis_runs_one_chunk_ahead_of_a_player_that_is_not_reading`).
 
-Progress is measured in text, not time: the length of the audio isn't known
-until the last chunk is synthesized. Each chunk carries the share of the
-reading's text it covers, and the player moves through that share as its
-0.1 s slices are written. A translated chunk takes its source piece's share,
-so a short French sentence for a long English one moves the bar as far as the
-English. The worker sends a `progress` event each half percent; the window's
-bar never moves back. Each `translated` event carries its piece's share the
-same way (`translate.spans`), so the window marks the piece whose share the
-progress is in: the one being spoken, give or take the pipe. It is close, not exact: the pipe ahead of the player
-holds a fraction of a second, and speech isn't evenly paced by characters.
+### Progress and volume
 
-The window's volume is the reading's own, not the output's: `Speech` scales
-the samples as it writes them, so it works the same through all three
-players and never moves the desktop's volume for other apps. A chunk is
-written a tenth of a second at a time, so a change made mid-reading is heard
-after that slice plus what the pipe and player already hold (under a second
-with the default 64 KiB pipe at 24 kHz float32).
+Progress is tracked by text share rather than audio duration, because total
+audio length is unknown until the final chunk is synthesized:
 
-Two failure paths that are easy to lose:
+- Each chunk carries its fraction of the total reading text, and the playback
+  thread advances through that fraction as 0.1 s slices are written.
+- Translated chunks inherit their source piece's share so progress moves
+  smoothly even when translation length differs from the source.
+- The worker emits a `progress` event every 0.5%, and the GUI progress bar never
+  moves backward.
+- Each `translated` event carries the same span (`translate.spans`), letting the
+  GUI highlight whichever piece overlaps the current progress (approximate due
+  to pipe buffering and variable speech rate).
 
-- A player that won't start (gone, not executable, or one `raw_command` can't
-  drive) would end the playback thread silently, and `wait()` would report
-  speech that never played. The error is kept and raised from `wait()`.
-- When playback ends for any reason, the synthesis thread is released. It
-  would otherwise wait on a full queue for a `stop()` that a library caller
-  may never send.
+Volume is applied inside `Speech` by scaling samples before writing them to the
+player. This behaves consistently across all three players without altering
+desktop volume for other apps. Because chunks are written in 0.1 s slices,
+volume changes take effect within a fraction of a second (under 1 s with the
+default 64 KiB pipe buffer at 24 kHz `float32`).
+
+### Playback error handling
+
+Two edge cases are handled explicitly:
+
+- If a player fails to launch (missing, not executable, or unsupported by
+  `raw_command`), the playback thread captures the exception and `wait()`
+  re-raises it instead of reporting silent success.
+- Whenever playback stops for any reason, the synthesis thread is unblocked so
+  it does not hang on a full queue waiting for a `stop()` call that a library
+  caller may never issue.
 
 ## The model on disk
 
-The download is pinned to one Hugging Face commit, and every file is checked
-against the sha256 in `model_pins.json`. [SECURITY.md](../SECURITY.md) says
-what that does and doesn't protect against.
+Downloads are pinned to a specific Hugging Face commit, and every file is
+verified against the SHA-256 digests in `model_pins.json` (see
+[SECURITY.md](../SECURITY.md) for the security boundaries).
 
-- A stamp file (`.vinospeak-verified`) is written once every file has matched.
-  A stamped model is checked by size on each run. Without the stamp, or with
-  one from older pins, the whole model is hashed first, so a download that
-  failed verification is never used just because its files have the right
-  sizes.
-- A lock file is held shared while the default model downloads and
-  exclusively while it is deleted, so a delete can't pull the files out from
-  under a download.
-- A `--model-dir` that already holds the model files is used as given and
-  never deleted.
+- **Verification stamp:** `.vinospeak-verified` is written only after all files
+  match. Subsequent runs check file sizes; if the stamp is missing or from older
+  pins, all files are re-hashed before use so a corrupted file with a matching
+  size cannot slip through.
+- **Locking:** A lock file is held shared during downloads and exclusively
+  during deletion so a delete cannot remove files out from under an active
+  download.
+- **Custom model directories:** A `--model-dir` that already contains model
+  files is used unchecked and never deleted.
 
 ## Shared with the window
 
-The window (Rust) and `vinospeak` (Python) both look at the model cache, and
-they can't share code. The rule both follow:
+The Rust GUI (`gui/`) and Python CLI (`vino_speak/`) cannot share code directly,
+so both follow the same contract for the model cache and formatting:
 
-- The cache is `$XDG_CACHE_HOME/vinospeak`, or `~/.cache/vinospeak` when that
-  variable is unset or empty. The model is `kokoro-82m-int8-ov/` in it, with
-  its voices in `voices/*.bin`, and OpenVINO's compiled copy is `ov-cache/`.
-- A size on disk is the bytes of the regular files at any depth. A symlink is
-  not followed and not counted.
-- A size is shown in decimal units: one decimal from 1 GB up, whole megabytes
-  from 1 MB up, whole kilobytes under that (`163 MB`, `1.3 GB`, `1 kB`).
-- A fenced code block is read as "Code skipped." (`readable.CODE_SKIPPED`),
-  which the window's reader sets apart from the text around it.
+- **Cache paths:** `$XDG_CACHE_HOME/vinospeak` (falling back to
+  `~/.cache/vinospeak` when unset or empty), containing `kokoro-82m-int8-ov/`
+  (with voices in `voices/*.bin`) and OpenVINO's `ov-cache/`.
+- **Disk usage:** Sum of regular file byte sizes at any depth; symlinks are
+  neither followed nor counted.
+- **Size formatting:** Decimal units—one decimal place from 1 GB up, whole
+  megabytes from 1 MB up, whole kilobytes below that (`163 MB`, `1.3 GB`,
+  `1 kB`), with exact halves rounded to even (`2.5 MB` -> `2 MB`, `3.5 MB` ->
+  `4 MB`; prior to 2026-11-15 the window rounded halves up).
+- **Skipped code marker:** Fenced code blocks are represented as
+  `"Code skipped."` (`readable.CODE_SKIPPED`), which the GUI reader styles
+  distinctly from surrounding text.
 
-`tests/fixtures/shared_with_window.json` holds the paths, the sizes and that
-sentence, and both sides are tested against it:
-`test_the_cache_is_where_the_window_looks_for_it`,
-`test_sizes_are_shown_as_the_window_shows_them` and
-`test_a_skipped_code_block_is_said_as_the_window_expects` in Python,
-`the_cache_is_where_vinospeak_keeps_it` and
-`sizes_are_shown_as_vinospeak_shows_them` in `gui/src/model_cache.rs`, and
-`the_code_stand_in_is_what_vinospeak_prints_for_a_code_block` in
-`gui/src/app/reader.rs`. The size table has a pair either side of each unit's
-boundary.
+Both sides test against `tests/fixtures/shared_with_window.json` (which includes
+boundary pairs around every unit threshold and half-to-even rounding rows):
 
-The two differ in what they add up. `vinospeak --model-status` lists the
-model and the compiled copy separately; the window's About page shows one
-figure for everything under the cache directory. An exact
-half rounds to even on both sides (2.5 MB is `2 MB`, 3.5 MB is `4 MB`), and
-the table has those rows; until 2026-11-15 the window rounded a half up.
+- Python: `test_the_cache_is_where_the_window_looks_for_it`,
+  `test_sizes_are_shown_as_the_window_shows_them`, and
+  `test_a_skipped_code_block_is_said_as_the_window_expects`.
+- Rust: `the_cache_is_where_vinospeak_keeps_it` and
+  `sizes_are_shown_as_vinospeak_shows_them` in `gui/src/model_cache.rs`, and
+  `the_code_stand_in_is_what_vinospeak_prints_for_a_code_block` in
+  `gui/src/app/reader.rs`.
 
-The window walks the cache with `walkdir`, which doesn't follow links unless
-asked. It was already in `Cargo.lock` for another platform's build, so the
-lock gains no package;
-`disk_usage_counts_neither_a_link_nor_what_it_points_to` pins that.
+The one intentional difference is scope: `vinospeak --model-status` reports the
+model and compiled cache separately, whereas the GUI's Settings page shows a single
+total for the entire cache directory.
 
-The window formats a size with `humansize` (2026-11-15), told which unit and
-how many decimals by the three rules above. Python's `cli.size` stays written
-out: `humanize.naturalsize` can't give these strings (it says `999 Bytes`
-where the rule is `1 kB`, and one format for every unit where GB alone has a
-decimal), and it would be a runtime dependency of a package whose import has
-to stay light.
+Implementation notes:
+
+- The GUI traverses the cache with `walkdir` (which ignores symlinks by default
+  and was already in `Cargo.lock` for another platform's build, adding no new
+  dependency; pinned by
+  `disk_usage_counts_neither_a_link_nor_what_it_points_to`).
+- The GUI formats sizes with `humansize` (2026-11-15) configured to the three
+  rules above. Python keeps a small `cli.size` helper rather than adding
+  `humanize` as a runtime dependency, both to keep imports light and because
+  `humanize.naturalsize` does not match these formatting rules (`999 Bytes`
+  instead of `1 kB`, and uniform decimal precision across units).
 
 ## Media controls
 
-The window is an MPRIS player (`org.mpris.MediaPlayer2.vinospeak`) on the
-session bus, where desktops look for players; the system bus is for system
-services. Its art is the app's icon, written to `$XDG_RUNTIME_DIR` at start
-as `mpris:artUrl`, since without one Plasma shows a blank disc.
+The window registers an MPRIS player (`org.mpris.MediaPlayer2.vinospeak`) on the
+D-Bus session bus (the bus desktops query for user media players, unlike the
+system bus). On startup it writes the app icon into `$XDG_RUNTIME_DIR` for
+`mpris:artUrl` so Plasma does not display a blank disc.
 
-MPRIS counts in time, and a reading only knows how far through its text it
-is: speech has no length until it is synthesized, and the worker
-synthesizes a chunk ahead. So the window tells the desktop an estimated
-length, the text's characters at Kokoro's speaking rate, and the position as
-that share of it. Measured 2026-11-19 on the Wildcat Lake NPU, three English
-sentences (310 characters) at 1.0×: af_heart 15.44 characters a second,
-ef_dora 16.79, ff_siwis 15.49; the window uses 15.5, divided by the speed.
-A translated reading is estimated from the source text.
+Because MPRIS tracks playback in time while vinoSpeak only knows text progress
+until synthesis completes, the window estimates track length from character count
+and Kokoro's speaking rate:
 
-A desktop counts the position on by itself while the status is Playing, and
-the reading's progress moves in steps, so `Seeked` is sent again only when
-the two are more than 2 s apart, and on each new reading. A seek from the
-desktop (`SetPosition`, `Seek`) is read as a share of the length and starts
-the reading again from that sentence, as the window's own bar does.
+- Measured on the Wildcat Lake NPU (2026-11-19) over three English sentences
+  (310 characters) at 1.0×: `af_heart` 15.44 chars/s, `ef_dora` 16.79 chars/s,
+  `ff_siwis` 15.49 chars/s.
+- The window uses `15.5` characters/s divided by the active speed, and estimates
+  translated readings from the source text length.
+
+Desktop shells extrapolate playback position while status is `Playing`, while
+vinoSpeak updates progress in discrete steps. To avoid jitter, `Seeked` is only
+emitted on a new reading or when the extrapolated and actual positions diverge
+by more than 2 s. Desktop seek requests (`SetPosition`, `Seek`) map back to a
+fraction of the estimated length and restart playback from that sentence,
+matching the window's own progress bar.
 
 ## Reading markdown
 
-The inline patterns in `readable.py` stop at the next opening delimiter, so
-an unclosed `[` or `**` costs a scan to the next one instead of to the end of
-the line. With `.+?`, a line of 5,000 unclosed `**a ` took 3.3 s, growing
-with the square of its length, and a large `.md` file could hang the window's
-preview (2026-10-25). 25,000 now take about 20 ms.
-`test_unclosed_inline_markup_is_linear` pins it.
+Inline Markdown regexes in `readable.py` stop at the next opening delimiter so
+an unclosed `[` or `**` scans only to the next opener rather than the end of the
+line. Previously, using `.+?` caused quadratic runtime—a line with 5,000
+unclosed `**a ` tokens took 3.3 s and could hang the GUI preview (2026-10-25).
+With bounded delimiters, 25,000 tokens take about 20 ms
+(`test_unclosed_inline_markup_is_linear`).
 
-In an extracted document, a word broken over a line end is rejoined only when
-both halves are lowercase: `infor-` / `mation` loses its hyphen, `COVID-` /
-`19` and `Jean-` / `Paul` keep theirs, since only lowercase halves can be
-typesetting.
+In extracted documents (`--kind document`), hyphenated line breaks are rejoined
+only when both halves are lowercase (`infor-` / `mation` -> `information`),
+preserving intentional hyphens in `COVID-` / `19` and `Jean-` / `Paul`.
 
 ## vinoWhisper sessions
 
-A `.vwsession` is read with `zipfile`, as vinoSearch reads it, so vinoWhisper
-needn't be installed. The format is vinoWhisper's `docs/sessions.md`. A bundle
-can come from anywhere a file manager opens one, so the sizes in its header
-aren't trusted: reads stop at vinoWhisper's own limits (64 MiB a part, 128 MiB
-in all, 16 entries) whatever the header claims.
+`.vwsession` bundles are read directly with Python's `zipfile` (the same way
+vinoSearch reads them), so vinoWhisper does not need to be installed. The format
+is documented in vinoWhisper's `docs/sessions.md`.
 
-`session.load()` checks in this order: the `mimetype` entry is first, stored
-and correct; the entry count; the total of the three parts it reads; then each
-part as it is read. `tests/test_session.py` has a pair either side of each
-limit.
+Because a bundle may come from an untrusted source, archive header sizes are not
+trusted and reads enforce vinoWhisper's size limits (64 MiB per part, 128 MiB
+total, 16 entries max). `session.load()` validates in order:
 
-The transcript's "Recorded on 27 October 2026" uses a month list written out
-in `session.py`. `calendar.month_name` would follow the process's locale, and
-a program that embeds vinoSpeak (vinoPop's window) sets one; a German month
-name read by an English voice is worse than twelve literals.
+1. The `mimetype` entry is first, uncompressed (stored), and exact.
+2. Total entry count is within the limit.
+3. Combined size of the three read parts is within the limit.
+4. Each part is bounded as it is read.
+
+`tests/test_session.py` includes boundary tests on either side of each limit.
+
+The transcript heading (`"Recorded on 27 October 2026"`) uses a hardcoded
+English month list in `session.py` rather than `calendar.month_name`, because
+host applications that embed vinoSpeak (such as vinoPop) may set a non-English
+process locale, which would feed a localized month name into an English voice.

@@ -2,50 +2,51 @@
 
 ## The installer
 
-One line, no sudo, everything in your home:
+Install into your home directory without `sudo`:
 
 ```bash
 curl -fsSL https://github.com/karanshukla/vinoSpeak/releases/latest/download/install.sh | bash
 vinospeak "Hello."
 ```
 
-It checks the latest release's wheel against its `SHA256SUMS` and installs it
-with [uv](https://docs.astral.sh/uv/), fetching uv itself (hash-pinned) if you
-don't have it. Add `-s -- --gui` after `bash` for the window too.
+The script verifies the latest release wheel against its `SHA256SUMS` file and
+installs it with [uv](https://docs.astral.sh/uv/), downloading a hash-pinned
+copy of `uv` first if it is not already installed. Pass `-s -- --gui` after
+`bash` to install the desktop window too.
 
-It installs with uv's own Python (`UV_PYTHON_PREFERENCE=only-managed`), not
-`/usr/bin`'s: on Fedora 43+ the system Python is 3.14 too, and an image
-upgrade to 3.15 would leave the tool's venv pointing at nothing. It is the
-environment variable, not `--managed-python`, so an older uv already on your
-`PATH` still runs it.
+The installer sets `UV_PYTHON_PREFERENCE=only-managed` so `uv` uses its own
+managed Python instead of `/usr/bin/python3`. On Fedora 43+, where the system
+Python is also 3.14, a future OS upgrade to 3.15 would otherwise break the
+tool's virtual environment. Using the environment variable instead of
+`--managed-python` ensures older `uv` binaries already on `PATH` still work.
 
-| To | Run |
+| Task | Command |
 |---|---|
 | Upgrade | `vinospeak-upgrade`, or **Check for updates** on the window's About page |
-| Uninstall, model included (uv stays) | `vinospeak-upgrade --uninstall` |
+| Uninstall (including the model; keeps `uv`) | `vinospeak-upgrade --uninstall` |
 
 ## With uv
 
-Python 3.11 to 3.14:
+Requires Python 3.11–3.14:
 
 ```bash
 uv tool install --python 3.14 vinospeak
 ```
 
-`--python 3.14` because OpenVINO 2026.4.1 has no 3.15 wheels yet. OpenVINO is
-pinned to the same release as vinoPop and vinoWhisper, so programs sharing one
-NPU never run mismatched runtimes.
+Python 3.14 is pinned because OpenVINO 2026.4.1 does not yet ship Python 3.15
+wheels. OpenVINO is also pinned to the same release used by vinoPop and
+vinoWhisper so applications sharing an NPU run matching runtimes.
 
-`vinospeak --version` prints `vinospeak <version>` for a release (PyPI or the
-release installer's wheel) and `vinospeak dev` for an install from a checkout.
+`vinospeak --version` prints `vinospeak <version>` for release installs (PyPI or
+the release installer) and `vinospeak dev` for installs from a source checkout.
 
-`uv tool uninstall vinospeak` leaves the model behind; run
-`vinospeak --delete-model` first.
+Note that `uv tool uninstall vinospeak` leaves the downloaded model on disk; run
+`vinospeak --delete-model` first if you want to remove it as well.
 
 ## From source
 
-For the exact versions in `uv.lock`, hashes included. `--locked` fails if the
-lock is out of date:
+Clone the repository and sync against `uv.lock` (including hashes; `--locked`
+fails if the lockfile is out of date):
 
 ```bash
 git clone https://github.com/karanshukla/vinoSpeak && cd vinoSpeak
@@ -53,8 +54,9 @@ uv sync --locked
 uv run vinospeak "Hello."
 ```
 
-To put that checkout's `vinospeak` on your `PATH` with the lock's versions as
-constraints (`uv tool install` doesn't read `uv.lock` by itself):
+Because `uv tool install` does not read `uv.lock` directly, export constraints
+first if you want to put the checkout's `vinospeak` on your `PATH` with the
+locked dependency versions:
 
 ```bash
 uv export --locked --no-dev --no-emit-project --no-hashes -o constraints.txt
@@ -63,33 +65,36 @@ uv tool install --constraints constraints.txt .
 
 ## The window
 
-The window isn't on PyPI. The installer's `--gui` takes the release's prebuilt
-x86_64 binary; from a checkout you build it with [Rust](https://rustup.rs).
-This puts it in your app menu, using the `vinospeak` on your `PATH` or in
-`~/.local/bin`:
+The desktop window is not published to PyPI. Passing `--gui` to the release
+installer downloads the prebuilt `x86_64` binary. To build it from a checkout
+instead, install [Rust](https://rustup.rs) and run `gui/install.sh` to add it to
+your application menu (it uses `vinospeak` from `PATH` or `~/.local/bin` by
+default):
 
 ```bash
 gui/install.sh                                             # --uninstall removes it
-VINOSPEAK=.venv/bin/vinospeak gui/install.sh               # or the checkout's vinospeak
+VINOSPEAK=.venv/bin/vinospeak gui/install.sh               # or use the checkout's vinospeak
 ```
 
-Finding files in it needs [vinoSearch](https://github.com/karanshukla/vinoSearch)
-running. See [gui/README.md](../gui/README.md).
+File search inside the window requires
+[vinoSearch](https://github.com/karanshukla/vinoSearch) to be running. See
+[gui/README.md](../gui/README.md) for details.
 
 ## Distro notes
 
-**Fedora Atomic / openSUSE Aeon**: nothing to layer for vinoSpeak itself. uv
-brings its own Python and the wheels carry espeak-ng and libsndfile. Only the
-NPU driver (for `--device NPU`) and an audio player, if you lack one, are
-system packages.
+- **Fedora Atomic / openSUSE Aeon:** No packages need to be layered for
+  vinoSpeak itself. `uv` manages its own Python, and the wheels bundle
+  `espeak-ng` and `libsndfile`. Only the Intel NPU driver (for `--device NPU`)
+  and an audio player (if missing) come from system packages.
+- **NixOS:** Both `uv`'s Python and the desktop window require the standard
+  dynamic linker, so enable `programs.nix-ld`. Without it, `install.sh` exits
+  with an explanatory message.
 
-**NixOS**: uv's Python and the window need the standard dynamic linker, so
-enable `programs.nix-ld`; without it `install.sh` stops and says so.
+## Audio players
 
-## An audio player
-
-vinoSpeak plays through `pw-play`, `paplay` or `aplay`, whichever it finds
-first. With none of them, install one or use `--output`:
+vinoSpeak checks for `pw-play`, `paplay`, and `aplay` in that order and uses the
+first one available. If none are installed, install one from the table below or
+save to a file with `--output`:
 
 | Distro | `pw-play` | `paplay` |
 |---|---|---|
@@ -98,5 +103,6 @@ first. With none of them, install one or use `--output`:
 | Arch | `pipewire` | `libpulse` |
 | openSUSE | `pipewire-tools` | `pulseaudio-utils` |
 
-`pw-play` needs a PipeWire newer than 1.0 to take raw audio; an older one is
-skipped for `paplay`. `vinospeak-doctor` says which player it picked.
+`pw-play` requires PipeWire newer than 1.0 to accept raw audio input; older
+versions are skipped in favor of `paplay`. Run `vinospeak-doctor` to see which
+player vinoSpeak selected.
