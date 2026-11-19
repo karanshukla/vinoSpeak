@@ -92,13 +92,46 @@ def flatpak_copy(pins):
     return directory
 
 
-def test_the_flatpaks_copy_is_found_under_var_app(data_home, small_pins):
+def test_a_flatpak_copy_is_hashed_once_and_again_after_a_change(data_home, monkeypatch):
+    import hashlib
+    import os
+
+    good = b"abc"
+    pins = model.Pins(
+        "arankays/SmolLM3-3B-int4-cw-ov",
+        "a" * 40,
+        {"config.json": {"sha256": hashlib.sha256(good).hexdigest(), "size": 3}},
+    )
+    monkeypatch.setattr(translate, "load_pins", lambda: pins)
+    directory = translate.flatpak_model_dir()
+    directory.mkdir(parents=True)
+    (directory / "config.json").write_bytes(good)
+    hashed = []
+    real = model.sha256_file
+    monkeypatch.setattr(model, "sha256_file", lambda path: hashed.append(path) or real(path))
+    assert translate.is_downloaded(directory)
+    assert translate.is_downloaded(directory)
+    assert len(hashed) == 1, "hashed once, then the fingerprint stands"
+    stat = (directory / "config.json").stat()
+    (directory / "config.json").write_bytes(b"xyz")
+    os.utime(directory / "config.json", ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert not translate.is_downloaded(directory), "same size and mtime, other bytes"
+
+
+def test_stamps_inside_the_flatpaks_folder_are_not_trusted(data_home, small_pins):
+    directory = flatpak_copy(small_pins)
+    model._stamp(directory, small_pins)
+    assert not translate.is_downloaded(directory), "small_pins' sha256 can't match"
+
+
+def test_the_flatpaks_copy_is_found_under_var_app(data_home, small_pins, monkeypatch):
     from pathlib import Path
 
     assert translate.flatpak_model_dir() == Path.home() / (
         ".var/app/io.github.karanshukla.vinowhisper/data/vinowhisper/models/SmolLM3-3B-int4-cw-ov"
     )
     assert not translate.is_downloaded()
+    monkeypatch.setattr(model, "sha256_file", lambda path: "0")
     directory = flatpak_copy(small_pins)
     assert translate.is_downloaded()
     assert translate.model_dir() == directory
@@ -113,9 +146,12 @@ def test_a_native_copy_comes_before_the_flatpaks(data_home, small_pins):
     assert translate.model_dir() == native
 
 
-def test_delete_never_touches_the_flatpaks_copy(data_home, small_pins):
+def test_delete_never_touches_the_flatpaks_copy(data_home, small_pins, monkeypatch):
+    monkeypatch.setattr(model, "sha256_file", lambda path: "0")
     directory = flatpak_copy(small_pins)
-    assert translate.delete() == (0, True)
+    assert translate.is_downloaded()
+    stamp = translate.flatpak_stamp().stat().st_size
+    assert translate.delete() == (stamp, True)
     assert (directory / "config.json").is_file()
 
 

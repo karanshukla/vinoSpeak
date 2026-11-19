@@ -119,8 +119,44 @@ def is_downloaded(directory: Path | None = None) -> bool:
 
 def _holds_the_model(directory: Path) -> bool:
     pins = load_pins()
+    if directory == flatpak_model_dir():
+        return _flatpak_copy_checked(directory, pins)
     checked = model.is_stamped(directory, pins) or _vinowhisper_revision(directory) == pins.revision
     return checked and not model.verify(directory, pins, full=False)
+
+
+def flatpak_stamp() -> Path:
+    return data_dir() / "flatpak-verified"
+
+
+def _fingerprint(directory: Path, pins: model.Pins) -> str:
+    """Size, mtime, ctime and inode of each file: the sandbox can set mtime
+    back, not ctime."""
+    lines = []
+    for name in sorted(pins.files):
+        stat = (directory / name).stat()
+        lines.append(f"{name} {stat.st_size} {stat.st_mtime_ns} {stat.st_ctime_ns} {stat.st_ino}")
+    return "\n".join([pins.revision, *lines]) + "\n"
+
+
+def _flatpak_copy_checked(directory: Path, pins: model.Pins) -> bool:
+    """The Flatpak's folder is writable from its sandbox, so nothing in it is
+    trusted: every file is hashed against the pins once, and the result kept
+    in vinoSpeak's own folder until a file changes (pinned by
+    `test_translate.py::test_a_flatpak_copy_is_hashed_once_and_again_after_a_change`)."""
+    if model.verify(directory, pins, full=False):
+        return False
+    fingerprint = _fingerprint(directory, pins)
+    try:
+        if flatpak_stamp().read_text(encoding="utf-8") == fingerprint:
+            return True
+    except OSError:
+        pass
+    if model.verify(directory, pins, full=True):
+        return False
+    flatpak_stamp().parent.mkdir(parents=True, exist_ok=True)
+    flatpak_stamp().write_text(fingerprint, encoding="utf-8")
+    return True
 
 
 def download(directory: Path | None = None) -> Path:

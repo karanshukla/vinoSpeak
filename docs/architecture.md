@@ -163,7 +163,14 @@ Both stay out of the cache: a 1.7 GB opt-in shouldn't vanish with a cache
 clean, and the window's Kokoro row sums the cache folder. vinoWhisper's Flatpak
 keeps its copy under `~/.var/app/io.github.karanshukla.vinowhisper/data/`:
 vinoSpeak uses it when there is no native copy, never downloads into it and
-never deletes it, since it belongs to the sandbox.
+never deletes it, since it belongs to the sandbox. That folder is writable
+from inside the sandbox and vinoSpeak loads the model outside it, so nothing
+written there is trusted: every file is hashed against the pins before first
+use (a few seconds for 1.7 GB), and the result is kept in vinoSpeak's own
+`flatpak-verified` with each file's size, mtime, ctime and inode. The sandbox
+can set mtime back but not ctime, so any change means hashing again. The
+window shows Translate from vinoWhisper's marker alone; if the hash fails, the
+reading fails with the model's error.
 
 The window shows Translate… before the model is downloaded, as a button
 that opens About at the download confirmation: hidden until then, nobody
