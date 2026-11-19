@@ -259,7 +259,8 @@ impl Worker {
     }
 
     /// Read `text` aloud at `volume` (0 to 1), stopping whatever was
-    /// playing; its id for the events.
+    /// playing, translated first into `translate` (vinospeak's name for a
+    /// language) if given; its id for the events.
     pub fn speak(
         &mut self,
         text: &str,
@@ -267,6 +268,7 @@ impl Worker {
         speed: f32,
         output: Option<&str>,
         volume: f32,
+        translate: Option<&str>,
     ) -> Result<u64> {
         self.next_id += 1;
         self.send(&serde_json::json!({
@@ -274,10 +276,11 @@ impl Worker {
             "id": self.next_id,
             "text": text,
             "voice": voice.id,
-            "language": voice.language,
+            "language": if translate.is_some() { None } else { Some(voice.language) },
             "speed": speed,
             "audio_device": output,
             "volume": volume,
+            "translate": translate,
         }))?;
         Ok(self.next_id)
     }
@@ -318,6 +321,8 @@ pub struct Reading {
     pub file: PathBuf,
     pub started: Instant,
     pub stop_sent: Option<Instant>,
+    /// The language it is being translated into, if any.
+    pub translated_into: Option<crate::translation::Target>,
 }
 
 #[cfg(test)]

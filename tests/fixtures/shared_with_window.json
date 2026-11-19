@@ -1,6 +1,11 @@
 {
-  "about": "What vino_speak (Python) and gui/ (Rust) must agree on, since they can't share code (docs/architecture.md, \"Shared with the window\"). Read by tests/test_model.py, tests/test_cli.py, tests/test_readable.py and the tests in gui/src/model_cache.rs and gui/src/app/reader.rs.",
+  "about": "What vino_speak (Python) and gui/ (Rust) must agree on, since they can't share code (docs/architecture.md, \"Shared with the window\"). Read by tests/test_model.py, tests/test_cli.py, tests/test_readable.py, tests/test_translate.py and the tests in gui/src/model_cache.rs, gui/src/translation.rs and gui/src/app/reader.rs.",
   "model_dir": "kokoro-82m-int8-ov",
+  "translation": {
+    "model_dir": "SmolLM3-3B-int4-cw-ov",
+    "download_bytes": 1702009152,
+    "targets": {"en-us": "af_heart", "en-gb": "bf_emma", "es": "ef_dora", "fr-fr": "ff_siwis", "it": "if_sara", "pt-br": "pf_dora"}
+  },
   "cache_dirs": [
     {"xdg_cache_home": "/x/cache", "home": "/home/k", "cache_dir": "/x/cache/vinospeak"},
     {"xdg_cache_home": "", "home": "/home/k", "cache_dir": "/home/k/.cache/vinospeak"},

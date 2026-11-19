@@ -1,4 +1,4 @@
-from vino_speak.text import MAX_CHUNK_CHARS, chunks
+from vino_speak.text import MAX_CHUNK_CHARS, chunks, sentences
 
 SENTENCE = "This sentence is here to be about one hundred characters long so the chunk sizes are easy to read."
 
@@ -96,3 +96,9 @@ def test_a_first_sentence_with_no_late_clause_break_goes_whole():
     long = "A first sentence that runs well past sixty characters without any clause break."
     assert chunks(f"{long} Next.") == [long, "Next."]
     assert chunks("Short, and sweet.") == ["Short, and sweet."]
+
+
+def test_sentences_are_not_joined_into_chunks():
+    text = "One. Two is here. Three, with a clause."
+    assert sentences(text) == ["One.", "Two is here.", "Three, with a clause."]
+    assert len(chunks(text)) < 3

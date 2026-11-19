@@ -46,6 +46,12 @@ in and exits, and `VINOSPEAK_GUI_SPEAK=1` starts reading first.
 `VINOSPEAK_GUI_ABOUT=1` opens the About page, and `=delete` opens it at the
 model's delete confirmation.
 
+About's Translation row downloads SmolLM3-3B (1.7 GB, `vinospeak
+--download-translation-model`) after you confirm, and deletes it again. Once
+it is there the player gets a Translate picker: pick a language and Read
+aloud translates the file into it as it reads, in a voice of that language.
+The worker loads the model only for the first translated reading.
+
 About also shows the downloaded model's size, with Delete… to remove it
 (`vinospeak --delete-model`). It waits for a reading to stop, and stops the
 `vinospeak --serve` worker first; the next reading downloads the model again.

@@ -214,8 +214,8 @@ def test_new_pins_invalidate_the_stamp(fake_hub, tmp_path):
     write(tmp_path, FILES)
     model.ensure_model(tmp_path)
     pins = make_pins(tmp_path, FILES)
-    assert model._is_stamped(tmp_path, pins)
-    assert not model._is_stamped(tmp_path, model.Pins(pins.model_id, "b" * 40, pins.files))
+    assert model.is_stamped(tmp_path, pins)
+    assert not model.is_stamped(tmp_path, model.Pins(pins.model_id, "b" * 40, pins.files))
 
 
 def test_a_download_without_huggingface_hub_says_what_is_missing(fake_hub, tmp_path, monkeypatch):

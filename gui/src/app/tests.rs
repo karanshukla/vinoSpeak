@@ -21,9 +21,23 @@ use crate::voices;
 use vino_ui::theme;
 
 const FAKE_VINOSPEAK: &str = r#"#!/bin/sh
-# argv: --serve [--device D], --delete-model, or --file PATH|- [--kind document | --part P] --print-text
+# argv: --serve [--device D], --delete-model, --download- or --delete-translation-model,
+# or --file PATH|- [--kind document | --part P] --print-text
 dir=$(dirname "$0")
 echo "$*" >> "$dir/calls"
+if [ "$1" = "--download-translation-model" ]; then
+    [ -f "$dir/fail-download" ] && { echo "vinospeak: error: The Hub can't be reached." >&2; exit 2; }
+    mkdir -p "$dir/translation/SmolLM3-3B-int4-cw-ov"
+    head -c 3000000 /dev/zero > "$dir/translation/SmolLM3-3B-int4-cw-ov/openvino_model.bin"
+    touch "$dir/translation/SmolLM3-3B-int4-cw-ov/.vinospeak-verified"
+    echo "Downloaded."
+    exit 0
+fi
+if [ "$1" = "--delete-translation-model" ]; then
+    rm -rf "$dir/translation"
+    echo "Deleted the translation model (3 MB)."
+    exit 0
+fi
 if [ "$1" = "--delete-model" ]; then
     [ -f "$dir/fail-delete" ] && { echo "vinospeak: error: The model is downloading." >&2; exit 2; }
     rm -rf "$dir/cache/kokoro-82m-int8-ov" "$dir/cache/ov-cache"
@@ -240,6 +254,8 @@ fn window_with(
         (outputs, Some("hdmi_sink".to_owned())),
     );
     app.cache = Some(scratch.0.join("cache"));
+    app.translation_dir = Some(scratch.0.join("translation"));
+    app.refresh_translation();
     app.session_dirs = vec![scratch.sessions()];
     app.app_title_bar = app_title_bar;
     // Fonts set in a frame apply from the next; the bold face must exist
@@ -1008,4 +1024,177 @@ fn a_saved_voice_that_is_not_installed_or_an_unoffered_speed_is_left_at_the_defa
     assert_eq!(state.voice.id, "af_heart");
     assert_eq!(state.speed, 1.0);
     assert_eq!(state.volume, 0.7);
+}
+
+/// The window with notes.md previewed, the translation model downloaded and
+/// Dora's Spanish voice among the voices; tall enough for About's Translation row.
+fn translating_window(scratch: &Scratch) -> Harness<'static, App> {
+    let model = scratch.0.join("translation/SmolLM3-3B-int4-cw-ov");
+    std::fs::create_dir_all(&model).unwrap();
+    std::fs::write(model.join(".vinospeak-verified"), "").unwrap();
+    let index = FakeIndex::recent(vec![scratch.file("notes.md", "Read me.")]);
+    let mut h = tall_window(scratch, index);
+    wait_for(&mut h, "Read me.");
+    let state = h.state_mut();
+    state.voices.push(voices::voice("ef_dora").unwrap());
+    state.refresh_translation();
+    h.run();
+    h
+}
+
+fn pick_language(h: &mut Harness<'_, App>, name: &str) {
+    h.get_by_label("Translate").click();
+    h.run();
+    h.get_by_label(name).click();
+    h.run();
+}
+
+#[test]
+fn translate_is_offered_only_once_its_model_is_downloaded() {
+    let scratch = Scratch::new();
+    let h = notes_window(&scratch, "Read me.");
+    assert!(h.query_by_label("Translate").is_none());
+    let h = translating_window(&scratch);
+    assert!(h.query_by_label("Translate").is_some());
+}
+
+#[test]
+fn picking_a_language_picks_a_voice_that_speaks_it() {
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    pick_language(&mut h, "Spanish");
+    assert_eq!(h.state().voice.id, "ef_dora");
+    h.state_mut().voice = voices::voice("af_heart").unwrap();
+    pick_language(&mut h, "American English");
+    assert_eq!(h.state().voice.id, "af_heart", "Heart already speaks it");
+}
+
+#[test]
+fn a_translated_reading_asks_for_the_language_and_says_so_until_it_speaks() {
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    pick_language(&mut h, "Spanish");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    let request = last_speak(&mut h, &scratch);
+    for field in [
+        r#""translate":"es""#,
+        r#""language":null"#,
+        r#""voice":"ef_dora""#,
+    ] {
+        assert!(request.contains(field), "{field} in {request}");
+    }
+    wait_for(&mut h, "Speaking notes.md in Spanish");
+}
+
+#[test]
+fn a_status_says_translating_before_the_first_audio() {
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    pick_language(&mut h, "French");
+    let ctx = h.ctx.clone();
+    h.state_mut().start_worker(&ctx);
+    h.state_mut().read_aloud(&ctx);
+    assert_eq!(h.state().status, "Translating notes.md into French");
+}
+
+#[test]
+fn an_untranslated_reading_sends_no_language_to_translate_into() {
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    let request = last_speak(&mut h, &scratch);
+    assert!(request.contains(r#""translate":null"#), "{request}");
+    assert!(request.contains(r#""language":"en-us""#), "{request}");
+}
+
+fn about(scratch: &Scratch) -> Harness<'static, App> {
+    let index = FakeIndex::recent(vec![scratch.file("notes.md", "Some notes.")]);
+    let mut h = tall_window(scratch, index);
+    wait_for(&mut h, "Some notes.");
+    h.get_by_role_and_label(Role::Tab, "About").click();
+    wait_for(&mut h, "Off. Download SmolLM3-3B (1.7 GB)");
+    h
+}
+
+#[test]
+fn about_downloads_the_translation_model_only_after_confirming() {
+    let scratch = Scratch::new();
+    let mut h = about(&scratch);
+    h.get_by_role_and_label(Role::Button, "Download…").click();
+    wait_for(&mut h, "Downloads 1.7 GB into your home folder.");
+    assert!(
+        !scratch
+            .read("calls")
+            .contains("--download-translation-model")
+    );
+    h.get_by_role_and_label(Role::Button, "Download").click();
+    wait_for(&mut h, "3 MB on disk. Pick a language under Translate");
+    assert!(shows(&h, "Downloaded."));
+    assert!(h.state().translation.downloaded);
+}
+
+#[test]
+fn cancelling_the_download_downloads_nothing() {
+    let scratch = Scratch::new();
+    let mut h = about(&scratch);
+    h.get_by_role_and_label(Role::Button, "Download…").click();
+    wait_for(&mut h, "Downloads 1.7 GB");
+    h.get_by_role_and_label(Role::Button, "Cancel").click();
+    wait_for(&mut h, "Off. Download");
+    assert!(
+        !scratch
+            .read("calls")
+            .contains("--download-translation-model")
+    );
+}
+
+#[test]
+fn a_download_that_fails_says_why_and_offers_it_again() {
+    let scratch = Scratch::new();
+    scratch.mode("fail-download");
+    let mut h = about(&scratch);
+    h.get_by_role_and_label(Role::Button, "Download…").click();
+    wait_for(&mut h, "Downloads 1.7 GB");
+    h.get_by_role_and_label(Role::Button, "Download").click();
+    wait_for(&mut h, "Couldn't do it: The Hub can't be reached.");
+    assert!(h.query_by_label("Download…").is_some());
+    assert!(!h.state().translation.downloaded);
+}
+
+#[test]
+fn deleting_the_translation_model_takes_translate_away() {
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    pick_language(&mut h, "Spanish");
+    h.get_by_role_and_label(Role::Tab, "About").click();
+    wait_for(&mut h, "on disk. Pick a language");
+    h.get_by_role_and_label(Role::Button, "Delete translation…")
+        .click();
+    wait_for(&mut h, "Translate goes away until you download it again.");
+    h.get_by_role_and_label(Role::Button, "Delete the translation model")
+        .click();
+    wait_for(&mut h, "Deleted the translation model (3 MB).");
+    let state = h.state();
+    assert!(!state.translation.downloaded);
+    assert_eq!(state.translate_to, None);
+    assert!(state.worker.is_none(), "the worker let go of the model");
+}
+
+#[test]
+fn the_language_comes_back_in_the_next_window_while_its_model_is_there() {
+    let scratch = Scratch::new();
+    let settings = scratch.0.join("config/vinospeak/gui.json");
+    let mut h = translating_window(&scratch);
+    h.state_mut().remember(settings.clone());
+    pick_language(&mut h, "Italian");
+    h.run();
+
+    let mut next = translating_window(&scratch);
+    next.state_mut().remember(settings.clone());
+    assert_eq!(next.state().translate_to.map(|t| t.language), Some("it"));
+
+    std::fs::remove_dir_all(scratch.0.join("translation")).unwrap();
+    let mut without = notes_window(&scratch, "Read me.");
+    without.state_mut().remember(settings);
+    assert_eq!(without.state().translate_to, None);
 }

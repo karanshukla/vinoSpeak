@@ -22,3 +22,31 @@ class FakeTensor:
 
 class FakeOpenVINO:
     Tensor = FakeTensor
+
+
+class FakeSoundFile:
+    """soundfile.SoundFile for writing: keeps what was written and leaves
+    the format's name in the file when it closes."""
+
+    opened: list["FakeSoundFile"] = []
+
+    def __init__(self, path, mode, samplerate, channels, subtype, format):
+        assert mode == "w" and channels == 1
+        self.path, self.rate, self.subtype, self.format = path, samplerate, subtype, format
+        self.writes = []
+        FakeSoundFile.opened.append(self)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        from pathlib import Path
+
+        saved = f"{self.format}/{self.subtype}".encode()
+        if hasattr(self.path, "write"):
+            self.path.write(saved)
+        else:
+            Path(self.path).write_bytes(saved)
+
+    def write(self, samples):
+        self.writes.append(np.array(samples))

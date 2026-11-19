@@ -78,14 +78,20 @@ def _first(sentence: str) -> list[str]:
     return [sentence[: cut.start()], sentence[cut.end() :]]
 
 
+def sentences(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
+    """The text a sentence at a time, its whitespace collapsed, with a
+    sentence longer than max_chars cut after its clauses."""
+    collapsed = (" ".join(piece.split()) for piece in _sentences(text))
+    return [p for s in collapsed if s for p in _pieces(s, max_chars)]
+
+
 def chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
     """The first sentence alone, or its first clause if it is long, so
     speech starts quickly, then chunks that at most double in length
     (docs/architecture.md, "Chunking")."""
     out: list[str] = []
     budget = 0
-    sentences = (" ".join(piece.split()) for piece in _sentences(text))
-    pieces = [p for s in sentences if s for p in _pieces(s, max_chars)]
+    pieces = sentences(text, max_chars)
     pieces[:1] = _first(pieces[0]) if pieces else []
     for sentence in pieces:
         joined = len(out[-1]) + 1 + len(sentence) if out else 0

@@ -109,6 +109,56 @@ A chunk is never cut after an abbreviation or an initial (`e.g.`, `Dr.`,
 `J. R.`): Kokoro's pitch falls at the end of a chunk, and it would fall
 mid-sentence.
 
+## Voices and blends
+
+A voice is a `(510, 1, 256)` float32 embedding, one style vector per input
+length, and Kokoro mixes voices by taking their weighted mean, the same rule
+Kokoro-FastAPI and kokoro's own `KPipeline` use. A blend is mixed once and
+kept with the loaded voices under one spelling (`voices.canonical`), so
+`af_heart(2)+bm_george(2)` and `af_heart+bm_george` share an embedding.
+Checked on the real pipeline on CPU, 2026-11-18.
+
+OpenVINO GenAI 2026.4's Kokoro refuses `ja` and `zh`, so the nine Japanese
+and Mandarin voices in the model aren't offered, as in the window's picker.
+
+## SSML and the lexicon
+
+Everything spoken goes through `script.plan()`: SSML is parsed into pieces
+with their own voice, language and rate, the lexicon respells each piece's
+text (never the markup), and the pieces are cut into chunks, or into
+sentences for subtitles. A pause is a step of silence that never reaches the
+pipeline. Plans are made before the model loads, so a bad `<break>` or lexicon
+fails at once.
+
+Kokoro's pipeline in OpenVINO GenAI 2026.4 takes no phonemes: misaki's
+`[word](/IPA/)` is ignored (a word given 18 `ʃ` phonemes came out the length
+of the word, CPU, 2026-11-18), which is why the lexicon respells.
+
+## Translation
+
+`--translate` runs SmolLM3-3B (vinoWhisper's INT4 channel-wise export, its
+pins copied into `translation_pins.json`) through OpenVINO GenAI's
+`LLMPipeline`, greedy, with `/no_think`, the same way vinoWhisper calls it.
+vinoSpeak loads its own copy rather than asking vinoWhisper's server: the
+vinoPilot apps stand alone. The cost is a second ~2 GB in memory while both
+run a model, which is why it is loaded only at the first translation and
+dropped after `IDLE_UNLOAD_S` (five minutes) unused.
+
+On the NPU the pipeline gets vinoWhisper's window (`MAX_PROMPT_LEN` 3072,
+`MIN_RESPONSE_LEN` 1024), so a piece is at most 1,500 characters and an
+answer at most 1,024 tokens. Pieces follow `chunks()`: the first sentence
+alone, then pieces that at most double, so the first audio waits for one
+sentence's translation, not the file's. One piece is translated ahead on its
+own thread while the one before it is synthesized and played.
+
+It lives in `$XDG_DATA_HOME/vinospeak/translation/`, not the cache: a 1.7 GB
+opt-in shouldn't vanish with a cache clean, and the window's Kokoro row sums
+the cache folder.
+
+Tested in linuxlab only with an LLM stand-in (Claude through `claude -p`),
+2026-11-19: that proves the pieces, the streaming and the worker's events, not
+SmolLM3's translations, their speed, or NPU memory with both models loaded.
+
 ## Playback
 
 Players are tried in the order `pw-play`, `paplay`, `aplay`: PipeWire is the

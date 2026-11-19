@@ -300,11 +300,13 @@ def test_no_speech_from_the_pipeline_is_an_error(fake_runtime, monkeypatch):
 
 @pytest.fixture
 def fake_soundfile(monkeypatch):
-    writes = []
+    from conftest import FakeSoundFile
+
+    FakeSoundFile.opened.clear()
     soundfile = ModuleType("soundfile")
-    soundfile.write = lambda path, samples, rate: writes.append((path, samples.copy(), rate))
+    soundfile.SoundFile = FakeSoundFile
     monkeypatch.setitem(sys.modules, "soundfile", soundfile)
-    return writes
+    return FakeSoundFile.opened
 
 
 def test_synthesize_writes_a_wav_at_the_models_rate(fake_runtime, fake_soundfile, tmp_path):
@@ -312,11 +314,10 @@ def test_synthesize_writes_a_wav_at_the_models_rate(fake_runtime, fake_soundfile
 
     assert tts.synthesize("Hello", output, device="CPU", model_dir=fake_runtime) == output
 
-    assert output.parent.is_dir()
-    [(path, samples, rate)] = fake_soundfile
-    assert path == output
-    assert rate == 24000
-    np.testing.assert_allclose(samples, [0.1, -0.1])
+    [written] = fake_soundfile
+    assert output.read_bytes() == b"WAV/PCM_16"
+    assert written.rate == 24000
+    np.testing.assert_allclose(np.concatenate(written.writes), [0.1, -0.1])
 
 
 def test_synthesize_without_soundfile_says_how_to_install_it(monkeypatch, tmp_path):
@@ -385,3 +386,108 @@ def test_synthesizer_speak_plays_on_the_given_device(fake_runtime, monkeypatch):
     assert speech.volume == 0.4
     assert speech.sample_rate == 24000
     assert len(speech.chunks) == 1
+
+
+def test_a_blend_is_the_weighted_mean_of_its_voices():
+    a = np.asarray([1.0, 0.0], dtype=np.float32)
+    b = np.asarray([0.0, 1.0], dtype=np.float32)
+    mixed = tts.blend([(a, 0.75), (b, 0.25)])
+    np.testing.assert_allclose(mixed, [0.75, 0.25])
+    assert mixed.dtype == np.float32
+
+
+def test_a_blend_reaches_the_pipeline_as_one_embedding(fake_runtime):
+    np.asarray([4.0, 0.0], dtype=np.float32).tofile(fake_runtime / "voices" / "bm_george.bin")
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+
+    synthesizer.synthesize("Hello", voice="af_heart(1)+bm_george(1)")
+
+    embedding = next(iter(synthesizer._voices.values()))
+    np.testing.assert_allclose(embedding.data, [2.0, 0.5])
+
+
+def test_a_blend_naming_a_missing_voice_is_refused(fake_runtime):
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+    with pytest.raises(ValueError, match="'bm_nobody' was not found"):
+        synthesizer.synthesize("Hello", voice="af_heart+bm_nobody")
+
+
+@pytest.mark.parametrize(
+    ("voice", "language", "spoken_as"),
+    [("af_heart", None, "en-us"), ("ef_dora", None, "es"), ("ef_dora", "en-gb", "en-gb")],
+)
+def test_the_language_is_the_voices_own_unless_one_is_asked_for(
+    fake_runtime, voice, language, spoken_as
+):
+    np.arange(2, dtype=np.float32).tofile(fake_runtime / "voices" / "ef_dora.bin")
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+
+    synthesizer.synthesize("Hola", voice=voice, language=language)
+
+    assert FakePipeline.instances[0].calls[-1][1] == spoken_as
+
+
+def test_a_pause_renders_as_silence_without_the_pipeline(fake_runtime):
+    from vino_speak.script import Step
+
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+    audio = synthesizer.render(Step("", "af_heart", None, 1.0, silence=0.5))
+    assert audio.sample_rate == 24000
+    assert len(audio.samples) == 12000 and not audio.samples.any()
+    assert FakePipeline.instances[0].calls == []
+
+
+def test_stream_reads_ssml_and_the_synthesizers_lexicon(fake_runtime):
+    from vino_speak.lexicon import Lexicon
+
+    synthesizer = tts.Synthesizer("CPU", fake_runtime, Lexicon({"sql": "sequel"}))
+    audio = list(synthesizer.stream('<speak>sql<break time="1s"/>done</speak>'))
+    assert [len(a.samples) for a in audio] == [2, 24000, 2]
+    assert [call[0] for call in FakePipeline.instances[0].calls] == ["sequel", "done"]
+
+
+def test_bad_ssml_is_refused_before_the_model_loads(tmp_path):
+    with pytest.raises(ValueError, match="well-formed"):
+        tts.speak("<speak>open", model_dir=tmp_path / "never-created")
+    assert not (tmp_path / "never-created").exists()
+
+
+class TaggingTranslator:
+    def __init__(self):
+        self.asked = []
+
+    def stream(self, text, language):
+        self.asked.append((text, language))
+        yield "Hola."
+        yield "Adiós."
+
+
+def test_a_translation_is_read_a_piece_at_a_time_in_its_language(fake_runtime):
+    np.arange(2, dtype=np.float32).tofile(fake_runtime / "voices" / "ef_dora.bin")
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+    translator = TaggingTranslator()
+
+    audio = list(synthesizer.stream("Hello. Bye.", "ef_dora", None, 1.0, "es", translator))
+
+    assert len(audio) == 2
+    assert translator.asked == [("Hello. Bye.", "es")]
+    assert FakePipeline.instances[0].calls == [("Hola.", "es", 1.0), ("Adiós.", "es", 1.0)]
+
+
+def test_translate_to_needs_a_translator(fake_runtime):
+    with pytest.raises(ValueError, match="needs a Translator"):
+        tts.Synthesizer("CPU", fake_runtime).stream("Hi.", translate_to="es")
+
+
+@pytest.mark.parametrize(
+    ("text", "target", "complaint"),
+    [("<speak>Hi.</speak>", "es", "SSML can't be translated"), ("Hi.", "hi", "can't translate")],
+)
+def test_what_cant_be_translated_is_refused_before_the_model_loads(
+    tmp_path, text, target, complaint
+):
+    with pytest.raises(ValueError, match=complaint):
+        tts.speak(
+            text, translate_to=target, translator=TaggingTranslator(), model_dir=tmp_path / "x"
+        )
+    assert not (tmp_path / "x").exists()

@@ -14,9 +14,14 @@ vino_speak/
   text.py     chunks(): first sentence alone, then chunks that at most double
   playback.py Speech: raw float32 into one pw-play/paplay/aplay process, stop()
   model.py    cache dir, pinned download, verify(), delete_cached(); no OpenVINO import
+  voices.py   voice ids, the voices on offer (read from the pins), blends; no numpy
+  save.py     speech to .wav/.flac/.ogg/.opus/.mp3 a chunk at a time; subtitles.py its cues
+  script.py   plan(): text or SSML (ssml.py) respelled (lexicon.py) into synthesis steps
+  translate.py  --translate: SmolLM3-3B (translation_pins.json) loaded at first use, pieces streamed
   readable.py a file as text worth hearing: markdown, extracted documents, plain
   session.py  a vinoWhisper .vwsession read as its summary or transcript
   serve.py    vinospeak --serve: the window's worker, JSON lines on stdin/stdout
+  api_server.py  vinospeak --http: OpenAI's /v1/audio/speech on loopback (stdlib http.server)
   cli.py      argparse front end for vinospeak; one function per mode
   doctor.py   vinospeak-doctor: packages, devices, ovfetch notes, model pin check
   ovfetch.py  `ovfetch detect` read into notes (advisory, never a FAIL)
@@ -79,6 +84,12 @@ uv run poe check                              # ruff, format --check, mypy (stri
   JSON-lines protocol), and every pipeline gets `CACHE_DIR` (`ov-cache/` beside
   the model) so a new process can skip the compile.
 
+- **Translation never downloads or loads by itself.** `--translate` without
+  the model is an error that names `--download-translation-model`; the worker
+  makes its `Translator` at the first request with `translate`, and the model
+  loads at its first piece. Its pins are vinoWhisper's `cleanup_model.json`
+  entry; bump them together.
+
 ## Testing without an NPU
 
 The linuxlab VM has none: `--device CPU` runs the real pipeline (1.9 s of audio
@@ -86,3 +97,9 @@ in ~14 s including the first download). That proves the CPU path, the pins and
 the WAV output. It proves nothing about NPU compile behaviour, latency, or what
 `ovfetch detect` says on real hardware; the ovfetch notes are tested against
 JSON captured from the Wildcat Lake laptop (2026-09-28).
+
+Don't run SmolLM3 in linuxlab (see ~/CLAUDE.md). To exercise `--translate` or
+the window's Translate, run vinospeak through a wrapper that sets
+`translate.SmolLM3 = lambda device, directory=None: ClaudeModel()` (from
+`~/bin/llm_standin.py`) and `translate.is_downloaded = lambda directory=None:
+True`, then calls `cli.main()`; point `VINOSPEAK` at it for the window.

@@ -3,8 +3,8 @@
 ## What vinoSpeak does with your text
 
 Nothing leaves the machine. Text is synthesized by a model running on local
-hardware and played on your speakers, or written to a WAV file if you ask for
-one (`--output`); nothing is written by default. There is no network call in the
+hardware and played on your speakers, or written to an audio file if you ask for
+one (`--output`); nothing is written by default. There is no outbound network call in the
 synthesis path, no telemetry, and no account. OpenVINO ships Intel's usage
 telemetry (Google Analytics), on unless you opt out; vinoSpeak never loads it.
 Your `~/intel/openvino_telemetry` consent file is left alone. The only outbound traffic the
@@ -14,6 +14,25 @@ against pinned digests (below).
 
 A WAV you ask for is as sensitive as the text it was made from. It is written with your
 default umask, and nothing deletes it.
+
+## `vinospeak --http` opens a port
+
+`--http` is the one mode that listens for other programs, so anything that
+can reach the port can make the machine speak (a request returns audio; it
+reads no files and plays nothing). It is built to be safe on one machine:
+
+- **127.0.0.1 by default.** Any other address is refused unless
+  `VINOSPEAK_API_KEY` is set, and then every request must send it as
+  `Authorization: Bearer <key>`, compared in constant time. The key travels in
+  plain HTTP, so off the machine put it behind TLS or keep it on a trusted
+  network.
+- **Web pages can't drive it.** Without a key, a request whose `Host` header
+  isn't a loopback name is refused (DNS rebinding), and only
+  `application/json` bodies are taken, which a browser won't send to another
+  origin without a CORS preflight the server never answers.
+- **Requests are bounded**: a 1 MiB body, 100,000 characters of input,
+  speed within Kokoro's range, a 10 s cap on each SSML `<break>`. Requests
+  are logged to stderr (path and status, never the text).
 
 ## The model download is verified
 
@@ -44,6 +63,15 @@ What that does and does not give you:
 - Re-pinning is `python scripts/update_pins.py [REVISION]`, deliberately a
   script and not automatic. The diff it produces is a list of hashes, and it
   is meant to be read in review.
+
+## The translation model
+
+`--download-translation-model` (or About's Download in the window) fetches
+`arankays/SmolLM3-3B-int4-cw-ov`, vinoWhisper's own export of SmolLM3-3B,
+pinned to one revision with every file's sha256 in
+`vino_speak/translation_pins.json` and checked the same way as Kokoro. It is
+never downloaded unless you ask. Translation runs on this machine like
+synthesis; the text goes nowhere.
 
 ## Voice names cannot escape the model directory
 

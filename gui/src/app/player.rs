@@ -18,6 +18,7 @@ const BUTTON_DIAMETER: f32 = 44.0;
 /// What each choice takes in the player's row, icon and all: a group that
 /// doesn't fit starts the next row, rather than running off the window
 /// (pinned by `app::tests::the_player_wraps_rather_than_running_off_the_window`).
+const TRANSLATE_ROOM: f32 = 210.0;
 const VOICE_ROOM: f32 = 190.0;
 const SPEED_ROOM: f32 = 210.0;
 const OUTPUT_ROOM: f32 = 220.0;
@@ -118,6 +119,10 @@ impl App {
                 self.read_aloud_button(ui);
             }
             ui.add_space(8.0);
+            if self.translation.downloaded {
+                room_for(ui, TRANSLATE_ROOM);
+                self.translate_picker(ui);
+            }
             room_for(ui, VOICE_ROOM);
             self.voice_picker(ui);
             room_for(ui, SPEED_ROOM);

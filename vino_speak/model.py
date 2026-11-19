@@ -136,7 +136,7 @@ def _stamp_value(pins: Pins) -> str:
     return hashlib.sha256(record.encode()).hexdigest()
 
 
-def _is_stamped(model_dir: Path, pins: Pins) -> bool:
+def is_stamped(model_dir: Path, pins: Pins) -> bool:
     try:
         return (model_dir / STAMP).read_text(encoding="utf-8").strip() == _stamp_value(pins)
     except OSError:
@@ -183,7 +183,7 @@ def _redownload_hint(model_dir: Path) -> str:
 
 def _check_against_pins(model_dir: Path, pins: Pins) -> None:
     """Sizes only for a stamped model, every hash for one not yet stamped."""
-    stamped = _is_stamped(model_dir, pins)
+    stamped = is_stamped(model_dir, pins)
     problems = verify(model_dir, pins, full=not stamped)
     if problems:
         raise ModelIntegrityError(
@@ -201,11 +201,11 @@ def _remove_mismatched(model_dir: Path, pins: Pins) -> None:
             path.unlink()
 
 
-def _download(model_dir: Path, pins: Pins) -> None:
+def _download(model_dir: Path, pins: Pins, what: str = "the Kokoro model") -> None:
     try:
         from huggingface_hub import snapshot_download
     except ImportError as error:
-        raise RuntimeError("huggingface-hub is required to download the Kokoro model.") from error
+        raise RuntimeError(f"huggingface-hub is required to download {what}.") from error
 
     with _locked(fcntl.LOCK_SH) if model_dir == default_model_dir() else nullcontext():
         model_dir.mkdir(parents=True, exist_ok=True)
@@ -223,6 +223,12 @@ def _download(model_dir: Path, pins: Pins) -> None:
             "The files that failed were removed; run again to download them again."
         )
     _stamp(model_dir, pins)
+
+
+def download_pinned(model_dir: Path, pins: Pins, what: str) -> None:
+    """Download `pins` into model_dir and verify every file, as the Kokoro
+    model is (vinoSpeak's translation model uses it)."""
+    _download(model_dir, pins, what)
 
 
 def ensure_model(model_dir: Path, *, trusted: bool = False) -> Path:
