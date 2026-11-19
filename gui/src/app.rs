@@ -279,6 +279,7 @@ impl App {
         self.poll_reading(ctx);
         self.space_pauses(ctx);
         self.follow_media_controls(ctx);
+        self.follow_new_settings(ctx);
         ctx.accesskit_node_builder(egui::accesskit_root_id(), |node| {
             node.set_label("vinoSpeak")
         });

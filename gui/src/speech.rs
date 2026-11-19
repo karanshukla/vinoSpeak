@@ -394,6 +394,19 @@ pub struct Reading {
     /// How long the whole text should take to say, as the desktop's media
     /// controls are told: speech has no length until it is synthesized.
     pub length: Duration,
+    /// The settings it was started with.
+    pub chosen: Chosen,
+}
+
+/// The settings a reading is spoken with, but the volume, which a reading
+/// takes as it plays.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Chosen {
+    pub voice: String,
+    pub speed: f32,
+    pub output: Option<String>,
+    /// The language it is translated into, if any.
+    pub translate: Option<&'static str>,
 }
 
 /// Kokoro's speaking rate at 1.0×, in characters a second: 15.4 to 16.8

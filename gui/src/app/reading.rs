@@ -70,6 +70,7 @@ impl App {
         }
         self.start_worker(ctx);
         let volume = self.heard_volume();
+        let chosen = self.chosen();
         let (Some(hit), Some(Ok(preview)), Some(worker)) =
             (&self.selected, &self.preview, &mut self.worker)
         else {
@@ -108,12 +109,23 @@ impl App {
                     done: at,
                     paused_at: None,
                     length: speech::spoken_length(&preview.text, self.speed),
+                    chosen,
                 });
             }
             Err(e) => {
                 self.status = format!("{e:#}");
                 self.worker = None;
             }
+        }
+    }
+
+    /// The settings a reading started now is spoken with.
+    fn chosen(&self) -> speech::Chosen {
+        speech::Chosen {
+            voice: self.voice.id.clone(),
+            speed: self.speed,
+            output: self.output.clone(),
+            translate: self.translate_to.map(|t| t.language),
         }
     }
 
@@ -147,6 +159,28 @@ impl App {
         match reading.paused_at.take() {
             Some(at) => reading.started += at.elapsed(),
             None => reading.paused_at = Some(Instant::now()),
+        }
+    }
+
+    /// A reading whose voice, speed, output or Translate was changed goes on
+    /// with the new one from the sentence it was at, paused if it was (pinned
+    /// by `app::tests::a_new_setting_takes_over_the_reading_from_where_it_is`).
+    pub(super) fn follow_new_settings(&mut self, ctx: &egui::Context) {
+        let Some(reading) = &self.reading else {
+            return;
+        };
+        let now = self.chosen();
+        let shown = self
+            .selected
+            .as_ref()
+            .is_some_and(|hit| hit.path == reading.file);
+        if reading.chosen == now || reading.stop_sent.is_some() || !shown || reading.done >= 1.0 {
+            return;
+        }
+        let (at, paused) = (reading.done, reading.paused_at.is_some());
+        self.read_from(ctx, at);
+        if paused {
+            self.toggle_pause();
         }
     }
 

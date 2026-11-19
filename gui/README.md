@@ -59,9 +59,11 @@ to the file's own text. The translation stays with that file until the next
 reading.
 
 The player is two rows that never reflow: the transport (Read aloud or Stop,
-what it is doing, the volume) and the settings for the next reading
-(Translate, Voice, Speed, Output) under their headings, four across or two by
-two in a narrow window.
+what it is doing, the volume) and the reading's settings (Translate, Voice,
+Speed, Output) under their headings, four across or two by two in a narrow
+window. The volume changes the reading as it plays; a change to any of the
+others starts it again from the sentence it was at, with the new setting
+(paused, if it was).
 The worker loads the model only for the first translated reading. Until the
 first audio plays, the player shows a spinner with Starting… (or
 Translating…), since loading the models and translating the first sentence

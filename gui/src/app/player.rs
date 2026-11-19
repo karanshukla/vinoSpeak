@@ -1,6 +1,6 @@
 //! The player under a file's name, in two rows that never reflow: the
 //! transport (the round Read aloud / Stop button, what it is doing, the
-//! volume) and the settings for the next reading (translate, voice, speed,
+//! volume) and the reading's settings (translate, voice, speed,
 //! output), each under its heading, in four equal columns or two by two.
 
 use eframe::egui::{self, Color32, RichText, Sense, Stroke};
@@ -249,7 +249,8 @@ impl App {
         });
     }
 
-    /// Translate, voice, speed and output for the next Read aloud.
+    /// Translate, voice, speed and output; a change takes over the reading
+    /// under way from where it is.
     fn settings(&mut self, ui: &mut egui::Ui) {
         let per_row = settings_per_row(ui.available_width());
         let mut cells: Vec<Setting> = vec![
@@ -374,7 +375,7 @@ impl App {
         }
     }
 
-    /// Where speech plays. A change applies from the next Read aloud.
+    /// Where speech plays.
     fn output_picker(&mut self, ui: &mut egui::Ui) {
         let default = default_output_label(&self.outputs, self.default_output.as_deref());
         let selected = match &self.output {
@@ -394,9 +395,7 @@ impl App {
             });
             ui.ctx()
                 .accesskit_node_builder(shown.response.id, |node| node.set_label("Output"));
-            shown
-                .response
-                .on_hover_text("Where speech plays, from the next Read aloud");
+            shown.response.on_hover_text("Where speech plays");
         }
     }
 }

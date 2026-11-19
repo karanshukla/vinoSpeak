@@ -1307,6 +1307,7 @@ fn the_choices_stay_put_when_a_reading_starts() {
             done: 0.0,
             paused_at: None,
             length: Duration::ZERO,
+            chosen: crate::speech::Chosen::default(),
         });
         h.run_steps(3);
         assert!(h.query_by_label("Stop").is_some());
@@ -1363,6 +1364,7 @@ fn the_bar_shows_how_far_the_reading_is_and_never_goes_back() {
         done: 0.0,
         paused_at: None,
         length: Duration::ZERO,
+        chosen: crate::speech::Chosen::default(),
     });
     for (done, expected) in [(0.4, 0.4), (0.2, 0.4), (0.9, 0.9)] {
         h.state_mut().on_progress(7, done);
@@ -1472,6 +1474,33 @@ fn the_media_controls_show_and_drive_the_reading() {
     h.state_mut().on_media(&ctx, Command::Stop);
     wait_for(&mut h, "Read aloud");
     assert_eq!(h.state().now_playing().status, Status::Stopped);
+}
+
+#[test]
+fn a_new_setting_takes_over_the_reading_from_where_it_is() {
+    let scratch = Scratch::new();
+    let mut h = notes_window(&scratch, "One. Two. Three. Four.");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "Stop");
+    h.state_mut().on_progress(1, 0.5);
+    h.run_steps(2);
+    assert_eq!(h.state().reading.as_ref().unwrap().id, 1, "nothing changed");
+    h.state_mut().speed = 1.5;
+    wait_until(&mut h, "a faster speak from the middle", |_| {
+        let calls = scratch.read("calls");
+        calls.contains(r#""from":0.5"#) && calls.contains(r#""speed":1.5"#)
+    });
+    let ctx = h.ctx.clone();
+    h.state_mut().on_media(&ctx, crate::mpris::Command::Pause);
+    h.state_mut().voice = voices::voice("bm_george").unwrap();
+    wait_until(&mut h, "a new voice", |_| {
+        scratch.read("calls").contains("bm_george")
+    });
+    h.run_steps(2);
+    let reading = h.state().reading.as_ref().unwrap();
+    assert_eq!(reading.id, 3);
+    assert!(reading.paused_at.is_some(), "still paused");
+    assert_eq!(scratch.read("calls").matches(r#""op":"speak""#).count(), 3);
 }
 
 fn selected(h: &Harness<'_, App>, text: &str) -> bool {
