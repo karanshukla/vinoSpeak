@@ -1,6 +1,6 @@
 import pytest
 
-from vino_speak.text import MAX_CHUNK_CHARS, chunks, sentences, speakable_end
+from vino_speak.text import MAX_CHUNK_CHARS, chunks, sentence_start, sentences, speakable_end
 
 SENTENCE = "This sentence is here to be about one hundred characters long so the chunk sizes are easy to read."
 
@@ -74,6 +74,19 @@ def test_no_cut_after_an_abbreviation_or_an_initial():
         "Cache it, e.g. here.",
         "Dr. Okafor and J. R. Smith came. The U.S. grew. See fig. 3 vs. 4.",
     ]
+
+
+def test_a_sentence_starts_after_the_break_before_it():
+    text = "One here. Dr. Two is long.\n\nThree."
+    two = text.index("Dr.")
+    three = text.index("Three")
+    assert [sentence_start(text, at) for at in (0, two - 1, two, text.index("long"))] == [
+        0,
+        0,
+        two,
+        two,
+    ]
+    assert sentence_start(text, three) == sentence_start(text, len(text)) == three
 
 
 def test_a_word_that_ends_like_an_abbreviation_still_ends_its_sentence():

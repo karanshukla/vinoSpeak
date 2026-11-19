@@ -290,9 +290,11 @@ impl Worker {
             .context("vinospeak has stopped")
     }
 
-    /// Read `text` aloud at `volume` (0 to 1), stopping whatever was
-    /// playing, translated first into `translate` (vinospeak's name for a
-    /// language) if given; its id for the events.
+    /// Read `text` aloud at `volume` (0 to 1) from the sentence `from` of
+    /// the way into it (0 to 1), stopping whatever was playing, translated
+    /// first into `translate` (vinospeak's name for a language) if given;
+    /// its id for the events.
+    #[allow(clippy::too_many_arguments)]
     pub fn speak(
         &mut self,
         text: &str,
@@ -301,6 +303,7 @@ impl Worker {
         output: Option<&str>,
         volume: f32,
         translate: Option<&str>,
+        from: f32,
     ) -> Result<u64> {
         self.next_id += 1;
         self.send(&serde_json::json!({
@@ -313,6 +316,7 @@ impl Worker {
             "audio_device": output,
             "volume": volume,
             "translate": translate,
+            "from": from,
         }))?;
         Ok(self.next_id)
     }

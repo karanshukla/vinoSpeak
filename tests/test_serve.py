@@ -53,6 +53,7 @@ class FakeSynthesizer:
         if not text.strip():
             raise ValueError("Text must not be empty.")
         self.requests.append((text, voice, language, speed, audio_device))
+        self.on_progress = on_progress
         if translate_to is not None:
             self.translated = list(translator.stream(text, translate_to))
         speech = FakeSpeech(
@@ -315,12 +316,62 @@ def test_cli_serve_takes_nothing_else(argv):
     assert exit_info.value.code == 2
 
 
-def test_progress_is_sent_in_steps_up_to_the_end():
-    from types import SimpleNamespace
+def bare_reading(reading_id, offset, events):
+    """A Reading with no speech, from `offset` into its text."""
+    reading = serve.Reading.__new__(serve.Reading)
+    reading.id, reading.offset, reading.shown, reading.emit = (
+        reading_id,
+        offset,
+        offset,
+        events.append,
+    )
+    return reading
 
+
+def test_progress_is_sent_in_steps_up_to_the_end():
     events = []
-    reading = SimpleNamespace(id=4, shown=0.0, emit=events.append)
+    reading = bare_reading(4, 0.0, events)
     for done in (0.001, 0.004, 0.006, 0.0062, 0.5, 0.998, 1.0, 1.0):
         serve.Reading._progress(reading, done)
     assert [e["done"] for e in events] == [0.006, 0.5, 0.998, 1.0]
     assert all(e == {"event": "progress", "id": 4, "done": e["done"]} for e in events)
+
+
+def test_a_reading_from_the_middle_starts_at_its_sentence():
+    text = "First one. Second one. Third one."
+    synthesizer, events = run({"op": "speak", "id": 5, "text": text, "from": 0.5}, {"op": "stop"})
+    assert synthesizer.requests[0][0] == "Second one. Third one."
+    assert serve.resumed(text, {}) == (text, 0.0)
+    assert serve.resumed(text, {"from": 0.05}) == (text, 0.0)
+    assert serve.resumed(text, {"from": 0.9}) == ("Third one.", 23 / 33)
+
+
+def test_its_progress_and_pieces_are_placed_in_the_whole_text():
+    translator = FakeTranslator()
+    text = "First one. Second one. Third one!"
+    synthesizer, events = run(
+        {"op": "speak", "id": 6, "text": text, "from": 0.9, "translate": "es"},
+        translators=lambda: translator,
+    )
+    assert translator.asked == [("Third one!", "es")]
+    piece = next(e for e in events if e["event"] == "translated")
+    assert (piece["start"], piece["end"]) == (round(23 / 33, 4), 1.0)
+    sent = []
+    reading = bare_reading(6, 0.5, sent)
+    for done in (0.0, 0.5, 1.0):
+        serve.Reading._progress(reading, done)
+    assert [e["done"] for e in sent] == [0.75, 1.0]
+
+
+@pytest.mark.parametrize("at", [1, 1.5, -0.1, True, "0.5"])
+def test_a_from_outside_0_up_to_1_is_refused(at):
+    _, events = run({"op": "speak", "id": 7, "text": "Hi.", "from": at})
+    assert events == [
+        {"event": "error", "id": 7, "message": "from must be a number from 0 up to 1."}
+    ]
+
+
+def test_ssml_is_read_only_from_the_start():
+    ssml = "<speak>One. Two.</speak>"
+    _, events = run({"op": "speak", "id": 8, "text": ssml, "from": 0.5})
+    assert events[-1]["message"] == "SSML can only be read from the start."

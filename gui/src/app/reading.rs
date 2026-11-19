@@ -57,6 +57,13 @@ impl App {
 
     /// Read the previewed text; the worker stops whatever it was reading first.
     pub(super) fn read_aloud(&mut self, ctx: &egui::Context) {
+        self.read_from(ctx, 0.0);
+    }
+
+    /// Read the previewed text again from the sentence `at` (0 to 1) into it,
+    /// with the settings chosen now (pinned by
+    /// `app::tests::scrubbing_reads_again_from_where_the_bar_was_let_go`).
+    pub(super) fn read_from(&mut self, ctx: &egui::Context, at: f32) {
         if self.model.deleting {
             self.status = "Deleting the model; read it once that's done.".to_owned();
             return;
@@ -76,6 +83,7 @@ impl App {
             self.output.as_deref(),
             volume,
             target.map(|t| t.language),
+            at,
         ) {
             Ok(id) => {
                 self.translated = target.map(|into| Translated {
@@ -97,7 +105,7 @@ impl App {
                     stop_sent: None,
                     translated_into: target,
                     heard: false,
-                    done: 0.0,
+                    done: at,
                 });
             }
             Err(e) => {

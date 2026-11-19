@@ -6,7 +6,8 @@ Requests, one JSON object a line on stdin:
 
     {"op": "speak", "id": 1, "text": "...", "voice": "af_heart",
      "language": "en-us" (or null: the voice's own), "speed": 1.0, "audio_device": null, "volume": 1.0,
-     "translate": null}   (or "es": translated into that language first)
+     "translate": null,   (or "es": translated into that language first)
+     "from": 0.0}         (or 0.42: read from the sentence that far into the text)
     {"op": "volume", "volume": 0.5}   (the reading playing, from its next tenth of a second)
     {"op": "stop"}
 
@@ -16,9 +17,9 @@ Events, one a line on stdout:
     {"event": "started", "id": 1}
     {"event": "translated", "id": 1, "text": "...", "start": 0.0, "end": 0.12}
         (each piece as it is translated; start and end are where its source
-        lies in the text, as progress counts it)
+        lies in the whole text, as progress counts it)
     {"event": "first-audio", "id": 1, "ms": 812}  (from the request to the first sample played)
-    {"event": "progress", "id": 1, "done": 0.42}  (how far through the text playback is, 0 to 1)
+    {"event": "progress", "id": 1, "done": 0.42}  (how far through the whole text playback is, 0 to 1)
     {"event": "done", "id": 1, "stopped": false}
     {"event": "error", "id": 1, "message": "..."}  (id null for a request that didn't parse)
 
@@ -72,12 +73,20 @@ class Translates(Protocol):
 
 
 class Announced:
-    """A translator whose every piece is also sent to the window."""
+    """A translator whose every piece is also sent to the window, placed in
+    the whole text by `into` when only the rest of it is read."""
 
-    def __init__(self, translator: Translates, emit: Emit, reading_id: object) -> None:
+    def __init__(
+        self,
+        translator: Translates,
+        emit: Emit,
+        reading_id: object,
+        into: Callable[[float], float] = lambda x: x,
+    ) -> None:
         self._translator = translator
         self._emit = emit
         self._id = reading_id
+        self._into = into
 
     def stream(self, text: str, language: str) -> Iterator[str]:
         """Each piece, sent with its span of the text (pinned by
@@ -92,8 +101,8 @@ class Announced:
                         "event": "translated",
                         "id": self._id,
                         "text": piece,
-                        "start": round(start, 4),
-                        "end": round(end, 4),
+                        "start": round(self._into(start), 4),
+                        "end": round(self._into(end), 4),
                     }
                 )
             yield piece
@@ -117,6 +126,24 @@ def volume_of(request: dict[str, Any]) -> float:
     if isinstance(volume, bool) or not isinstance(volume, int | float) or not 0 <= volume <= 1:
         raise ValueError("Volume must be a number from 0 to 1.")
     return float(volume)
+
+
+def resumed(text: str, request: dict[str, Any]) -> tuple[str, float]:
+    """The text from the start of the sentence the request's `from` falls in,
+    and where that start lies in the text (pinned by
+    `test_serve.py::test_a_reading_from_the_middle_starts_at_its_sentence`)."""
+    at = request.get("from", 0.0)
+    if isinstance(at, bool) or not isinstance(at, int | float) or not 0 <= at < 1:
+        raise ValueError("from must be a number from 0 up to 1.")
+    if not at or not text:
+        return text, 0.0
+    from .ssml import is_ssml
+    from .text import sentence_start
+
+    if is_ssml(text):
+        raise ValueError("SSML can only be read from the start.")
+    start = sentence_start(text, int(at * len(text)))
+    return text[start:], start / len(text)
 
 
 def _ms(since: float) -> int:
@@ -155,11 +182,13 @@ class Reading:
         audio_device = request.get("audio_device")
         if not isinstance(text, str) or not isinstance(speed, int | float):
             raise ValueError("A speak request needs text, and a number for speed.")
+        text, self.offset = resumed(text, request)
+        self.shown = self.offset
         volume = volume_of(request)
         target = request.get("translate")
         if target is not None and not isinstance(target, str):
             raise ValueError("translate must be a language, or null.")
-        translator = Announced(translators(), emit, self.id) if target else None
+        translator = Announced(translators(), emit, self.id, self._whole) if target else None
         emit({"event": "started", "id": self.id})
         self.speech = synthesizer.speak(
             text,
@@ -176,10 +205,15 @@ class Reading:
         self.watcher = threading.Thread(target=self._watch, daemon=True)
         self.watcher.start()
 
+    def _whole(self, done: float) -> float:
+        """How far through the whole text `done` of the part read is."""
+        return self.offset + (1 - self.offset) * done
+
     def _progress(self, done: float) -> None:
         """Sent once it has moved a step, so a long reading sends a few hundred
         events, not one per slice (pinned by
         `test_serve.py::test_progress_is_sent_in_steps_up_to_the_end`)."""
+        done = self._whole(done)
         if done - self.shown >= PROGRESS_STEP or (done >= 1.0 > self.shown):
             self.shown = done
             self.emit({"event": "progress", "id": self.id, "done": round(done, 3)})

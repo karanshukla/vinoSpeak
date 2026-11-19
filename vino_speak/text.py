@@ -57,10 +57,10 @@ def _pieces(sentence: str, max_chars: int) -> list[str]:
     return out
 
 
-def _sentences(text: str) -> list[str]:
-    """The text split after each sentence and at each blank line, but not
-    after an abbreviation."""
-    out: list[str] = []
+def _breaks(text: str) -> list[re.Match[str]]:
+    """Each break after a sentence and each blank line, but none after an
+    abbreviation."""
+    out: list[re.Match[str]] = []
     start = 0
     for match in SENTENCE_BREAK.finditer(text):
         paragraph = match.group().count("\n") > 1
@@ -68,10 +68,22 @@ def _sentences(text: str) -> list[str]:
             text, max(start, match.start() - 16), match.start()
         ):
             continue
-        out.append(text[start : match.start()])
+        out.append(match)
         start = match.end()
-    out.append(text[start:])
     return out
+
+
+def _sentences(text: str) -> list[str]:
+    breaks = _breaks(text)
+    starts = [0, *(m.end() for m in breaks)]
+    ends = [*(m.start() for m in breaks), len(text)]
+    return [text[start:end] for start, end in zip(starts, ends, strict=True)]
+
+
+def sentence_start(text: str, at: int) -> int:
+    """Where the sentence holding character `at` starts (pinned by
+    `test_text.py::test_a_sentence_starts_after_the_break_before_it`)."""
+    return max((m.end() for m in _breaks(text) if m.end() <= at), default=0)
 
 
 def _first(sentence: str) -> list[str]:

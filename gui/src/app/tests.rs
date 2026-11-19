@@ -1372,6 +1372,30 @@ fn the_bar_shows_how_far_the_reading_is_and_never_goes_back() {
     );
 }
 
+#[test]
+fn scrubbing_reads_again_from_where_the_bar_was_let_go() {
+    let scratch = Scratch::new();
+    let mut h = notes_window(&scratch, "One. Two. Three.");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "Stop");
+    h.get_by_role_and_label(Role::Slider, "Position").click();
+    wait_until(&mut h, "a speak from the middle", |_| {
+        scratch.read("calls").contains(r#""from":0.5"#)
+    });
+    let reading = h.state().reading.as_ref().unwrap();
+    assert_eq!((reading.id, reading.done), (2, 0.5));
+    h.run();
+    h.key_press(egui::Key::ArrowRight);
+    h.run();
+    let done = h.state().reading.as_ref().unwrap().done;
+    assert!((done - 0.55).abs() < 1e-6, "{done}");
+    h.state_mut().on_progress(3, 1.0);
+    h.run();
+    h.key_press(egui::Key::ArrowRight);
+    wait_for(&mut h, "Finished notes.md");
+    assert_eq!(scratch.read("calls").matches(r#""op":"speak""#).count(), 3);
+}
+
 fn selected(h: &Harness<'_, App>, text: &str) -> bool {
     h.get_by_label(text).accesskit_node().is_selected() == Some(true)
 }

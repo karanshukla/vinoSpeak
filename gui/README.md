@@ -67,6 +67,12 @@ first audio plays, the player shows a spinner with Starting… (or
 Translating…), since loading the models and translating the first sentence
 take seconds.
 
+The bar beside the volume shows how far through the text the reading is.
+Click or drag it, or focus it and press the arrow keys (5% a press), and the
+reading starts again from the start of that sentence, with the settings
+chosen now; a translated reading translates again from there. Each jump
+pays the time to the first audio again.
+
 About also shows the downloaded model's size, with Delete… to remove it
 (`vinospeak --delete-model`). It waits for a reading to stop, and stops the
 `vinospeak --serve` worker first; the next reading downloads the model again.
