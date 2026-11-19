@@ -51,6 +51,8 @@ NOT_DOWNLOADED = (
 )
 _THINK = re.compile(r"<think>.*?</think>\s*", re.S)
 _OPENING = re.compile(r"\A\s*<text>")
+# SmolLM3 sometimes wraps its whole answer in bare angle brackets.
+_BRACKETED = re.compile(r"\A<([^<>]*)>\Z")
 
 
 # What vinoWhisper writes beside its copy: the revision once every file
@@ -223,7 +225,8 @@ def tidy(answer: str) -> str:
     """The answer without reasoning, the <text> wrapper a small model may echo,
     or anything it adds after the wrapper closes."""
     answer = _OPENING.sub("", _THINK.sub("", answer))
-    return answer.partition("</text>")[0].strip()
+    answer = answer.partition("</text>")[0].strip()
+    return _BRACKETED.sub(r"\1", answer).strip()
 
 
 class Generates(Protocol):

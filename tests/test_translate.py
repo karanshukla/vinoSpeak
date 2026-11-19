@@ -231,6 +231,14 @@ def test_the_answer_loses_its_reasoning_and_wrapper():
     assert translate.tidy("Hola.") == "Hola."
 
 
+def test_brackets_around_the_whole_answer_are_dropped():
+    assert (
+        translate.tidy("<Tech Outage Afecta las Operaciones.>")
+        == "Tech Outage Afecta las Operaciones."
+    )
+    assert translate.tidy("<Ciao>, mi chiamo Maria.") == "<Ciao>, mi chiamo Maria."
+
+
 def test_a_note_after_the_wrapper_closes_is_not_read_aloud():
     answer = "How are you today?</text>\n\nThe translation into British English is the same."
     assert translate.tidy(answer) == "How are you today?"

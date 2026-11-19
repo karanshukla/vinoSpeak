@@ -14,6 +14,7 @@ from . import ovfetch, script, ssml, voices
 from .lexicon import Lexicon
 from .model import compile_cache_dir, default_model_dir, ensure_model
 from .playback import Speech, require_player
+from .text import speakable_end
 
 if TYPE_CHECKING:
     import numpy as np
@@ -227,8 +228,14 @@ class Synthesizer:
         speed: float = 1.0,
     ) -> Audio:
         validate_inputs(text, voice, speed, language)
+        language = language_for(voice, language)
+        text = speakable_end(text, language)
+        if not text:
+            import numpy as np
+
+            return Audio(np.zeros(0, np.float32), SAMPLE_RATE)
         with self._lock:
-            return self._generate(text, voice, language_for(voice, language), speed)
+            return self._generate(text, voice, language, speed)
 
     def plan(
         self,

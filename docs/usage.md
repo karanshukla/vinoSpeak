@@ -64,6 +64,8 @@ before it is spoken.
 | `en-us`, `en-gb` | `af_heart`, `bf_emma` |
 
 SmolLM3 doesn't do Hindi, so `hi` voices only read Hindi you give them.
+There is no German: SmolLM3 translates into it, but Kokoro has no German
+voice to read it.
 SSML isn't translated: give plain text. Your lexicon applies to the
 translation. A 3B model translates well enough to follow, not to publish:
 check anything that matters.

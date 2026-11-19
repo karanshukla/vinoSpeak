@@ -108,6 +108,17 @@ fn round_button(
     response.on_hover_text(name)
 }
 
+/// What the player says beside Stop: until the first audio, that it is
+/// starting or translating, since loading and translating take seconds
+/// (pinned by `app::tests::the_player_says_it_is_starting_until_the_first_audio`).
+pub(super) fn reading_state(reading: &crate::speech::Reading) -> &'static str {
+    match (reading.heard, reading.translated_into) {
+        (true, _) => "Speaking",
+        (false, Some(_)) => "Translating…",
+        (false, None) => "Starting…",
+    }
+}
+
 impl App {
     pub(super) fn player(&mut self, ui: &mut egui::Ui, hit: &Hit) {
         let speaking_this = self.reading.as_ref().is_some_and(|r| r.file == hit.path);
@@ -140,14 +151,18 @@ impl App {
         if round_button(ui, Icon::Stop, "Stop", p.text, p.bg, true).clicked() {
             self.stop_reading();
         }
-        let secs = self
-            .reading
-            .as_ref()
-            .map_or(0, |r| r.started.elapsed().as_secs());
+        let Some(reading) = self.reading.as_ref() else {
+            return;
+        };
+        let secs = reading.started.elapsed().as_secs();
+        let state = reading_state(reading);
+        if !reading.heard {
+            ui.add(egui::Spinner::new().size(16.0).color(p.muted));
+        }
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            let shown = ui.label(RichText::new("Speaking").family(theme::semibold()));
-            a11y::decorative(ui, shown.id);
+            let shown = ui.label(RichText::new(state).family(theme::semibold()));
+            a11y::live(&shown);
             let clock = ui.label(RichText::new(elapsed(secs)).size(12.5).color(p.muted));
             a11y::decorative(ui, clock.id);
         });

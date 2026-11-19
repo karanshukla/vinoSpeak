@@ -109,6 +109,19 @@ A chunk is never cut after an abbreviation or an initial (`e.g.`, `Dr.`,
 `J. R.`): Kokoro's pitch falls at the end of a chunk, and it would fall
 mid-sentence.
 
+### Symbols at the end
+
+Outside English, Kokoro returns an empty waveform for a text that ends in
+certain symbols, and the reading stopped there with "The generated waveform
+is empty or contains non-finite values." Measured on the NPU, 2026-11-18,
+with "Hola amigos." followed by each symbol, in Spanish, French, Italian and
+Brazilian Portuguese: `< > | _ ` " ' « » – — …` and the curly quotes broke
+every one; `/ \ # ^ ~ =` broke some; English read them all. The same symbol
+mid-text, or at the start, was fine. A clause break after `—` or `–` ends a
+chunk on one, and SmolLM3 sometimes wraps an answer in `<…>`, so readings hit
+it. `speakable_end()` drops a trailing run of them before synthesis, outside
+English; `%`, `&`, `+`, `)` and the like are kept, since Kokoro reads them.
+
 ## Voices and blends
 
 A voice is a `(510, 1, 256)` float32 embedding, one style vector per input

@@ -1228,3 +1228,27 @@ fn the_language_comes_back_in_the_next_window_while_its_model_is_there() {
     without.state_mut().remember(settings);
     assert_eq!(without.state().translate_to, None);
 }
+
+#[test]
+fn the_player_says_it_is_starting_until_the_first_audio() {
+    let state =
+        |h: &Harness<'_, App>| super::player::reading_state(h.state().reading.as_ref().unwrap());
+    for (language, before) in [(None, "Starting…"), (Some("Spanish"), "Translating…")] {
+        let scratch = Scratch::new();
+        let mut h = translating_window(&scratch);
+        if let Some(language) = language {
+            pick_language(&mut h, language);
+        }
+        let ctx = h.ctx.clone();
+        h.state_mut().start_worker(&ctx);
+        h.state_mut().read_aloud(&ctx);
+        assert_eq!(state(&h), before);
+        wait_until(&mut h, "the first audio", |h| {
+            h.state().reading.as_ref().is_none_or(|r| r.heard)
+        });
+    }
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "Speaking");
+}

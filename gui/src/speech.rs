@@ -323,6 +323,8 @@ pub struct Reading {
     pub stop_sent: Option<Instant>,
     /// The language it is being translated into, if any.
     pub translated_into: Option<crate::translation::Target>,
+    /// Whether its first audio has reached the speakers.
+    pub heard: bool,
 }
 
 #[cfg(test)]
