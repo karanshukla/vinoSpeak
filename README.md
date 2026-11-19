@@ -10,68 +10,71 @@
 [![CI](https://github.com/karanshukla/vinoSpeak/actions/workflows/ci.yml/badge.svg)](https://github.com/karanshukla/vinoSpeak/actions/workflows/ci.yml)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-Local text-to-speech on the Intel NPU, using Kokoro-82M INT8 through OpenVINO
-GenAI. Type a sentence or point it at a file and it reads it aloud. Nothing
-leaves your machine after the one-time ~160 MB model download, and OpenVINO's
-own telemetry is blocked.
+Local text-to-speech on the Intel NPU using Kokoro-82M INT8 through OpenVINO
+GenAI. Pass text, a file, or stdin and vinoSpeak reads it aloud or saves audio.
+After a one-time ~160 MB model download, all synthesis runs locally with
+OpenVINO telemetry disabled.
 
-- **Speaks text, files and stdin.** Markdown is cleaned up for listening, and
-  PDFs, Word and slides work through [vinoSearch](https://github.com/karanshukla/vinoSearch)'s extracted text.
-- **Reads [vinoWhisper](https://github.com/karanshukla/vinoWhisper) sessions**:
-  the summary, or the transcript.
-- **Starts talking in about 1.5 s on the NPU**, however long the text: the first
-  sentence plays while the rest is synthesized.
-- **41 Kokoro voices** in US/UK English, Spanish, French, Hindi, Italian and
-  Brazilian Portuguese, at 0.5x to 2x speed, or a blend of several.
-- **Translates before it reads**, if you ask: SmolLM3-3B (the model
-  vinoWhisper uses, a 1.7 GB opt-in download) turns a file into Spanish,
-  French, Italian, Portuguese or English, and Kokoro reads it as it goes.
-- **SSML and your own pronunciations**: pauses, voice and speed changes and
-  aliases in a small SSML subset, and a lexicon that respells the words
-  Kokoro gets wrong.
-- **Plays or saves**: your speakers via PipeWire/PulseAudio/ALSA, or a WAV,
-  FLAC, OGG, Opus or MP3, with SRT or WebVTT subtitles timed to it.
-- **NPU, GPU or CPU.** CPU works with no driver at all.
-- **OpenAI's speech API on localhost**: `vinospeak --http` serves
-  `/v1/audio/speech`, so Open WebUI, Home Assistant or any OpenAI client can
-  use it.
-- A [window](gui/) (proof of concept) to find a file with vinoSearch and listen
-  to it, and a Python API.
+- **Text, files, and stdin:** Reads plain text, cleans up Markdown for
+  listening, and supports PDFs, Word documents, and slides via
+  [vinoSearch](https://github.com/karanshukla/vinoSearch)'s extracted text.
+- **vinoWhisper sessions:** Reads either the summary or the transcript of a
+  [vinoWhisper](https://github.com/karanshukla/vinoWhisper) `.vwsession` file.
+- **Low latency:** Starts speaking in about 1.5 s on the NPU regardless of text
+  length by playing the first sentence while synthesizing the rest.
+- **41 Kokoro voices:** Covers US/UK English, Spanish, French, Hindi, Italian,
+  and Brazilian Portuguese, with 0.5x–2.0x speed control and multi-voice
+  blending.
+- **Optional local translation:** Uses SmolLM3-3B (the same 1.7 GB opt-in model
+  used by vinoWhisper) to translate text into Spanish, French, Italian,
+  Portuguese, or English as it reads.
+- **SSML and custom pronunciations:** Supports a subset of SSML (pauses, voice
+  and speed changes, aliases) plus a TOML lexicon for custom word respellings.
+- **Speakers or audio files:** Plays through PipeWire, PulseAudio, or ALSA, or
+  writes WAV, FLAC, OGG, Opus, or MP3 files with timed SRT or WebVTT subtitles.
+- **Flexible hardware:** Runs on Intel NPU, GPU, or CPU (CPU requires no extra
+  driver).
+- **Local OpenAI-compatible HTTP API:** `vinospeak --http` serves
+  `/v1/audio/speech` on localhost for Open WebUI, Home Assistant, or any OpenAI
+  TTS client.
+- **Desktop GUI and Python API:** Includes a proof-of-concept
+  [desktop window](gui/) integrated with vinoSearch, as well as a Python library
+  API.
 
 <p align="center"><img src="docs/assets/gui.svg" width="800" alt="The vinoSpeak window. Typing &quot;how often is the lens cleaned&quot; finds lighthouse-log.pdf through vinoSearch; Read aloud starts speaking it and the status bar says so. Then a vinoWhisper session, Harbour safety meeting, is picked and its summary is read aloud."></p>
 
 ## Install
 
-One line, no sudo, everything in your home:
+Install into your home directory without `sudo`:
 
 ```bash
 curl -fsSL https://github.com/karanshukla/vinoSpeak/releases/latest/download/install.sh | bash
 vinospeak "Hello."
 ```
 
-Add `-s -- --gui` after `bash` for the window too. `vinospeak-upgrade` upgrades
-it, and `vinospeak-upgrade --uninstall` removes it all, the downloaded model
-included.
+Pass `-s -- --gui` after `bash` to install the desktop window as well. Use
+`vinospeak-upgrade` to update, or `vinospeak-upgrade --uninstall` to remove
+vinoSpeak along with the downloaded model.
 
-Or with [uv](https://docs.astral.sh/uv/), Python 3.11 to 3.14:
+You can also install with [uv](https://docs.astral.sh/uv/) on Python 3.11–3.14:
 
 ```bash
 uv tool install --python 3.14 vinospeak
 ```
 
-From source, the window, Fedora Atomic, NixOS and which package has an audio
-player: [docs/install.md](docs/install.md).
+See [docs/install.md](docs/install.md) for source builds, the desktop window,
+Fedora Atomic and NixOS notes, and audio player packages.
 
-## What it needs
+## Requirements
 
-| | |
+| Requirement | Details |
 |---|---|
-| Linux | Python comes with uv; espeak-ng and libsndfile come in the wheels |
-| An audio player | `pw-play`, `paplay` or `aplay`, or use `--output` |
-| For `--device NPU` | An Intel NPU and its driver. `--device CPU` needs no driver at all |
-| Disk | About 160 MB for the model, downloaded once into `~/.cache/vinospeak/`; 1.7 GB more in `~/.local/share/vinowhisper/models/` if you turn translation on (shared with vinoWhisper) |
+| Linux | Python is managed by uv; `espeak-ng` and `libsndfile` are bundled in the wheels |
+| Audio player | `pw-play`, `paplay`, or `aplay` for speaker playback (not required when using `--output`) |
+| Intel NPU (optional) | Required for `--device NPU` along with the Intel NPU driver; `--device CPU` works without any accelerator driver |
+| Disk space | ~160 MB for the Kokoro model in `~/.cache/vinospeak/`; an additional 1.7 GB in `~/.local/share/vinowhisper/models/` if you enable translation (shared with vinoWhisper) |
 
-## Use
+## Usage
 
 ```bash
 vinospeak "Hello from vinoSpeak."                  # play it
@@ -87,26 +90,26 @@ vinospeak --file notes.md --translate fr-fr                      # in French (af
 vinospeak "Hello." --voice "af_heart(2)+bm_george(1)"            # a blend of two voices
 ```
 
-| Option | What it does |
+| Option | Description |
 |---|---|
-| `--voice`, `--speed` | Kokoro voice (default `af_heart`) or a blend like `af_heart(2)+bm_george(1)`; 0.5 to 2.0 |
-| `--list-voices` | Every voice, its language and accent |
-| `--language` | Read as this language instead of the voice's own |
-| `--output`, `--subtitles` | Save instead of playing, by suffix; subtitles a sentence a cue (`.srt`, `.vtt`) |
-| `--device` | `NPU` (default), `GPU` or `CPU` |
-| `--audio-device` | A sink from `pactl list short sinks`, or an ALSA device |
-| `--kind` | Read `--file` as `plain`, `markdown` or `document` |
-| `--translate`, `--download-translation-model` | Translate into `es`, `fr-fr`, `it`, `pt-br`, `en-us` or `en-gb` first; the model downloads only when you ask |
-| `--lexicon` | Respell words from this TOML file instead of `~/.config/vinospeak/lexicon.toml` |
-| `--part` | `summary` or `transcript` of a vinoWhisper session |
-| `--http [HOST:]PORT` | Serve OpenAI's `/v1/audio/speech` (default `127.0.0.1:8880`) |
-| `--model-status`, `--delete-model` | Show or delete the downloaded model |
-| `--model-dir` | Use your own model directory, unchecked |
+| `--voice`, `--speed` | Kokoro voice (default `af_heart`) or a blend like `af_heart(2)+bm_george(1)`; speed from `0.5` to `2.0` |
+| `--list-voices` | List all available voices with language and accent |
+| `--language` | Override the voice's default language |
+| `--output`, `--subtitles` | Save audio instead of playing (format chosen by file suffix); write sentence-timed `.srt` or `.vtt` subtitles |
+| `--device` | Inference device: `NPU` (default), `GPU`, or `CPU` |
+| `--audio-device` | Target sink from `pactl list short sinks`, or an ALSA device name |
+| `--kind` | Interpret `--file` as `plain`, `markdown`, or `document` |
+| `--translate`, `--download-translation-model` | Translate into `es`, `fr-fr`, `it`, `pt-br`, `en-us`, or `en-gb` before speaking; the translation model is only downloaded when requested |
+| `--lexicon` | Use a custom TOML pronunciation file instead of `~/.config/vinospeak/lexicon.toml` |
+| `--part` | Choose `summary` or `transcript` when reading a vinoWhisper session |
+| `--http [HOST:]PORT` | Serve OpenAI's `/v1/audio/speech` API (default `127.0.0.1:8880`) |
+| `--model-status`, `--delete-model` | Inspect or delete the cached Kokoro model |
+| `--model-dir` | Load an unverified local model directory |
 
-`vinospeak --help` lists everything, and `vinospeak-doctor` checks what this
-machine has (`--json` for a bug report).
+Run `vinospeak --help` for the full option list, or `vinospeak-doctor` to check
+your environment (`--json` for bug reports).
 
-From Python:
+### Python API
 
 ```python
 from vino_speak import Synthesizer
@@ -115,13 +118,13 @@ synth = Synthesizer("NPU")  # compiles once; reuse it
 audio = synth.synthesize("Hello.")  # audio.samples (float32), audio.sample_rate
 ```
 
-## Docs
+## Documentation
 
-| | |
+| Document | Contents |
 |---|---|
-| [docs/install.md](docs/install.md) | Every way to install it, the window, distro notes |
-| [docs/usage.md](docs/usage.md) | How files are read, sessions, the model on disk, the doctor, the Python API |
-| [docs/architecture.md](docs/architecture.md) | Why it is built this way, with the measurements |
-| [gui/README.md](gui/README.md) | The window |
-| [SECURITY.md](SECURITY.md) | What leaves your machine (nothing), and how the model download is verified |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Setup, tests, releasing. `uv run poe check` runs what CI does; none of it needs OpenVINO or an NPU |
+| [docs/install.md](docs/install.md) | Installation methods, desktop window setup, distro notes, and audio player packages |
+| [docs/usage.md](docs/usage.md) | File parsing, translation, SSML, lexicons, sessions, HTTP server, model management, doctor, and Python API |
+| [docs/architecture.md](docs/architecture.md) | Module layout, design rationale, and performance measurements |
+| [gui/README.md](gui/README.md) | Desktop window usage, controls, and headless testing |
+| [SECURITY.md](SECURITY.md) | Privacy model, HTTP server safeguards, and model hash verification |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, tests (`uv run poe check`, which requires no OpenVINO or NPU), and release process |
