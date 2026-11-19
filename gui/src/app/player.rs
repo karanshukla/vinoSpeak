@@ -201,6 +201,9 @@ fn scrubber(ui: &mut egui::Ui, done: f32, width: f32) -> Option<f32> {
 /// starting or translating, since loading and translating take seconds
 /// (pinned by `app::tests::the_player_says_it_is_starting_until_the_first_audio`).
 pub(super) fn reading_state(reading: &crate::speech::Reading) -> &'static str {
+    if reading.paused_at.is_some() {
+        return "Paused";
+    }
     match (reading.heard, reading.translated_into) {
         (true, _) => "Speaking",
         (false, Some(_)) => "Translating…",
@@ -296,19 +299,19 @@ impl App {
         let Some(reading) = self.reading.as_ref() else {
             return;
         };
-        let secs = reading.started.elapsed().as_secs();
+        let secs = reading.played().as_secs();
         let state = reading_state(reading);
         let mut under = elapsed(secs);
         if let Some(target) = reading.translated_into {
             under = format!("{under} · into {}", target.name);
         }
-        let heard = reading.heard;
+        let spinning = !reading.heard && reading.paused_at.is_none();
         ui.vertical(|ui| {
             ui.set_min_width(STATE_WIDTH);
             ui.spacing_mut().item_spacing.y = 0.0;
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                if !heard {
+                if spinning {
                     ui.add(egui::Spinner::new().size(13.0).color(p.muted));
                 }
                 let shown = ui.label(RichText::new(state).family(theme::semibold()));

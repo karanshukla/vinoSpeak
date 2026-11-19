@@ -326,6 +326,12 @@ impl Worker {
         self.send(&serde_json::json!({"op": "volume", "volume": volume}))
     }
 
+    /// Hold the reading under way where it is, or let it go on.
+    pub fn pause(&mut self, paused: bool) -> Result<()> {
+        let op = if paused { "pause" } else { "resume" };
+        self.send(&serde_json::json!({ "op": op }))
+    }
+
     pub fn stop(&mut self) -> Result<()> {
         self.send(&serde_json::json!({"op": "stop"}))
     }
@@ -383,6 +389,15 @@ pub struct Reading {
     pub heard: bool,
     /// How far through the text playback is, 0 to 1.
     pub done: f32,
+    /// When it was paused, if it is.
+    pub paused_at: Option<Instant>,
+}
+
+impl Reading {
+    /// How long it has played, not counting a pause.
+    pub fn played(&self) -> Duration {
+        self.paused_at.unwrap_or_else(Instant::now) - self.started
+    }
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@
 
 mod app;
 mod model_cache;
+mod mpris;
 mod open;
 mod outputs;
 mod search;
@@ -65,6 +66,7 @@ fn main() -> ExitCode {
             vino_ui::theme::install(&cc.egui_ctx);
             let mut app = app::App::new();
             app.app_title_bar = app_title_bar;
+            app.show_on_the_bus(&cc.egui_ctx);
             Ok(Box::new(app))
         }),
     );

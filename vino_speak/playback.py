@@ -7,6 +7,7 @@ import contextlib
 import functools
 import queue
 import shutil
+import signal
 import subprocess
 import threading
 from collections.abc import Callable, Iterable, Iterator
@@ -100,7 +101,8 @@ def scaled(samples: NDArray[np.float32], volume: float) -> bytes:
 class Speech:
     """Audio playing in the background as it arrives. stop() cuts it off at
     once; wait() blocks until it has finished and raises whatever went wrong.
-    `volume` (0 to 1) can be changed while it plays.
+    `volume` (0 to 1) can be changed while it plays, and pause() holds it
+    where it is until resume().
 
     A chunk already being synthesized when stop() is called still finishes
     in the background, since the pipeline can't be interrupted, so the next
@@ -128,6 +130,8 @@ class Speech:
         self._on_first_audio = on_first_audio
         self._on_progress = on_progress
         self._stopped = threading.Event()
+        self._playing = threading.Event()
+        self._playing.set()
         self._ready: queue.Queue[Audio | None] = queue.Queue(maxsize=CHUNKS_SYNTHESIZED_AHEAD)
         self._process: subprocess.Popen[bytes] | None = None
         self._process_lock = threading.Lock()
@@ -148,6 +152,34 @@ class Speech:
         with self._process_lock:
             if self._process is not None:
                 self._process.kill()
+
+    @property
+    def paused(self) -> bool:
+        return not self._playing.is_set()
+
+    def pause(self) -> None:
+        """Hold playback at once: no more samples are written, and the player
+        is frozen with what it already holds (pinned by
+        `test_playback.py::test_a_paused_speech_writes_nothing_until_resumed`)."""
+        self._playing.clear()
+        self._signal(signal.SIGSTOP)
+
+    def resume(self) -> None:
+        self._signal(signal.SIGCONT)
+        self._playing.set()
+
+    def _signal(self, sig: signal.Signals) -> None:
+        with self._process_lock:
+            if self._process is not None and self._process.poll() is None:
+                with contextlib.suppress(ProcessLookupError):
+                    self._process.send_signal(sig)
+
+    def _hold_while_paused(self) -> bool:
+        """False once stop() is called while paused."""
+        while not self._playing.wait(0.1):
+            if self._stopped.is_set():
+                return False
+        return not self._stopped.is_set()
 
     def wait(self, timeout: float | None = None) -> bool:
         """True once playback has ended, False if `timeout` ran out first."""
@@ -217,7 +249,7 @@ class Speech:
                 )
             step = max(1, round(rate * SLICE_SECONDS))
             for start in range(0, len(chunk.samples), step):
-                if self._stopped.is_set():
+                if not self._hold_while_paused():
                     return
                 stdin.write(scaled(chunk.samples[start : start + step], self.volume))
                 stdin.flush()
@@ -237,6 +269,8 @@ class Speech:
             self._process = subprocess.Popen(
                 raw_command(self._player, sample_rate, self._audio_device), stdin=subprocess.PIPE
             )
+            if not self._playing.is_set():
+                self._process.send_signal(signal.SIGSTOP)
             return self._process.stdin
 
     def _finish(self) -> None:

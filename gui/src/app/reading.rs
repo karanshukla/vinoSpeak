@@ -106,6 +106,7 @@ impl App {
                     translated_into: target,
                     heard: false,
                     done: at,
+                    paused_at: None,
                 });
             }
             Err(e) => {
@@ -128,6 +129,23 @@ impl App {
             && worker.set_volume(volume).is_err()
         {
             self.worker = None;
+        }
+    }
+
+    /// Pause the reading under way, or resume it; the clock holds while it
+    /// is paused (pinned by `app::tests::space_pauses_and_resumes_the_reading`).
+    pub(super) fn toggle_pause(&mut self) {
+        let (Some(reading), Some(worker)) = (&mut self.reading, &mut self.worker) else {
+            return;
+        };
+        let paused = reading.paused_at.is_none();
+        if worker.pause(paused).is_err() {
+            self.worker = None;
+            return;
+        }
+        match reading.paused_at.take() {
+            Some(at) => reading.started += at.elapsed(),
+            None => reading.paused_at = Some(Instant::now()),
         }
     }
 

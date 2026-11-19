@@ -9,6 +9,8 @@ Requests, one JSON object a line on stdin:
      "translate": null,   (or "es": translated into that language first)
      "from": 0.0}         (or 0.42: read from the sentence that far into the text)
     {"op": "volume", "volume": 0.5}   (the reading playing, from its next tenth of a second)
+    {"op": "pause"}    (the reading playing, held where it is)
+    {"op": "resume"}
     {"op": "stop"}
 
 Events, one a line on stdout:
@@ -23,7 +25,8 @@ Events, one a line on stdout:
     {"event": "done", "id": 1, "stopped": false}
     {"event": "error", "id": 1, "message": "..."}  (id null for a request that didn't parse)
 
-A speak or a stop ends the reading before it; a volume leaves it playing.
+A speak or a stop ends the reading before it; a volume, pause or resume
+leaves it under way.
 The worker exits when stdin closes. The translation model is loaded only for
 the first request that asks for a translation."""
 
@@ -42,7 +45,7 @@ from .tts import DEFAULT_VOICE
 # Synthesized once after loading and thrown away (pinned by
 # `test_serve.py::test_main_warms_up_says_ready_then_serves`).
 WARM_UP = "Ready."
-OPS = ("speak", "volume", "stop")
+OPS = ("speak", "volume", "pause", "resume", "stop")
 
 Emit = Callable[[dict[str, Any]], None]
 
@@ -274,6 +277,12 @@ def serve(
         op = request["op"]
         if op == "volume":
             set_volume(reading, request, emit)
+            continue
+        if op in ("pause", "resume"):
+            if reading is not None and op == "pause":
+                reading.speech.pause()
+            elif reading is not None:
+                reading.speech.resume()
             continue
         if reading is not None:
             reading.stop()

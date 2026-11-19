@@ -25,6 +25,12 @@ class FakeSpeech:
     def stop(self):
         self.stopped.set()
 
+    def pause(self):
+        self.paused = True
+
+    def resume(self):
+        self.paused = False
+
 
 class FakeSynthesizer:
     """Plays at once and stops when told, or when the request says "end"."""
@@ -375,3 +381,20 @@ def test_ssml_is_read_only_from_the_start():
     ssml = "<speak>One. Two.</speak>"
     _, events = run({"op": "speak", "id": 8, "text": ssml, "from": 0.5})
     assert events[-1]["message"] == "SSML can only be read from the start."
+
+
+def test_pause_and_resume_hold_the_reading_without_ending_it():
+    synthesizer, events = run(
+        {"op": "pause"},  # with nothing playing, nothing to hold
+        {"op": "speak", "id": 9, "text": "Hello."},
+        {"op": "pause"},
+    )
+    assert synthesizer.speeches[0].paused
+    assert [e["event"] for e in events] == ["started", "first-audio", "done"], (
+        "a pause ends nothing"
+    )
+    synthesizer, _ = run(
+        {"op": "speak", "id": 9, "text": "Hello."}, {"op": "pause"}, {"op": "resume"}
+    )
+    assert synthesizer.speeches[0].paused is False
+    assert len(synthesizer.speeches) == 1

@@ -13,12 +13,14 @@
 //! - `sidebar`, `header`, `results`, `reader`, `player`, `volume`, `about`: what is drawn
 //! - `choices`: the voice, speed and volume kept between runs
 //! - `capture`: the screenshot taken with nobody at the screen
+//! - `media`: the desktop's media controls (MPRIS) and Space
 
 mod about;
 mod capture;
 mod choices;
 mod files;
 mod header;
+mod media;
 mod model;
 mod player;
 mod reader;
@@ -145,6 +147,8 @@ pub struct App {
     translation: Translation,
     /// The language a reading is translated into first; None reads it as it is.
     translate_to: Option<crate::translation::Target>,
+    /// The window as a media player on the session bus, and what it is asked.
+    media: Option<(crate::mpris::Media, mpsc::Receiver<crate::mpris::Command>)>,
 }
 
 impl App {
@@ -237,6 +241,7 @@ impl App {
             translation_dir: crate::translation::dir(),
             translation: Translation::default(),
             translate_to: None,
+            media: None,
         }
     }
 
@@ -272,6 +277,8 @@ impl App {
         self.search_when_typing_pauses(ctx);
         self.open_dropped(ctx);
         self.poll_reading(ctx);
+        self.space_pauses(ctx);
+        self.follow_media_controls(ctx);
         ctx.accesskit_node_builder(egui::accesskit_root_id(), |node| {
             node.set_label("vinoSpeak")
         });

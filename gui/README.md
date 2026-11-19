@@ -73,6 +73,13 @@ reading starts again from the start of that sentence, with the settings
 chosen now; a translated reading translates again from there. Each jump
 pays the time to the first audio again.
 
+Space pauses the reading where it is and resumes it (unless the search box
+is being typed in). The window is also a media player on the session bus
+(MPRIS, `org.mpris.MediaPlayer2.vinospeak`), so the desktop's media controls
+show the file being read and its voice, and Play, Pause and Stop there or on
+the keyboard's media keys drive it; Play with nothing under way reads the
+file shown.
+
 About also shows the downloaded model's size, with Delete… to remove it
 (`vinospeak --delete-model`). It waits for a reading to stop, and stops the
 `vinospeak --serve` worker first; the next reading downloads the model again.
