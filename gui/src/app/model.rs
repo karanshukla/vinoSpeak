@@ -6,10 +6,10 @@ use eframe::egui;
 use super::{App, Reply};
 use crate::{model_cache, voices};
 
-/// The model on About's Model row.
+/// The model on Settings' Model row.
 #[derive(Default)]
 pub(super) struct Model {
-    /// Bytes on disk, the model and its compiled copy; None until About shows.
+    /// Bytes on disk, the model and its compiled copy; None until Settings shows.
     pub(super) bytes: Option<u64>,
     pub(super) confirm: bool,
     pub(super) deleting: bool,

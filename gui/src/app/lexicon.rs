@@ -1,4 +1,4 @@
-//! About's Pronunciations: lexicon.toml's words, edited in place and saved
+//! Settings' Pronunciations: lexicon.toml's words, edited in place and saved
 //! for the worker to read again before the next reading.
 
 use std::path::PathBuf;
@@ -10,7 +10,7 @@ use vino_ui::widgets::{self, Button, Row, Tone};
 use super::App;
 use crate::lexicon::{self, Entry};
 
-/// lexicon.toml as About shows it.
+/// lexicon.toml as Settings shows it.
 #[derive(Default)]
 pub(super) struct Pronunciations {
     /// None when there is no home to keep it in.
@@ -65,7 +65,7 @@ impl App {
         );
         if let Some(error) = self.lexicon.error.clone() {
             let help =
-                format!("Can't be edited here: {error} Fix it by hand, then open About again.");
+                format!("Can't be edited here: {error} Fix it by hand, then open Settings again.");
             widgets::group(ui, |ui| {
                 Row::new("lexicon.toml")
                     .help(&help)
@@ -75,7 +75,20 @@ impl App {
             return;
         }
         let mut remove = None;
+        let mut add = false;
+        let count = self.lexicon.entries.len();
+        let help = match count {
+            0 => "No words yet.".to_owned(),
+            1 => "1 word".to_owned(),
+            n => format!("{n} words"),
+        };
         widgets::group(ui, |ui| {
+            Row::new("Words").help(&help).show(ui, |ui, _| {
+                add = ui.add(Button::secondary("Add a word").small()).clicked();
+            });
+            if count == 0 {
+                return;
+            }
             egui::Frame::NONE
                 .inner_margin(egui::Margin::symmetric(14, 10))
                 .show(ui, |ui| {
@@ -96,20 +109,20 @@ impl App {
                             }
                         });
                     }
-                    ui.horizontal(|ui| {
-                        if ui.add(Button::ghost("Add a word").small()).clicked() {
-                            self.lexicon.entries.push(Entry::default());
-                        }
-                        let changed = self.lexicon.entries != self.lexicon.saved;
-                        if ui
-                            .add_enabled(changed, Button::primary("Save pronunciations").small())
-                            .clicked()
-                        {
-                            self.save_lexicon();
-                        }
-                    });
                 });
         });
+        if add {
+            self.lexicon.entries.push(Entry::default());
+        }
+        if self.lexicon.entries != self.lexicon.saved {
+            ui.add_space(8.0);
+            if ui
+                .add(Button::primary("Save pronunciations").small())
+                .clicked()
+            {
+                self.save_lexicon();
+            }
+        }
         if let Some(n) = remove {
             self.lexicon.entries.remove(n);
         }

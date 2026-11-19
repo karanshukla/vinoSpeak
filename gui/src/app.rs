@@ -1,6 +1,7 @@
 //! The window: a sidebar with the search, vinoSearch's hits (or the files
-//! changed most recently) and About, and the chosen file as vinoSpeak will
-//! say it, with Read aloud and Stop. Narrow, the sidebar becomes tabs. Its
+//! changed most recently), Settings and About, and the chosen file as
+//! vinoSpeak will say it, with Read aloud and Stop. Narrow, the sidebar
+//! becomes tabs. Its
 //! look is vino-ui's, shared with the other vinoPilot apps.
 //!
 //! This file is the window's state and one frame of it. Each part of the
@@ -10,9 +11,10 @@
 //! - `reading`: the worker and the reading under way
 //! - `model`: the downloaded model's size, voices and deletion
 //! - `translation`: the translation model's download, and the Translate picker
-//! - `sidebar`, `header`, `results`, `reader`, `player`, `volume`, `about`: what is drawn
+//! - `sidebar`, `header`, `results`, `reader`, `player`, `volume`: what is drawn
+//! - `settings`, `about`: the Settings and About pages
 //! - `save`: saving the speech to an audio file
-//! - `lexicon`, `api`: About's Pronunciations and Speech API
+//! - `lexicon`, `api`: Settings' Pronunciations and Speech API
 //! - `choices`: the voice, speed and volume kept between runs
 //! - `capture`: the screenshot taken with nobody at the screen
 //! - `media`: the desktop's media controls (MPRIS) and Space
@@ -31,6 +33,7 @@ mod reader;
 mod reading;
 mod results;
 mod save;
+mod settings;
 mod sidebar;
 #[cfg(test)]
 mod tests;
@@ -75,6 +78,15 @@ enum Reply {
     Translation(anyhow::Result<String>),
     /// Where the desktop's save dialog said to save the speech.
     SaveTo(anyhow::Result<Option<PathBuf>>),
+}
+
+/// What the page beside the sidebar shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Page {
+    /// The chosen file, or the other apps until one is picked.
+    Reader,
+    Settings,
+    About,
 }
 
 /// The chosen file's text, as vinospeak gives it: what the worker is sent
@@ -144,8 +156,8 @@ pub struct App {
     /// (vino-ui's `window`).
     pub app_title_bar: bool,
     text_scale: Option<f32>,
-    /// The About page shows in place of the reader until a file is picked.
-    about: bool,
+    /// Settings or About in place of the reader, until a file is picked.
+    page: Page,
     /// A narrow window shows the list in place of the reader, as its Files tab.
     listing: bool,
     updater: vino_ui::update::Updater,
@@ -163,7 +175,7 @@ pub struct App {
     saving: Option<save::Saving>,
     /// How the last save went.
     save_note: Option<String>,
-    /// About's Pronunciations: lexicon.toml's words.
+    /// Settings' Pronunciations: lexicon.toml's words.
     lexicon: lexicon::Pronunciations,
     /// Whether the speech API's switch is on, the server, and how it is doing.
     api_on: bool,
@@ -194,9 +206,14 @@ impl App {
         if let Ok(query) = std::env::var("VINOSPEAK_GUI_QUERY") {
             app.type_query(&query);
         }
-        if let Ok(about) = std::env::var("VINOSPEAK_GUI_ABOUT") {
+        if std::env::var_os("VINOSPEAK_GUI_ABOUT").is_some() {
             app.open_about();
-            app.model.confirm = about == "delete";
+            app.listing = false;
+        }
+        if let Ok(settings) = std::env::var("VINOSPEAK_GUI_SETTINGS") {
+            app.open_settings();
+            app.listing = false;
+            app.model.confirm = settings == "delete";
         }
         app
     }
@@ -257,7 +274,7 @@ impl App {
             kde_header: None,
             app_title_bar: false,
             text_scale: None,
-            about: false,
+            page: Page::Reader,
             listing: true,
             updater: about::updater(),
             cache: model_cache::dir(),
@@ -339,18 +356,27 @@ impl App {
         self.capture(ctx);
     }
 
-    /// The page's title up in the window's bar: the chosen file, or About.
+    /// The page's title up in the window's bar: the chosen file, Settings or About.
     fn bar_title(&self, ui: &mut egui::Ui) {
-        if self.about {
-            let title = widgets::title(ui, vino_ui::about::TITLE);
-            a11y::heading(&title, vino_ui::about::TITLE, 2);
+        if let Some(name) = self.page_title() {
+            let title = widgets::title(ui, name);
+            a11y::heading(&title, name, 2);
         } else if let Some(hit) = &self.selected {
             reader::title_line(ui, hit);
         }
     }
 
+    /// Settings' or About's title; None on the reader.
+    fn page_title(&self) -> Option<&'static str> {
+        match self.page {
+            Page::Reader => None,
+            Page::Settings => Some(settings::TITLE),
+            Page::About => Some(vino_ui::about::TITLE),
+        }
+    }
+
     /// Beside the sidebar, or under the narrow header's tabs: the reader,
-    /// About, or (narrow) the list.
+    /// Settings, About, or (narrow) the list.
     fn page(&mut self, root: &mut egui::Ui, wide: bool, bar: bool, inset: f32) {
         let p = theme::palette(root.ctx());
         let top = if bar {
@@ -376,10 +402,14 @@ impl App {
                             ..margin
                         })
                         .show(ui, |ui| self.files_page(ui));
-                } else if self.about {
+                } else if self.page == Page::About {
                     egui::Frame::NONE
                         .inner_margin(margin)
                         .show(ui, |ui| self.about(ui, bar));
+                } else if self.page == Page::Settings {
+                    egui::Frame::NONE
+                        .inner_margin(margin)
+                        .show(ui, |ui| self.settings_page(ui, bar));
                 } else {
                     self.reader(ui, inset, top, bar);
                 }

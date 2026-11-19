@@ -1,4 +1,4 @@
-//! Translating before reading: About's row that downloads or deletes the
+//! Translating before reading: Settings' row that downloads or deletes the
 //! translation model, and the player's Translate picker, which until then is
 //! a button that leads to that row. Nothing is downloaded or loaded until asked for:
 //! the model loads in the worker at the first translated reading.
@@ -33,7 +33,7 @@ pub(super) struct Translation {
     pub(super) downloaded: bool,
     /// vinoWhisper uses the same copy, so it isn't deleted from here.
     pub(super) shared: bool,
-    /// Bytes in the translation folder, read when About shows and while downloading.
+    /// Bytes in the translation folder, read when Settings shows and while downloading.
     pub(super) bytes: u64,
     pub(super) step: Option<Step>,
     pub(super) error: Option<String>,
@@ -92,7 +92,7 @@ impl App {
         }
     }
 
-    /// About's Translation row, under the Model row.
+    /// Settings' Translation row.
     pub(super) fn translation_row(&mut self, ui: &mut egui::Ui) {
         let p = theme::palette(ui.ctx());
         if self.translation.step == Some(Step::Downloading) {
@@ -200,7 +200,7 @@ impl App {
     }
 
     /// The player's Translate picker, once the model is downloaded; until then
-    /// a button that opens About at its download (pinned by
+    /// a button that opens Settings at its download (pinned by
     /// `app::tests::translate_before_its_download_leads_to_the_download`).
     /// Picking a language picks a voice of it, unless the voice already speaks it
     /// (pinned by `app::tests::picking_a_language_picks_a_voice_that_speaks_it`).
@@ -208,14 +208,14 @@ impl App {
         let p = theme::palette(ui.ctx());
         if !self.translation.downloaded {
             let offered = ui
-                .add(Button::secondary("Translate…"))
+                .add(Button::secondary("Translate…").min_width(ui.available_width()))
                 .on_hover_text(format!(
-                    "Download {} ({}) on About to read a file in another language",
+                    "Download {} ({}) in Settings to read a file in another language",
                     translation::LABEL,
                     model_cache::size(translation::DOWNLOAD_BYTES)
                 ));
             if offered.clicked() {
-                self.open_about();
+                self.open_settings();
                 self.translation.step = Some(Step::ConfirmDownload);
                 self.translation.error = None;
             }

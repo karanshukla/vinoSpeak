@@ -3,9 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
-use eframe::egui::{self, RichText};
+use eframe::egui;
 use vino_ui::a11y;
-use vino_ui::theme;
 use vino_ui::widgets::{self, Button};
 
 use super::{App, Reply};
@@ -25,7 +24,7 @@ pub(super) fn format(suffix: &str) -> Option<&'static str> {
     FORMATS.iter().find(|(s, _)| *s == suffix).map(|(s, _)| *s)
 }
 
-fn kind(suffix: &str) -> &'static str {
+pub(super) fn kind(suffix: &str) -> &'static str {
     FORMATS
         .iter()
         .find(|(s, _)| *s == suffix)
@@ -74,51 +73,53 @@ fn length(seconds: f32) -> String {
 }
 
 impl App {
-    /// Format, Subtitles and Save as…; while saving, how far it is and Cancel.
-    pub(super) fn save_row(&mut self, ui: &mut egui::Ui) {
-        let p = theme::palette(ui.ctx());
-        let heading = ui.label(
-            RichText::new("SAVE AS AUDIO")
-                .size(11.0)
-                .family(theme::semibold())
-                .color(p.muted),
-        );
-        a11y::decorative(ui, heading.id);
-        ui.add_space(2.0);
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 12.0;
-            if let Some(saving) = &self.saving {
-                let (done, name) = (saving.done, name_of(&saving.output));
-                widgets::progress(ui, done, 160.0);
-                let said = format!("Saving {name} · {:.0}%", done * 100.0);
-                a11y::live(&ui.label(said));
-                let cancel = ui.add_enabled(!saving.cancel_sent, Button::ghost("Cancel").small());
+    /// The player's Save as…; while saving, how far it is and Cancel. The
+    /// format and subtitles are chosen on Settings.
+    pub(super) fn save_cell(&mut self, ui: &mut egui::Ui) {
+        let width = ui.available_width();
+        if let Some(saving) = &self.saving {
+            let done = saving.done;
+            let cancel_sent = saving.cancel_sent;
+            ui.horizontal(|ui| {
+                ui.set_min_height(widgets::CONTROL_HEIGHT);
+                ui.spacing_mut().item_spacing.x = 8.0;
+                let cancel = ui.add_enabled(!cancel_sent, Button::ghost("Cancel").small());
+                widgets::progress(ui, done, (ui.available_width() - 4.0).max(40.0));
                 if cancel.clicked() {
                     self.cancel_save();
                 }
-                return;
-            }
-            let readable = matches!(self.preview, Some(Ok(_)));
-            let label = kind(self.save_format).to_owned();
-            let shown = widgets::combo(ui, "save-format", label, 130.0).show_ui(ui, |ui| {
-                for (suffix, name) in FORMATS {
-                    ui.selectable_value(&mut self.save_format, suffix, name);
-                }
             });
-            ui.ctx()
-                .accesskit_node_builder(shown.response.id, |node| node.set_label("Format"));
-            widgets::switch(ui, &mut self.save_subtitles, "Subtitles");
-            let shown = ui.label("Subtitles");
-            a11y::decorative(ui, shown.id);
-            let save = ui.add_enabled(readable, Button::secondary("Save as…"));
-            if save.clicked() {
-                self.ask_where_to_save(ui.ctx());
-            }
-        });
-        if let Some(said) = &self.save_note {
-            ui.add_space(4.0);
-            a11y::live(&widgets::small(ui, said));
+            return;
         }
+        let readable = matches!(self.preview, Some(Ok(_)));
+        let label = format!("Save as {}…", kind(self.save_format));
+        let save = ui
+            .add_enabled(readable, Button::secondary(&label).min_width(width))
+            .on_hover_text(if self.save_subtitles {
+                "With subtitles beside it. Format and subtitles are in Settings."
+            } else {
+                "Format and subtitles are in Settings."
+            });
+        if save.clicked() {
+            self.ask_where_to_save(ui.ctx());
+        }
+    }
+
+    /// Under the player: how far a save is, or how the last one went.
+    pub(super) fn save_note(&mut self, ui: &mut egui::Ui) {
+        let said = match &self.saving {
+            Some(saving) => format!(
+                "Saving {} · {:.0}%",
+                name_of(&saving.output),
+                saving.done * 100.0
+            ),
+            None => match &self.save_note {
+                Some(note) => note.clone(),
+                None => return,
+            },
+        };
+        ui.add_space(8.0);
+        a11y::live(&widgets::small(ui, &said));
     }
 
     /// Ask the desktop's save dialog where; it answers as `Reply::SaveTo`.

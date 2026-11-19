@@ -1,4 +1,4 @@
-//! About's Speech API: `vinospeak --http` on this computer while the switch
+//! Settings' Speech API: `vinospeak --http` on this computer while the switch
 //! is on, so other apps can read text with vinoSpeak.
 
 use eframe::egui;

@@ -1,5 +1,5 @@
 //! A narrow window's header, in place of the sidebar: the logo and name,
-//! then Files, Reading and About as tabs. With vino-ui's own title bar it is
+//! then Files, Reading, Settings and About as tabs. With vino-ui's own title bar it is
 //! what the window is dragged by, and the window's buttons sit in its top
 //! right corner (pinned by
 //! `app::tests::the_window_buttons_sit_in_the_top_right_corner`).
@@ -12,7 +12,7 @@ use vino_ui::icons::Icon;
 use vino_ui::theme;
 use vino_ui::widgets;
 
-use super::App;
+use super::{App, Page, settings};
 
 /// Between the search field and Open.
 const GAP: f32 = 8.0;
@@ -22,6 +22,7 @@ const GAP: f32 = 8.0;
 enum Tab {
     Files,
     Reading,
+    Settings,
     About,
 }
 
@@ -70,6 +71,7 @@ impl App {
             let tabs = [
                 (Tab::Files, "Files", true),
                 (Tab::Reading, "Reading", self.selected.is_some()),
+                (Tab::Settings, settings::TITLE, true),
                 (Tab::About, vino_ui::about::TITLE, true),
             ];
             for (tab, name, enabled) in tabs {
@@ -82,19 +84,21 @@ impl App {
 
     fn tab(&self) -> Tab {
         if self.listing {
-            Tab::Files
-        } else if self.about {
-            Tab::About
-        } else {
-            Tab::Reading
+            return Tab::Files;
+        }
+        match self.page {
+            Page::Reader => Tab::Reading,
+            Page::Settings => Tab::Settings,
+            Page::About => Tab::About,
         }
     }
 
     fn show_tab(&mut self, tab: Tab) {
         self.listing = tab == Tab::Files;
         match tab {
+            Tab::Settings => self.open_settings(),
             Tab::About => self.open_about(),
-            _ => self.about = false,
+            Tab::Files | Tab::Reading => self.page = Page::Reader,
         }
     }
 

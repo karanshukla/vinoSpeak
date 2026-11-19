@@ -55,7 +55,8 @@ fn quoted(text: &str) -> String {
 /// The entries as lexicon.toml, a word left blank dropped (pinned by
 /// `lexicon::tests::what_is_written_reads_back_the_same`).
 pub fn to_toml(entries: &[Entry]) -> String {
-    let mut out = String::from("# Kept by vinoSpeak's window: About, Pronunciations.\n[words]\n");
+    let mut out =
+        String::from("# Kept by vinoSpeak's window: Settings, Pronunciations.\n[words]\n");
     for (word, said) in entries {
         let word = word.trim();
         if !word.is_empty() {
