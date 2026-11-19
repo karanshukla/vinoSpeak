@@ -71,7 +71,8 @@ translation. A 3B model translates well enough to follow, not to publish:
 check anything that matters.
 
 In the window, download it from About's Translation row; a Translate picker
-then joins the player.
+then joins the player, and a translated reading shows the translation as it
+is made, with the piece being spoken marked.
 
 ## SSML
 

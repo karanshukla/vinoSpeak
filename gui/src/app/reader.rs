@@ -8,7 +8,8 @@ use vino_ui::widgets::{self, Tone};
 
 use super::App;
 use crate::search::{Hit, Kind};
-use crate::speech::Part;
+use crate::speech::{self, Part, Translated};
+use crate::translation;
 
 /// The reading column's widest: about 80 characters of body text.
 const MEASURE: f32 = 680.0;
@@ -16,6 +17,8 @@ const MEASURE: f32 = 680.0;
 const PARTS: [(Part, &str); 2] = [(Part::Summary, "Summary"), (Part::Transcript, "Transcript")];
 /// What vinospeak says in place of a code block (readable.py's CODE_SKIPPED).
 const CODE_SKIPPED: &str = "Code skipped.";
+/// A translated reading's text, as the toggle offers it: the original or not.
+const SHOWN: [(bool, &str); 2] = [(false, "Translation"), (true, "Original")];
 
 fn kind_tag(ui: &mut egui::Ui, kind: Kind) {
     let label = match kind {
@@ -27,7 +30,7 @@ fn kind_tag(ui: &mut egui::Ui, kind: Kind) {
 }
 
 /// One paragraph of the preview; the stand-in for a code block is set apart.
-fn paragraph(ui: &mut egui::Ui, text: &str) {
+fn paragraph(ui: &mut egui::Ui, text: &str) -> egui::Response {
     let p = theme::palette(ui.ctx());
     let stand_in = text == CODE_SKIPPED;
     let mut job = egui::text::LayoutJob::default();
@@ -43,7 +46,33 @@ fn paragraph(ui: &mut egui::Ui, text: &str) {
             ..Default::default()
         },
     );
-    ui.add(egui::Label::new(job).wrap());
+    ui.add(egui::Label::new(job).wrap())
+}
+
+/// A translated piece's paragraphs, tinted while it is the one being spoken
+/// and marked selected for a screen reader. Every piece keeps the same margin,
+/// so the text doesn't move as the tint does.
+fn piece(ui: &mut egui::Ui, text: &str, spoken: bool) {
+    let p = theme::palette(ui.ctx());
+    egui::Frame::NONE
+        .fill(if spoken {
+            p.tint
+        } else {
+            egui::Color32::TRANSPARENT
+        })
+        .corner_radius(6)
+        .inner_margin(Margin::symmetric(8, 4))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 12.0;
+            for text in speech::paragraphs(text) {
+                let shown = paragraph(ui, &text);
+                if spoken {
+                    ui.ctx()
+                        .accesskit_node_builder(shown.id, |node| node.set_selected(true));
+                }
+            }
+        });
 }
 
 impl App {
@@ -100,7 +129,16 @@ impl App {
                     self.part_toggle(ui, summarised);
                     ui.add_space(12.0);
                 }
-                self.text(ui, &hit);
+                if let Some(into) = self.translation_of(&hit).map(|t| t.into) {
+                    self.translation_toggle(ui, into);
+                    ui.add_space(12.0);
+                }
+                match self.translation_of(&hit) {
+                    Some(translated) if !self.show_original => {
+                        self.translated_text(ui, translated);
+                    }
+                    _ => self.text(ui, &hit),
+                }
             });
     }
 
@@ -130,6 +168,74 @@ impl App {
             if changed {
                 self.part = part;
                 self.load_preview(ui.ctx());
+            }
+        });
+    }
+
+    /// The last translated reading's text, if it was of this file and part.
+    fn translation_of(&self, hit: &Hit) -> Option<&Translated> {
+        self.translated
+            .as_ref()
+            .filter(|t| t.file == hit.path && t.part == self.part)
+    }
+
+    fn translation_toggle(&mut self, ui: &mut egui::Ui, into: translation::Target) {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            widgets::segmented(ui, "Text shown", &mut self.show_original, &SHOWN);
+            widgets::muted(
+                ui,
+                format!(
+                    "{}, translated by {} on this machine",
+                    into.name,
+                    translation::LABEL
+                ),
+            );
+        });
+    }
+
+    /// The piece being spoken: the one whose source the reading's progress
+    /// is in, once it is heard (pinned by
+    /// `app::tests::the_translation_shows_as_it_arrives_with_the_spoken_piece_marked`).
+    fn spoken(&self, translated: &Translated) -> Option<usize> {
+        let reading = self
+            .reading
+            .as_ref()
+            .filter(|r| r.id == translated.id && r.heard)?;
+        translated
+            .pieces
+            .iter()
+            .rposition(|p| p.start <= reading.done && reading.done < p.end)
+    }
+
+    fn translated_text(&self, ui: &mut egui::Ui, translated: &Translated) {
+        let under_way = self.reading.as_ref().is_some_and(|r| r.id == translated.id);
+        let rest = translated.pieces.last().map_or(0.0, |p| p.end) < 1.0;
+        if translated.pieces.is_empty() {
+            let says = if under_way {
+                format!("Translating into {}…", translated.into.name)
+            } else {
+                "Stopped before anything was translated.".to_owned()
+            };
+            a11y::live(&widgets::muted(ui, says));
+            return;
+        }
+        let spoken = self.spoken(translated);
+        widgets::page_scroll(ui, "the translation", MEASURE, |ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            for (n, shown) in translated.pieces.iter().enumerate() {
+                piece(ui, &shown.text, spoken == Some(n));
+            }
+            if rest {
+                ui.add_space(8.0);
+                widgets::muted(
+                    ui,
+                    if under_way {
+                        "Translating the rest…"
+                    } else {
+                        "Stopped before the rest was translated."
+                    },
+                );
             }
         });
     }

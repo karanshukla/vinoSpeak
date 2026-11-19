@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 
 use super::App;
-use crate::speech::{self, Event, Reading, Worker};
+use crate::speech::{self, Event, Reading, Translated, Worker};
 
 /// How a reading ended.
 #[derive(Debug, PartialEq)]
@@ -78,6 +78,14 @@ impl App {
             target.map(|t| t.language),
         ) {
             Ok(id) => {
+                self.translated = target.map(|into| Translated {
+                    id,
+                    file: hit.path.clone(),
+                    part: self.part,
+                    into,
+                    pieces: Vec::new(),
+                });
+                self.show_original = false;
                 self.status = match target {
                     Some(t) => format!("Translating {} into {}", hit.name, t.name),
                     None => format!("Speaking {}", hit.name),
@@ -173,6 +181,12 @@ impl App {
             }
             Event::Progress { id, done } => {
                 self.on_progress(id, done);
+                None
+            }
+            Event::Translated { id, piece } => {
+                if let Some(translated) = self.translated.as_mut().filter(|t| t.id == id) {
+                    translated.pieces.push(piece);
+                }
                 None
             }
             Event::Done { id } if Some(id) == current => Some(Ended::Finished),

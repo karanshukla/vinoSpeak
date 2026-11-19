@@ -14,7 +14,7 @@ from . import ovfetch, script, ssml, voices
 from .lexicon import Lexicon
 from .model import compile_cache_dir, default_model_dir, ensure_model
 from .playback import Speech, require_player
-from .text import chunks, speakable_end
+from .text import speakable_end
 
 if TYPE_CHECKING:
     import numpy as np
@@ -294,17 +294,14 @@ class Synthesizer:
     ) -> Iterator[Audio]:
         """Each translated piece read in turn, its progress the share of the
         source text its piece takes."""
-        from .translate import MAX_PIECE_CHARS
+        from .translate import spans
 
-        sources = chunks(text, MAX_PIECE_CHARS)
-        total = sum(map(len, sources)) or 1
-        done = 0
-        for source, piece in zip(sources, translator.stream(text, language), strict=False):
-            start = done / total
-            done += len(source)
+        for (start, end), piece in zip(
+            spans(text), translator.stream(text, language), strict=False
+        ):
             if piece.strip():
                 steps = self.plan(piece, voice, language, speed)
-                yield from self._rendered(steps, start, done / total - start)
+                yield from self._rendered(steps, start, end - start)
 
     def speak(
         self,

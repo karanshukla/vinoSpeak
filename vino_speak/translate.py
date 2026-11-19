@@ -217,6 +217,21 @@ def request(text: str, language: str) -> str:
     return f"Translate into {target_name(language)}:\n<text>{text}</text>"
 
 
+def spans(text: str) -> list[tuple[float, float]]:
+    """Where each of `chunks(text, MAX_PIECE_CHARS)` starts and ends, as a
+    share of the text: playback progress through a translated reading (pinned
+    by `test_translate.py::test_the_spans_cover_the_text_piece_by_piece`)."""
+    sources = chunks(text, MAX_PIECE_CHARS)
+    total = sum(map(len, sources)) or 1
+    out = []
+    done = 0
+    for source in sources:
+        start = done / total
+        done += len(source)
+        out.append((start, done / total))
+    return out
+
+
 def max_new_tokens(text: str) -> int:
     return min(NPU_PROPERTIES["MIN_RESPONSE_LEN"], max(MIN_NEW_TOKENS, len(text)))
 

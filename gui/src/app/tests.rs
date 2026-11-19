@@ -1,7 +1,8 @@
 //! The window driven headless through egui_kittest, finding widgets by their
 //! AccessKit labels as a screen reader would. vinoSearch is a fake `Index`;
 //! vinospeak is a shell script that prints `--print-text`, and as `--serve`
-//! logs each request and "plays" until it's stopped.
+//! logs each request and "plays" until it's stopped, translating a request
+//! with `translate` into two pieces.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -63,7 +64,11 @@ if [ "$1" = "--serve" ]; then
             echo "{\"event\": \"error\", \"id\": $id, \"message\": \"boom\"}"
             continue
         fi
+        into=$(printf '%s' "$line" | sed -n 's/.*"translate":"\([a-z-]*\)".*/\1/p')
+        [ -n "$into" ] && echo "{\"event\": \"translated\", \"id\": $id, \"text\": \"[$into] The first piece.\", \"start\": 0.0, \"end\": 0.5}"
         echo "{\"event\": \"first-audio\", \"id\": $id, \"ms\": 5}"
+        [ -n "$into" ] && echo "{\"event\": \"progress\", \"id\": $id, \"done\": 0.2}"
+        [ -n "$into" ] && echo "{\"event\": \"translated\", \"id\": $id, \"text\": \"[$into] The second piece.\", \"start\": 0.5, \"end\": 1.0}"
         if [ -f "$dir/quick" ]; then
             echo "{\"event\": \"done\", \"id\": $id, \"stopped\": false}"
         else
@@ -1365,4 +1370,60 @@ fn the_bar_shows_how_far_the_reading_is_and_never_goes_back() {
         0.9,
         "another reading's"
     );
+}
+
+fn selected(h: &Harness<'_, App>, text: &str) -> bool {
+    h.get_by_label(text).accesskit_node().is_selected() == Some(true)
+}
+
+#[test]
+fn the_translation_shows_as_it_arrives_with_the_spoken_piece_marked() {
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    pick_language(&mut h, "Spanish");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "[es] The second piece.");
+    assert!(shows(&h, "[es] The first piece."));
+    assert!(
+        !shows(&h, "Read me."),
+        "the original gives way to the translation"
+    );
+    assert!(shows(
+        &h,
+        "Spanish, translated by SmolLM3-3B on this machine"
+    ));
+    assert!(selected(&h, "[es] The first piece."));
+    assert!(!selected(&h, "[es] The second piece."));
+    let id = h.state().reading.as_ref().unwrap().id;
+    h.state_mut().on_progress(id, 0.7);
+    h.run();
+    assert!(!selected(&h, "[es] The first piece."));
+    assert!(selected(&h, "[es] The second piece."));
+}
+
+#[test]
+fn the_original_is_a_toggle_away_and_an_untranslated_reading_brings_it_back() {
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    pick_language(&mut h, "French");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "[fr-fr] The second piece.");
+    h.get_by_label("Original").click();
+    h.run();
+    assert!(shows(&h, "Read me."));
+    assert!(!shows(&h, "[fr-fr] The first piece."));
+    h.get_by_label("Translation").click();
+    h.run();
+    assert!(shows(&h, "[fr-fr] The first piece."));
+    h.get_by_role_and_label(Role::Button, "Stop").click();
+    wait_for(&mut h, "Read aloud");
+    assert!(
+        shows(&h, "[fr-fr] The first piece."),
+        "kept once the reading ends"
+    );
+    pick_language(&mut h, "Don't translate");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "Read me.");
+    assert!(!shows(&h, "[fr-fr] The first piece."));
+    assert!(h.query_by_label("Original").is_none());
 }

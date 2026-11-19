@@ -14,7 +14,9 @@ Events, one a line on stdout:
 
     {"event": "ready", "load_ms": 4810, "warm_up_ms": 2830}
     {"event": "started", "id": 1}
-    {"event": "translated", "id": 1, "text": "..."}  (each piece, as it is translated)
+    {"event": "translated", "id": 1, "text": "...", "start": 0.0, "end": 0.12}
+        (each piece as it is translated; start and end are where its source
+        lies in the text, as progress counts it)
     {"event": "first-audio", "id": 1, "ms": 812}  (from the request to the first sample played)
     {"event": "progress", "id": 1, "done": 0.42}  (how far through the text playback is, 0 to 1)
     {"event": "done", "id": 1, "stopped": false}
@@ -78,9 +80,22 @@ class Announced:
         self._id = reading_id
 
     def stream(self, text: str, language: str) -> Iterator[str]:
-        for piece in self._translator.stream(text, language):
+        """Each piece, sent with its span of the text (pinned by
+        `test_serve.py::test_each_translated_piece_is_sent_with_where_it_lies`)."""
+        from .translate import spans
+
+        pieces = self._translator.stream(text, language)
+        for (start, end), piece in zip(spans(text), pieces, strict=False):
             if piece:
-                self._emit({"event": "translated", "id": self._id, "text": piece})
+                self._emit(
+                    {
+                        "event": "translated",
+                        "id": self._id,
+                        "text": piece,
+                        "start": round(start, 4),
+                        "end": round(end, 4),
+                    }
+                )
             yield piece
 
 

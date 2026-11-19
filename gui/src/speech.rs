@@ -151,6 +151,11 @@ pub enum Event {
         id: u64,
         done: f32,
     },
+    /// A piece of the text, translated.
+    Translated {
+        id: u64,
+        piece: Piece,
+    },
     Done {
         id: u64,
     },
@@ -179,6 +184,21 @@ fn event(line: &str) -> Option<Event> {
                 .and_then(serde_json::Value::as_f64)?
                 .clamp(0.0, 1.0) as f32,
         },
+        "translated" => {
+            let share = |key| {
+                v.get(key)
+                    .and_then(serde_json::Value::as_f64)
+                    .map(|x| x.clamp(0.0, 1.0) as f32)
+            };
+            Event::Translated {
+                id: id?,
+                piece: Piece {
+                    text: v.get("text")?.as_str()?.to_owned(),
+                    start: share("start")?,
+                    end: share("end")?,
+                },
+            }
+        }
         "done" => Event::Done { id: id? },
         "error" => Event::Error {
             id,
@@ -327,6 +347,26 @@ impl Drop for Worker {
     }
 }
 
+/// A translated piece of the text, and where its source lies in the text as
+/// progress counts it, 0 to 1.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Piece {
+    pub text: String,
+    pub start: f32,
+    pub end: f32,
+}
+
+/// What a translated reading has been translated into so far, kept after it
+/// ends until the next reading.
+pub struct Translated {
+    /// The reading it came from.
+    pub id: u64,
+    pub file: PathBuf,
+    pub part: Part,
+    pub into: crate::translation::Target,
+    pub pieces: Vec<Piece>,
+}
+
 /// A reading the worker was asked for.
 pub struct Reading {
     pub id: u64,
@@ -378,6 +418,17 @@ mod tests {
             Some(Event::Error {
                 id: None,
                 message: "no NPU".to_owned()
+            })
+        );
+        assert_eq!(
+            event(r#"{"event": "translated", "id": 2, "text": "Hola.", "start": 0, "end": 0.25}"#),
+            Some(Event::Translated {
+                id: 2,
+                piece: Piece {
+                    text: "Hola.".to_owned(),
+                    start: 0.0,
+                    end: 0.25
+                }
             })
         );
         assert_eq!(event(r#"{"event": "started", "id": 2}"#), None);
