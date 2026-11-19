@@ -29,6 +29,24 @@ Abbreviations like `e.g.` and `Dr.` don't end a sentence.
 `--print-text` prints what would be spoken and exits, without loading the
 model.
 
+## Saving
+
+```bash
+vinospeak --file chapter.md --output chapter.opus                       # .wav .flac .ogg .opus .mp3
+vinospeak --file chapter.md --output chapter.mp3 --subtitles chapter.vtt
+```
+
+The suffix picks the format; anything else is refused before the model
+loads. WAV and FLAC are 16-bit, all of them mono at Kokoro's 24 kHz. The text
+is synthesized a chunk at a time, with a progress line in a terminal, and the
+file only appears under its name once it is whole.
+
+`--subtitles` writes SubRip (`.srt`) or WebVTT (`.vtt`) timed from the
+samples. Each sentence is synthesized on its own so its cue starts when it
+does, which makes the save slightly slower. A sentence longer than two lines
+of 42 characters is split into cues that share its time by length, so those
+cues are close, not exact.
+
 ## Voices
 
 ```bash

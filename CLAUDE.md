@@ -15,6 +15,7 @@ vino_speak/
   playback.py Speech: raw float32 into one pw-play/paplay/aplay process, stop()
   model.py    cache dir, pinned download, verify(), delete_cached(); no OpenVINO import
   voices.py   voice ids, the voices on offer (read from the pins), blends; no numpy
+  save.py     speech to .wav/.flac/.ogg/.opus/.mp3 a chunk at a time; subtitles.py its cues
   readable.py a file as text worth hearing: markdown, extracted documents, plain
   session.py  a vinoWhisper .vwsession read as its summary or transcript
   serve.py    vinospeak --serve: the window's worker, JSON lines on stdin/stdout

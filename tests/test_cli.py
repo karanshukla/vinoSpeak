@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from vino_speak import cli, model
+from vino_speak import cli, model, tts
 
 
 def test_parser_defaults_to_npu():
@@ -214,3 +214,39 @@ def test_without_language_the_voice_chooses_it(monkeypatch):
     cli.main(["Hola.", "--voice", "ef_dora"])
     assert asked["language"] is None
     assert asked["voice"] == "ef_dora"
+
+
+def test_subtitles_need_an_output(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["Hello", "--subtitles", "a.srt"])
+    assert "give --output too" in capsys.readouterr().err
+
+
+def test_subtitles_reach_the_save_and_are_reported(monkeypatch, capsys, tmp_path):
+    asked = {}
+    monkeypatch.setattr(cli, "synthesize", lambda text, output, **kwargs: asked.update(kwargs))
+    cli.main(["Hello", "--output", str(tmp_path / "a.mp3"), "--subtitles", str(tmp_path / "a.vtt")])
+    assert asked["subtitles"] == tmp_path / "a.vtt"
+    assert f"Subtitles saved to {tmp_path / 'a.vtt'}" in capsys.readouterr().out
+
+
+def test_progress_is_shown_only_to_a_terminal(monkeypatch, capsys):
+    monkeypatch.setattr(cli.sys.stderr, "isatty", lambda: False, raising=False)
+    assert cli.progress_reporter() is None
+
+
+def test_progress_rewrites_one_line_and_ends_it_when_done(monkeypatch, capsys):
+    monkeypatch.setattr(
+        cli.sys, "stderr", type("Tty", (io.StringIO,), {"isatty": lambda s: True})()
+    )
+    report = cli.progress_reporter()
+    report(1, 2)
+    report(2, 2)
+    assert cli.sys.stderr.getvalue() == "\rSaving: 1 of 2 chunks\rSaving: 2 of 2 chunks\n"
+
+
+def test_an_unknown_output_format_is_refused_before_the_model_loads(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(tts, "Synthesizer", lambda *a: pytest.fail("loaded the model"))
+    with pytest.raises(SystemExit):
+        cli.main(["Hello", "--output", str(tmp_path / "a.aiff")])
+    assert "not '.aiff'" in capsys.readouterr().err

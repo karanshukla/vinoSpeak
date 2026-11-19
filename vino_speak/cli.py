@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+import sys
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from . import __version__, model, readable, serve, session, voices
@@ -66,7 +67,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the text that would be spoken and exit, without loading the model.",
     )
     parser.add_argument(
-        "--output", type=Path, help="Save a WAV here instead of playing it on the speakers."
+        "--output",
+        type=Path,
+        help="Save the speech here instead of playing it: .wav, .flac, .ogg, .opus or .mp3.",
+    )
+    parser.add_argument(
+        "--subtitles",
+        type=Path,
+        help="With --output, also save subtitles timed to it, a sentence a cue: .srt or .vtt.",
     )
     parser.add_argument(
         "--audio-device",
@@ -179,6 +187,18 @@ def text_to_speak(parser: argparse.ArgumentParser, arguments: argparse.Namespace
     return text
 
 
+def progress_reporter() -> Callable[[int, int], None] | None:
+    """A progress line on stderr while saving, when someone is watching it."""
+    if not sys.stderr.isatty():
+        return None
+
+    def report(done: int, total: int) -> None:
+        end = "\n" if done == total else ""
+        print(f"\rSaving: {done} of {total} chunks", end=end, file=sys.stderr, flush=True)
+
+    return report
+
+
 def play_or_save(parser: argparse.ArgumentParser, arguments: argparse.Namespace, text: str) -> None:
     options = {
         "voice": arguments.voice,
@@ -191,12 +211,20 @@ def play_or_save(parser: argparse.ArgumentParser, arguments: argparse.Namespace,
         if arguments.output is None:
             speak(text, audio_device=arguments.audio_device, **options)
             return
-        synthesize(text, arguments.output, **options)
+        synthesize(
+            text,
+            arguments.output,
+            subtitles=arguments.subtitles,
+            on_progress=progress_reporter(),
+            **options,
+        )
     except (OSError, RuntimeError, ValueError) as error:
         parser.error(str(error))
     except KeyboardInterrupt:
         raise SystemExit(130) from None
     print(f"Speech saved to {arguments.output}")
+    if arguments.subtitles is not None:
+        print(f"Subtitles saved to {arguments.subtitles}")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -212,6 +240,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         serve_requests(parser, arguments)
         return
     text = text_to_speak(parser, arguments)
+    if arguments.subtitles is not None and arguments.output is None:
+        parser.error("--subtitles are timed to a saved file: give --output too")
     if arguments.audio_device and arguments.output is not None:
         parser.error("--audio-device is where speech plays; it can't go with --output")
     if arguments.print_text:

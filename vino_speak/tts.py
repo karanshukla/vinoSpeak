@@ -255,17 +255,22 @@ def synthesize(
     speed: float = 1.0,
     device: str = DEFAULT_DEVICE,
     model_dir: Path | None = None,
+    subtitles: Path | None = None,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> Path:
-    """One-shot: speak text into a WAV file."""
-    validate_inputs(text, voice, speed, language)
-    try:
-        import soundfile as sf
-    except ImportError as error:
-        raise RuntimeError(MISSING_DEPENDENCIES) from error
+    """One-shot: speak text into a WAV, FLAC, OGG, Opus or MP3 file (by its
+    suffix), and SubRip or WebVTT subtitles if asked for. `on_progress` is
+    called with (chunks done, chunks in all)."""
+    from .save import check_output, require_soundfile, save
+    from .subtitles import check_suffix
 
-    audio = Synthesizer(device, model_dir).synthesize(text, voice, language, speed)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    sf.write(output, audio.samples, audio.sample_rate)
+    validate_inputs(text, voice, speed, language)
+    check_output(output)
+    require_soundfile()
+    if subtitles is not None:
+        check_suffix(subtitles)
+    synthesizer = Synthesizer(device, model_dir)
+    save(synthesizer, text, output, voice, language, speed, subtitles, on_progress)
     return output
 
 

@@ -23,7 +23,8 @@ own telemetry is blocked.
   sentence plays while the rest is synthesized.
 - **41 Kokoro voices** in US/UK English, Spanish, French, Hindi, Italian and
   Brazilian Portuguese, at 0.5x to 2x speed, or a blend of several.
-- **Plays or saves**: your speakers via PipeWire/PulseAudio/ALSA, or a WAV.
+- **Plays or saves**: your speakers via PipeWire/PulseAudio/ALSA, or a WAV,
+  FLAC, OGG, Opus or MP3, with SRT or WebVTT subtitles timed to it.
 - **NPU, GPU or CPU.** CPU works with no driver at all.
 - A [window](gui/) (proof of concept) to find a file with vinoSearch and listen
   to it, and a Python API.
@@ -65,7 +66,8 @@ player: [docs/install.md](docs/install.md).
 
 ```bash
 vinospeak "Hello from vinoSpeak."                  # play it
-vinospeak "Hello." --output hello.wav              # save a WAV
+vinospeak "Hello." --output hello.wav              # save a WAV (or .flac .ogg .opus .mp3)
+vinospeak --file notes.md --output notes.mp3 --subtitles notes.srt
 vinospeak --file notes.md                          # read a file aloud
 vinospeak --file notes.md --print-text             # see what it would say, no model load
 some-command | vinospeak --file -                  # plain text from stdin
@@ -79,6 +81,7 @@ vinospeak "Hello." --voice "af_heart(2)+bm_george(1)"            # a blend of tw
 | `--voice`, `--speed` | Kokoro voice (default `af_heart`) or a blend like `af_heart(2)+bm_george(1)`; 0.5 to 2.0 |
 | `--list-voices` | Every voice, its language and accent |
 | `--language` | Read as this language instead of the voice's own |
+| `--output`, `--subtitles` | Save instead of playing, by suffix; subtitles a sentence a cue (`.srt`, `.vtt`) |
 | `--device` | `NPU` (default), `GPU` or `CPU` |
 | `--audio-device` | A sink from `pactl list short sinks`, or an ALSA device |
 | `--kind` | Read `--file` as `plain`, `markdown` or `document` |

@@ -300,11 +300,13 @@ def test_no_speech_from_the_pipeline_is_an_error(fake_runtime, monkeypatch):
 
 @pytest.fixture
 def fake_soundfile(monkeypatch):
-    writes = []
+    from conftest import FakeSoundFile
+
+    FakeSoundFile.opened.clear()
     soundfile = ModuleType("soundfile")
-    soundfile.write = lambda path, samples, rate: writes.append((path, samples.copy(), rate))
+    soundfile.SoundFile = FakeSoundFile
     monkeypatch.setitem(sys.modules, "soundfile", soundfile)
-    return writes
+    return FakeSoundFile.opened
 
 
 def test_synthesize_writes_a_wav_at_the_models_rate(fake_runtime, fake_soundfile, tmp_path):
@@ -312,11 +314,10 @@ def test_synthesize_writes_a_wav_at_the_models_rate(fake_runtime, fake_soundfile
 
     assert tts.synthesize("Hello", output, device="CPU", model_dir=fake_runtime) == output
 
-    assert output.parent.is_dir()
-    [(path, samples, rate)] = fake_soundfile
-    assert path == output
-    assert rate == 24000
-    np.testing.assert_allclose(samples, [0.1, -0.1])
+    [written] = fake_soundfile
+    assert output.read_bytes() == b"WAV/PCM_16"
+    assert written.rate == 24000
+    np.testing.assert_allclose(np.concatenate(written.writes), [0.1, -0.1])
 
 
 def test_synthesize_without_soundfile_says_how_to_install_it(monkeypatch, tmp_path):
