@@ -76,9 +76,11 @@ pays the time to the first audio again.
 Space pauses the reading where it is and resumes it (unless the search box
 is being typed in). The window is also a media player on the session bus
 (MPRIS, `org.mpris.MediaPlayer2.vinospeak`), so the desktop's media controls
-show the file being read and its voice, and Play, Pause and Stop there or on
-the keyboard's media keys drive it; Play with nothing under way reads the
-file shown.
+show the file being read, its voice, the app's icon and a position, and
+Play, Pause, Stop and the position slider there or on the keyboard's media
+keys drive it; Play with nothing under way reads the file shown. The length
+and position are estimates from the text (docs/architecture.md, "Media
+controls").
 
 About also shows the downloaded model's size, with Delete… to remove it
 (`vinospeak --delete-model`). It waits for a reading to stop, and stops the

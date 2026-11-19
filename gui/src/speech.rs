@@ -391,6 +391,18 @@ pub struct Reading {
     pub done: f32,
     /// When it was paused, if it is.
     pub paused_at: Option<Instant>,
+    /// How long the whole text should take to say, as the desktop's media
+    /// controls are told: speech has no length until it is synthesized.
+    pub length: Duration,
+}
+
+/// Kokoro's speaking rate at 1.0×, in characters a second: 15.4 to 16.8
+/// across af_heart, ef_dora and ff_siwis (docs/architecture.md, "Media controls").
+const CHARS_PER_SECOND: f32 = 15.5;
+
+/// About how long `text` takes to say at `speed`.
+pub fn spoken_length(text: &str, speed: f32) -> Duration {
+    Duration::from_secs_f32(text.chars().count() as f32 / (CHARS_PER_SECOND * speed.max(0.1)))
 }
 
 impl Reading {

@@ -242,12 +242,8 @@ impl App {
                 if let Some(done) = done.filter(|_| speaking_this)
                     && let Some(at) = scrubber(ui, done, ui.available_width())
                 {
-                    if at < 1.0 {
-                        let ctx = ui.ctx().clone();
-                        self.read_from(&ctx, at);
-                    } else {
-                        self.stop_reading();
-                    }
+                    let ctx = ui.ctx().clone();
+                    self.seek(&ctx, at);
                 }
             });
         });

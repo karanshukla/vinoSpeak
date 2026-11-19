@@ -107,6 +107,7 @@ impl App {
                     heard: false,
                     done: at,
                     paused_at: None,
+                    length: speech::spoken_length(&preview.text, self.speed),
                 });
             }
             Err(e) => {
@@ -146,6 +147,15 @@ impl App {
         match reading.paused_at.take() {
             Some(at) => reading.started += at.elapsed(),
             None => reading.paused_at = Some(Instant::now()),
+        }
+    }
+
+    /// Read again from `at` (0 to 1) into the text; the end stops it.
+    pub(super) fn seek(&mut self, ctx: &egui::Context, at: f32) {
+        if at < 1.0 {
+            self.read_from(ctx, at);
+        } else {
+            self.stop_reading();
         }
     }
 

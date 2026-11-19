@@ -1306,6 +1306,7 @@ fn the_choices_stay_put_when_a_reading_starts() {
             heard,
             done: 0.0,
             paused_at: None,
+            length: Duration::ZERO,
         });
         h.run_steps(3);
         assert!(h.query_by_label("Stop").is_some());
@@ -1361,6 +1362,7 @@ fn the_bar_shows_how_far_the_reading_is_and_never_goes_back() {
         heard: true,
         done: 0.0,
         paused_at: None,
+        length: Duration::ZERO,
     });
     for (done, expected) in [(0.4, 0.4), (0.2, 0.4), (0.9, 0.9)] {
         h.state_mut().on_progress(7, done);
@@ -1459,6 +1461,14 @@ fn the_media_controls_show_and_drive_the_reading() {
     assert_eq!(h.state().now_playing().status, Status::Paused);
     h.state_mut().on_media(&ctx, Command::PlayPause);
     assert_eq!(h.state().now_playing().status, Status::Playing);
+    let length = h.state().now_playing().length;
+    assert_eq!(length, crate::speech::spoken_length("A long read.", 1.0));
+    h.state_mut().on_progress(1, 0.5);
+    assert_eq!(h.state().position().as_millis(), (length / 2).as_millis());
+    h.state_mut().on_media(&ctx, Command::SeekTo(0.25));
+    wait_until(&mut h, "a seek", |_| {
+        scratch.read("calls").contains(r#""from":0.25"#)
+    });
     h.state_mut().on_media(&ctx, Command::Stop);
     wait_for(&mut h, "Read aloud");
     assert_eq!(h.state().now_playing().status, Status::Stopped);

@@ -2,6 +2,7 @@
 //! controls and keys through MPRIS.
 
 use std::sync::mpsc;
+use std::time::Duration;
 
 use eframe::egui;
 
@@ -49,7 +50,15 @@ impl App {
                 .to_string_lossy()
                 .into_owned(),
             voice: self.voice.name.clone(),
+            length: reading.length,
         }
+    }
+
+    /// How far into `now_playing`'s length the reading is.
+    pub(super) fn position(&self) -> Duration {
+        self.reading
+            .as_ref()
+            .map_or(Duration::ZERO, |r| r.length.mul_f32(r.done))
     }
 
     /// Do what the media controls asked; Play with nothing under way reads
@@ -58,6 +67,7 @@ impl App {
         let paused = self.reading.as_ref().map(|r| r.paused_at.is_some());
         match (command, paused) {
             (Command::Stop, Some(_)) => self.stop_reading(),
+            (Command::SeekTo(at), Some(_)) => self.seek(ctx, at),
             (Command::Play | Command::PlayPause, None) => {
                 if matches!(self.preview, Some(Ok(_))) {
                     self.read_aloud(ctx);
@@ -79,9 +89,9 @@ impl App {
         for command in commands {
             self.on_media(ctx, command);
         }
-        let now = self.now_playing();
+        let (now, position) = (self.now_playing(), self.position());
         if let Some((media, _)) = &mut self.media {
-            media.show(now);
+            media.show(now, position);
         }
     }
 }

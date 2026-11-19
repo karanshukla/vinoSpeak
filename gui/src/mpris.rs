@@ -3,8 +3,10 @@
 //! The bus thread only passes commands to the window and shows what it is told.
 
 use std::collections::HashMap;
-use std::sync::mpsc;
-use std::time::Duration;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Arc, mpsc};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use zbus::interface;
@@ -16,14 +18,21 @@ const PATH: &str = "/org/mpris/MediaPlayer2";
 const NO_TRACK: &str = "/org/mpris/MediaPlayer2/TrackList/NoTrack";
 /// How often the bus thread looks for a change to show.
 const POLL: Duration = Duration::from_millis(100);
+/// The app's icon, shown as the reading's art.
+const ART: &[u8] = include_bytes!("../../docs/assets/vinospeak.svg");
+/// How far the position may stray from where a desktop counting on from the
+/// last one would put it before it is told again: progress moves in steps.
+const DRIFT: Duration = Duration::from_secs(2);
 
 /// What the desktop asked the player to do.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Command {
     Play,
     Pause,
     PlayPause,
     Stop,
+    /// Read from this far into the text, 0 to 1.
+    SeekTo(f32),
 }
 
 /// What MPRIS calls the player's state.
@@ -45,14 +54,19 @@ impl Status {
     }
 }
 
-/// What the desktop is shown: the reading's state, its id, the file's name
-/// and the voice reading it.
+/// What the desktop is shown: the reading's state, its id, the file's name,
+/// the voice reading it, and how long it is estimated to take.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Playing {
     pub status: Status,
     pub id: u64,
     pub title: String,
     pub voice: String,
+    pub length: Duration,
+}
+
+fn micros(d: Duration) -> i64 {
+    i64::try_from(d.as_micros()).unwrap_or(i64::MAX)
 }
 
 struct Root;
@@ -103,6 +117,9 @@ struct Player {
     commands: mpsc::Sender<Command>,
     wake: Box<dyn Fn() + Send + Sync>,
     now: Playing,
+    /// Microseconds into the reading, as the window last said.
+    position: Arc<AtomicI64>,
+    art: Option<String>,
 }
 
 impl Player {
@@ -111,27 +128,51 @@ impl Player {
             (self.wake)();
         }
     }
+
+    /// Read from `position` microseconds in, if that is within the reading.
+    fn seek_to(&self, position: i64) {
+        let length = micros(self.now.length);
+        if self.now.status != Status::Stopped && length > 0 {
+            let at = position.clamp(0, length) as f64 / length as f64;
+            self.send(Command::SeekTo(at as f32));
+        }
+    }
+}
+
+/// The art written where the desktop can read it, as a file URL.
+fn art_url() -> Option<String> {
+    let dir = std::env::var_os("XDG_RUNTIME_DIR").map_or_else(std::env::temp_dir, PathBuf::from);
+    let path = dir.join("vinospeak-gui-art.svg");
+    std::fs::write(&path, ART).ok()?;
+    Some(format!("file://{}", path.display()))
 }
 
 fn value(v: Value<'_>) -> OwnedValue {
     v.try_into().expect("a plain value has no file descriptor")
 }
 
+fn track_id(id: u64) -> String {
+    format!("/dev/vinospeak/Listen/reading/{id}")
+}
+
 /// MPRIS metadata for what is playing; only a track id when nothing is
 /// (pinned by `mpris::tests::the_metadata_names_the_file_and_the_voice`).
-fn metadata(now: &Playing) -> HashMap<String, OwnedValue> {
+fn metadata(now: &Playing, art: Option<&str>) -> HashMap<String, OwnedValue> {
     let mut out = HashMap::new();
     if now.status == Status::Stopped {
         let none = ObjectPath::from_static_str_unchecked(NO_TRACK);
         out.insert("mpris:trackid".to_owned(), value(none.into()));
         return out;
     }
-    let track = format!("/dev/vinospeak/Listen/reading/{}", now.id);
-    let track = ObjectPath::try_from(track).expect("digits make a valid path");
+    let track = ObjectPath::try_from(track_id(now.id)).expect("digits make a valid path");
     out.insert("mpris:trackid".to_owned(), value(track.into()));
     out.insert("xesam:title".to_owned(), value(now.title.as_str().into()));
     let artist = vec![now.voice.clone()];
     out.insert("xesam:artist".to_owned(), value(artist.into()));
+    out.insert("mpris:length".to_owned(), value(micros(now.length).into()));
+    if let Some(art) = art {
+        out.insert("mpris:artUrl".to_owned(), value(art.into()));
+    }
     out
 }
 
@@ -157,9 +198,19 @@ impl Player {
 
     fn previous(&self) {}
 
-    fn seek(&self, _offset: i64) {}
+    fn seek(&self, offset: i64) {
+        self.seek_to(self.position.load(Ordering::Relaxed).saturating_add(offset));
+    }
 
-    fn set_position(&self, _track: ObjectPath<'_>, _position: i64) {}
+    /// Ignored for a reading that is no longer the one playing, as MPRIS asks.
+    fn set_position(&self, track: ObjectPath<'_>, position: i64) {
+        if track.as_str() == track_id(self.now.id) {
+            self.seek_to(position);
+        }
+    }
+
+    #[zbus(signal)]
+    async fn seeked(emitter: &SignalEmitter<'_>, position: i64) -> zbus::Result<()>;
 
     fn open_uri(&self, _uri: &str) {}
 
@@ -170,7 +221,7 @@ impl Player {
 
     #[zbus(property)]
     fn metadata(&self) -> HashMap<String, OwnedValue> {
-        metadata(&self.now)
+        metadata(&self.now, self.art.as_deref())
     }
 
     #[zbus(property)]
@@ -188,10 +239,10 @@ impl Player {
         1.0
     }
 
-    /// The reading's position is in text, not time, so none is given.
+    /// Estimated from how far through the text it is; see `Playing::length`.
     #[zbus(property(emits_changed_signal = "false"))]
     fn position(&self) -> i64 {
-        0
+        self.position.load(Ordering::Relaxed)
     }
 
     #[zbus(property)]
@@ -216,7 +267,7 @@ impl Player {
 
     #[zbus(property)]
     fn can_seek(&self) -> bool {
-        false
+        true
     }
 
     #[zbus(property)]
@@ -229,6 +280,7 @@ impl Player {
 pub struct Media {
     shown: mpsc::Sender<Playing>,
     last: Playing,
+    position: Arc<AtomicI64>,
 }
 
 impl Media {
@@ -240,10 +292,13 @@ impl Media {
     ) -> Option<Self> {
         let (shown, changes) = mpsc::channel();
         let (started, result) = mpsc::channel();
+        let position = Arc::new(AtomicI64::new(0));
         let player = Player {
             commands,
             wake: Box::new(wake),
             now: Playing::default(),
+            position: Arc::clone(&position),
+            art: art_url(),
         };
         std::thread::Builder::new()
             .name("mpris".to_owned())
@@ -253,6 +308,7 @@ impl Media {
             Ok(Ok(())) => Some(Self {
                 shown,
                 last: Playing::default(),
+                position,
             }),
             Ok(Err(e)) => {
                 eprintln!("vinospeak-gui: no media controls: {e:#}");
@@ -262,8 +318,9 @@ impl Media {
         }
     }
 
-    /// Show `now` on the bus, if it changed.
-    pub fn show(&mut self, now: Playing) {
+    /// Show `now` on the bus, if it changed, `position` into it.
+    pub fn show(&mut self, now: Playing, position: Duration) {
+        self.position.store(micros(position), Ordering::Relaxed);
         if now != self.last {
             let _ = self.shown.send(now.clone());
             self.last = now;
@@ -298,6 +355,8 @@ async fn serve(
     let Ok(player) = conn.object_server().interface::<_, Player>(PATH).await else {
         return;
     };
+    let position = Arc::clone(&player.get().await.position);
+    let mut told = (0_i64, Instant::now());
     loop {
         let mut latest = None;
         loop {
@@ -307,12 +366,25 @@ async fn serve(
                 Err(mpsc::TryRecvError::Disconnected) => return,
             }
         }
+        let emitter: &SignalEmitter<'_> = player.signal_emitter();
+        let at = position.load(Ordering::Relaxed);
         if let Some(now) = latest {
             player.get_mut().await.now = now;
-            let emitter: &SignalEmitter<'_> = player.signal_emitter();
             let shown = player.get().await;
             let _ = shown.playback_status_changed(emitter).await;
             let _ = shown.metadata_changed(emitter).await;
+            told = (at, Instant::now());
+            let _ = Player::seeked(emitter, at).await;
+        }
+        let playing = player.get().await.now.status == Status::Playing;
+        let counted = if playing {
+            told.0.saturating_add(micros(told.1.elapsed()))
+        } else {
+            told.0
+        };
+        if at.abs_diff(counted) > DRIFT.as_micros() as u64 {
+            told = (at, Instant::now());
+            let _ = Player::seeked(emitter, at).await;
         }
         async_io::Timer::after(POLL).await;
     }
@@ -331,12 +403,16 @@ mod tests {
             eprintln!("skipped: no session bus, or the name is taken");
             return;
         };
-        media.show(Playing {
-            status: Status::Paused,
-            id: 1,
-            title: "notes.md".to_owned(),
-            voice: "Heart".to_owned(),
-        });
+        media.show(
+            Playing {
+                status: Status::Paused,
+                id: 1,
+                title: "notes.md".to_owned(),
+                voice: "Heart".to_owned(),
+                length: Duration::from_secs(10),
+            },
+            Duration::from_secs(4),
+        );
         zbus::block_on(async {
             let conn = zbus::Connection::session().await.unwrap();
             let player = zbus::Proxy::new(&conn, NAME, PATH, "org.mpris.MediaPlayer2.Player")
@@ -352,11 +428,22 @@ mod tests {
                 async_io::Timer::after(POLL).await;
             }
             assert_eq!(status, "Paused");
+            let position: i64 = player.get_property("Position").await.unwrap();
+            assert_eq!(position, 4_000_000);
+            let track = ObjectPath::try_from(track_id(1)).unwrap();
+            player
+                .call_method("SetPosition", &(track, 7_500_000_i64))
+                .await
+                .unwrap();
+            let other = ObjectPath::try_from(track_id(2)).unwrap();
+            player
+                .call_method("SetPosition", &(other, 1_i64))
+                .await
+                .unwrap();
         });
-        assert_eq!(
-            commands.recv_timeout(Duration::from_secs(5)),
-            Ok(Command::PlayPause)
-        );
+        let asked: Vec<Command> =
+            std::iter::from_fn(|| commands.recv_timeout(Duration::from_secs(2)).ok()).collect();
+        assert_eq!(asked, [Command::PlayPause, Command::SeekTo(0.75)]);
     }
 
     #[test]
@@ -366,8 +453,11 @@ mod tests {
             id: 3,
             title: "notes.md".to_owned(),
             voice: "Heart".to_owned(),
+            length: Duration::from_secs(10),
         };
-        let shown = metadata(&now);
+        let shown = metadata(&now, Some("file:///run/art.svg"));
+        assert_eq!(shown["mpris:length"], value(10_000_000_i64.into()));
+        assert_eq!(shown["mpris:artUrl"], value("file:///run/art.svg".into()));
         assert_eq!(
             shown["xesam:title"],
             value(Value::from("notes.md")),
@@ -381,7 +471,7 @@ mod tests {
                     .into()
             )
         );
-        let stopped = metadata(&Playing::default());
+        let stopped = metadata(&Playing::default(), Some("file:///run/art.svg"));
         assert_eq!(stopped.len(), 1);
         assert_eq!(
             stopped["mpris:trackid"],
