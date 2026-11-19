@@ -37,10 +37,23 @@ class FakeSynthesizer:
     def synthesize(self, text, voice="af_heart"):
         self.warmed.append((text, voice))
 
-    def speak(self, text, voice, language, speed, audio_device, on_first_audio=None, volume=1.0):
+    def speak(
+        self,
+        text,
+        voice,
+        language,
+        speed,
+        audio_device,
+        on_first_audio=None,
+        volume=1.0,
+        translate_to=None,
+        translator=None,
+    ):
         if not text.strip():
             raise ValueError("Text must not be empty.")
         self.requests.append((text, voice, language, speed, audio_device))
+        if translate_to is not None:
+            self.translated = list(translator.stream(text, translate_to))
         speech = FakeSpeech(
             on_first_audio, RuntimeError("pw-play exited") if text == "fail" else None
         )
@@ -52,12 +65,71 @@ class FakeSynthesizer:
         return speech
 
 
-def run(*requests):
+def run(*requests, translators=serve._no_translator):
     events = []
     synthesizer = FakeSynthesizer()
     lines = [r if isinstance(r, str) else json.dumps(r) for r in requests]
-    serve.serve(synthesizer, lines, events.append)
+    serve.serve(synthesizer, lines, events.append, translators)
     return synthesizer, events
+
+
+class FakeTranslator:
+    def __init__(self):
+        self.asked = []
+
+    def stream(self, text, language):
+        self.asked.append((text, language))
+        yield f"[{language}] {text}"
+
+
+def test_a_translation_is_asked_for_and_each_piece_is_announced():
+    translator = FakeTranslator()
+    synthesizer, events = run(
+        {"op": "speak", "id": 3, "text": "end", "translate": "es"},
+        translators=lambda: translator,
+    )
+    assert translator.asked == [("end", "es")]
+    assert synthesizer.translated == ["[es] end"]
+    assert {"event": "translated", "id": 3, "text": "[es] end"} in events
+
+
+def test_without_translate_no_translator_is_made():
+    def never():
+        raise AssertionError("made a translator")
+
+    _, events = run({"op": "speak", "id": 1, "text": "end"}, translators=never)
+    assert events[-1]["event"] == "done"
+
+
+def test_a_translation_the_worker_cant_make_is_an_error_for_that_reading():
+    def missing():
+        raise ValueError("The translation model isn't downloaded.")
+
+    _, events = run({"op": "speak", "id": 4, "text": "x", "translate": "es"}, translators=missing)
+    assert events == [
+        {"event": "error", "id": 4, "message": "The translation model isn't downloaded."}
+    ]
+
+
+def test_translate_must_be_a_language_or_null():
+    _, events = run({"op": "speak", "id": 4, "text": "x", "translate": 3})
+    assert events[0]["message"] == "translate must be a language, or null."
+
+
+def test_the_translator_is_made_once_and_a_failed_make_is_tried_again():
+    made = []
+
+    def make():
+        made.append(1)
+        if len(made) == 1:
+            raise ValueError("not yet")
+        return "translator"
+
+    get = serve.once(make)
+    with pytest.raises(ValueError):
+        get()
+    assert get() == get() == "translator"
+    assert len(made) == 2
 
 
 def by_id(events, id):
@@ -187,9 +259,21 @@ def test_cli_serve_loads_the_device_asked_for(monkeypatch):
     monkeypatch.setattr(
         cli, "Synthesizer", lambda device, model_dir, lexicon: loaded.append(device)
     )
-    monkeypatch.setattr(cli.serve, "main", lambda make: make())
+    monkeypatch.setattr(cli.serve, "main", lambda make, translators: make())
     cli.main(["--serve", "--device", "CPU"])
     assert loaded == ["CPU"]
+
+
+def test_cli_serve_makes_a_translator_only_once_its_model_is_downloaded(monkeypatch):
+    made = {}
+    monkeypatch.setattr(cli.serve, "main", lambda make, translators: made.update(t=translators))
+    cli.main(["--serve", "--device", "CPU"])
+    monkeypatch.setattr(cli.translate, "is_downloaded", lambda: False)
+    with pytest.raises(ValueError, match="isn't downloaded"):
+        made["t"]()
+    monkeypatch.setattr(cli.translate, "is_downloaded", lambda: True)
+    translator = made["t"]()
+    assert translator.device == "CPU" and not translator.loaded
 
 
 @pytest.mark.parametrize(

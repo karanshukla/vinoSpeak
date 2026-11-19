@@ -10,8 +10,15 @@ from vino_speak import cli, model, tts
 def test_parser_defaults_to_npu():
     arguments = cli.build_parser().parse_args(["Hello"])
     assert arguments.device == "NPU"
-    assert arguments.voice == "af_heart"
+    assert arguments.voice is None
     assert arguments.model_dir is None
+
+
+def test_without_a_voice_heart_reads_it(monkeypatch):
+    asked = {}
+    monkeypatch.setattr(cli, "speak", lambda text, **kwargs: asked.update(kwargs))
+    cli.main(["Hello."])
+    assert asked["voice"] == "af_heart"
 
 
 def test_main_reports_errors_through_the_parser(monkeypatch, capsys):
@@ -299,3 +306,120 @@ def test_bad_ssml_is_a_usage_error(config_home, capsys):
     with pytest.raises(SystemExit):
         cli.main(["<speak>open", "--print-text"])
     assert "well-formed" in capsys.readouterr().err
+
+
+class FakeTranslator:
+    made = []
+
+    def __init__(self, device):
+        self.device = device
+        FakeTranslator.made.append(self)
+
+    def translate(self, text, language):
+        return f"[{language}] {text}"
+
+
+@pytest.fixture
+def translation(monkeypatch):
+    FakeTranslator.made.clear()
+    monkeypatch.setattr(cli.translate, "Translator", FakeTranslator)
+    monkeypatch.setattr(cli.translate, "is_downloaded", lambda: True)
+    return FakeTranslator.made
+
+
+def test_translate_without_the_model_says_how_to_get_it_and_downloads_nothing(monkeypatch, capsys):
+    monkeypatch.setattr(cli.translate, "is_downloaded", lambda: False)
+    monkeypatch.setattr(cli.translate, "download", lambda: pytest.fail("downloaded"))
+    with pytest.raises(SystemExit):
+        cli.main(["Hello.", "--translate", "es"])
+    assert "--download-translation-model" in capsys.readouterr().err
+
+
+def test_print_text_prints_the_translation(translation, capsys):
+    cli.main(["Hello.", "--translate", "fr-fr", "--print-text", "--device", "CPU"])
+    assert capsys.readouterr().out == "[fr-fr] Hello.\n"
+    assert translation[0].device == "CPU"
+
+
+def test_a_saved_translation_is_read_in_its_language_by_its_voice(
+    translation, monkeypatch, tmp_path
+):
+    asked = {}
+    monkeypatch.setattr(cli, "synthesize", lambda text, output, **k: asked.update(k, text=text))
+    cli.main(["Hello.", "--translate", "it", "--output", str(tmp_path / "a.mp3")])
+    assert asked["text"] == "[it] Hello."
+    assert (asked["language"], asked["voice"]) == ("it", "if_sara")
+
+
+def test_a_spoken_translation_is_handed_to_speak_untranslated(translation, monkeypatch):
+    asked = {}
+    monkeypatch.setattr(cli, "speak", lambda text, **k: asked.update(k, text=text))
+    cli.main(["Hello.", "--translate", "es", "--voice", "bm_george"])
+    assert asked["text"] == "Hello."
+    assert (asked["translate_to"], asked["voice"]) == ("es", "bm_george")
+    assert asked["translator"] is translation[0]
+
+
+@pytest.mark.parametrize(
+    ("argv", "complaint"),
+    [
+        (["Hi.", "--translate", "es", "--language", "es"], "drop --language"),
+        (["<speak>Hi.</speak>", "--translate", "es"], "SSML can't be translated"),
+    ],
+)
+def test_what_translate_cant_take(translation, capsys, argv, complaint):
+    with pytest.raises(SystemExit):
+        cli.main(argv)
+    assert complaint in capsys.readouterr().err
+    assert translation == []
+
+
+def test_hindi_is_not_a_translation_target(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["Hi.", "--translate", "hi"])
+    assert "invalid choice: 'hi'" in capsys.readouterr().err
+
+
+def test_download_translation_model_downloads_once(monkeypatch, capsys):
+    downloaded = []
+    monkeypatch.setattr(cli.translate, "is_downloaded", lambda: bool(downloaded))
+    monkeypatch.setattr(cli.translate, "download", lambda: downloaded.append(1))
+    cli.main(["--download-translation-model"])
+    cli.main(["--download-translation-model"])
+    out = capsys.readouterr()
+    assert downloaded == [1]
+    assert "Downloading SmolLM3-3B (1.7 GB)" in out.err
+    assert "already in" in out.out
+
+
+def test_a_failed_translation_download_is_a_usage_error(monkeypatch, capsys):
+    def fail():
+        raise RuntimeError("The download failed verification.")
+
+    monkeypatch.setattr(cli.translate, "is_downloaded", lambda: False)
+    monkeypatch.setattr(cli.translate, "download", fail)
+    with pytest.raises(SystemExit):
+        cli.main(["--download-translation-model"])
+    assert "failed verification" in capsys.readouterr().err
+
+
+def test_delete_translation_model_says_what_it_freed(monkeypatch, capsys):
+    freed = [2_100_000_000, 0]
+    monkeypatch.setattr(cli.translate, "delete", lambda: freed.pop(0))
+    cli.main(["--delete-translation-model"])
+    cli.main(["--delete-translation-model"])
+    assert (
+        capsys.readouterr().out == "Deleted the translation model (2.1 GB).\nNothing to delete.\n"
+    )
+
+
+def test_the_translation_model_commands_take_no_text():
+    with pytest.raises(SystemExit):
+        cli.main(["Hi.", "--download-translation-model"])
+
+
+def test_model_status_lists_the_translation_model_when_downloaded(cache, monkeypatch, capsys):
+    monkeypatch.setattr(cli.translate, "is_downloaded", lambda: True)
+    monkeypatch.setattr(cli.translate, "disk_usage", lambda: 1_702_000_000)
+    cli.main(["--model-status"])
+    assert "1.7 GB" in capsys.readouterr().out.splitlines()[-1]

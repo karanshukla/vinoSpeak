@@ -450,3 +450,44 @@ def test_bad_ssml_is_refused_before_the_model_loads(tmp_path):
     with pytest.raises(ValueError, match="well-formed"):
         tts.speak("<speak>open", model_dir=tmp_path / "never-created")
     assert not (tmp_path / "never-created").exists()
+
+
+class TaggingTranslator:
+    def __init__(self):
+        self.asked = []
+
+    def stream(self, text, language):
+        self.asked.append((text, language))
+        yield "Hola."
+        yield "Adiós."
+
+
+def test_a_translation_is_read_a_piece_at_a_time_in_its_language(fake_runtime):
+    np.arange(2, dtype=np.float32).tofile(fake_runtime / "voices" / "ef_dora.bin")
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+    translator = TaggingTranslator()
+
+    audio = list(synthesizer.stream("Hello. Bye.", "ef_dora", None, 1.0, "es", translator))
+
+    assert len(audio) == 2
+    assert translator.asked == [("Hello. Bye.", "es")]
+    assert FakePipeline.instances[0].calls == [("Hola.", "es", 1.0), ("Adiós.", "es", 1.0)]
+
+
+def test_translate_to_needs_a_translator(fake_runtime):
+    with pytest.raises(ValueError, match="needs a Translator"):
+        tts.Synthesizer("CPU", fake_runtime).stream("Hi.", translate_to="es")
+
+
+@pytest.mark.parametrize(
+    ("text", "target", "complaint"),
+    [("<speak>Hi.</speak>", "es", "SSML can't be translated"), ("Hi.", "hi", "can't translate")],
+)
+def test_what_cant_be_translated_is_refused_before_the_model_loads(
+    tmp_path, text, target, complaint
+):
+    with pytest.raises(ValueError, match=complaint):
+        tts.speak(
+            text, translate_to=target, translator=TaggingTranslator(), model_dir=tmp_path / "x"
+        )
+    assert not (tmp_path / "x").exists()

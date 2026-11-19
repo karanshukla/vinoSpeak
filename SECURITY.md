@@ -64,6 +64,15 @@ What that does and does not give you:
   script and not automatic. The diff it produces is a list of hashes, and it
   is meant to be read in review.
 
+## The translation model
+
+`--download-translation-model` (or About's Download in the window) fetches
+`arankays/SmolLM3-3B-int4-cw-ov`, vinoWhisper's own export of SmolLM3-3B,
+pinned to one revision with every file's sha256 in
+`vino_speak/translation_pins.json` and checked the same way as Kokoro. It is
+never downloaded unless you ask. Translation runs on this machine like
+synthesis; the text goes nowhere.
+
 ## Voice names cannot escape the model directory
 
 A voice is looked up as `voices/<name>.bin` inside the model directory, and the

@@ -1,4 +1,5 @@
-//! The voice, speed and volume, restored at start and saved as they change.
+//! The voice, speed, volume and translation language, restored at start and
+//! saved as they change.
 //! Mute is not kept: a window that opens silent looks broken.
 
 use std::path::PathBuf;
@@ -28,6 +29,11 @@ impl App {
         if let Some(volume) = saved.volume {
             self.volume = volume;
         }
+        self.translate_to = saved
+            .translate
+            .as_deref()
+            .and_then(crate::translation::target)
+            .filter(|_| self.translation.downloaded);
         self.saved = Some(self.choices());
         self.settings = Some(path);
     }
@@ -37,6 +43,7 @@ impl App {
             voice: Some(self.voice.id.clone()),
             speed: Some(self.speed),
             volume: Some(self.volume),
+            translate: self.translate_to.map(|t| t.language.to_owned()),
         }
     }
 

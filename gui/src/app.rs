@@ -9,6 +9,7 @@
 //! - `files`: the search, the recent files, the chosen file's preview
 //! - `reading`: the worker and the reading under way
 //! - `model`: the downloaded model's size, voices and deletion
+//! - `translation`: the translation model's download, and the Translate picker
 //! - `sidebar`, `header`, `results`, `reader`, `player`, `volume`, `about`: what is drawn
 //! - `choices`: the voice, speed and volume kept between runs
 //! - `capture`: the screenshot taken with nobody at the screen
@@ -26,6 +27,7 @@ mod results;
 mod sidebar;
 #[cfg(test)]
 mod tests;
+mod translation;
 mod volume;
 
 use std::path::PathBuf;
@@ -39,6 +41,7 @@ use vino_ui::widgets;
 
 use self::capture::Capture;
 use self::model::Model;
+use self::translation::Translation;
 use crate::model_cache;
 use crate::outputs::{self, Output};
 use crate::search::{Hit, Index, VinoSearch};
@@ -61,6 +64,8 @@ enum Reply {
     Preview(u64, anyhow::Result<String>),
     /// What `vinospeak --delete-model` said.
     Deleted(anyhow::Result<String>),
+    /// What `vinospeak --download-` or `--delete-translation-model` said.
+    Translation(anyhow::Result<String>),
 }
 
 /// The chosen file's text, as vinospeak gives it: what the worker is sent
@@ -131,6 +136,11 @@ pub struct App {
     /// vinospeak's cache: the model, its voices, and OpenVINO's compiled copy.
     cache: Option<PathBuf>,
     model: Model,
+    /// Where vinospeak keeps the translation model; None when there is no home.
+    translation_dir: Option<PathBuf>,
+    translation: Translation,
+    /// The language a reading is translated into first; None reads it as it is.
+    translate_to: Option<crate::translation::Target>,
 }
 
 impl App {
@@ -147,6 +157,7 @@ impl App {
         app.session_dirs = crate::sessions::user_dirs();
         app.to_open = std::env::args_os().nth(1).map(PathBuf::from);
         app.capture = Capture::from_env();
+        app.refresh_translation();
         if let Some(path) = crate::settings::path() {
             app.remember(path);
         }
@@ -217,6 +228,9 @@ impl App {
             updater: about::updater(),
             cache: model_cache::dir(),
             model: Model::default(),
+            translation_dir: crate::translation::dir(),
+            translation: Translation::default(),
+            translate_to: None,
         }
     }
 
@@ -237,6 +251,7 @@ impl App {
                 Reply::Opened(chosen) => self.on_opened(ctx, chosen),
                 Reply::Preview(previewed, text) => self.on_preview(ctx, previewed, text),
                 Reply::Deleted(said) => self.on_deleted(said),
+                Reply::Translation(said) => self.on_translation(said),
             }
         }
     }

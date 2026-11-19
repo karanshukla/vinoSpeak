@@ -1,4 +1,5 @@
-//! The player's choices kept between runs: voice, speed and volume, in
+//! The player's choices kept between runs: voice, speed, volume and the
+//! language to translate into, in
 //! `vinospeak/gui.json` under the config folder.
 
 use std::path::{Path, PathBuf};
@@ -10,6 +11,8 @@ pub struct Settings {
     pub voice: Option<String>,
     pub speed: Option<f32>,
     pub volume: Option<f32>,
+    /// vinospeak's name for the language, as `--translate` takes it.
+    pub translate: Option<String>,
 }
 
 /// `$XDG_CONFIG_HOME`, else `~/.config`, then `vinospeak/gui.json`.
@@ -41,6 +44,10 @@ pub fn load(path: &Path) -> Settings {
             .map(str::to_owned),
         speed: number("speed"),
         volume: number("volume").filter(|v| (0.0..=1.0).contains(v)),
+        translate: saved
+            .get("translate")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned),
     }
 }
 
@@ -54,6 +61,7 @@ pub fn save(path: &Path, settings: &Settings) -> std::io::Result<()> {
         "voice": settings.voice,
         "speed": settings.speed,
         "volume": settings.volume,
+        "translate": settings.translate,
     });
     let partial = path.with_extension("json.partial");
     std::fs::write(&partial, format!("{text:#}\n"))?;
@@ -78,6 +86,7 @@ mod tests {
             voice: Some("bm_george".to_owned()),
             speed: Some(1.25),
             volume: Some(0.4),
+            translate: Some("es".to_owned()),
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), settings);
@@ -91,6 +100,7 @@ mod tests {
             voice: None,
             speed: None,
             volume: None,
+            translate: None,
         };
         assert_eq!(load(&path), nothing);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();

@@ -134,6 +134,31 @@ Kokoro's pipeline in OpenVINO GenAI 2026.4 takes no phonemes: misaki's
 `[word](/IPA/)` is ignored (a word given 18 `ʃ` phonemes came out the length
 of the word, CPU, 2026-11-18), which is why the lexicon respells.
 
+## Translation
+
+`--translate` runs SmolLM3-3B (vinoWhisper's INT4 channel-wise export, its
+pins copied into `translation_pins.json`) through OpenVINO GenAI's
+`LLMPipeline`, greedy, with `/no_think`, the same way vinoWhisper calls it.
+vinoSpeak loads its own copy rather than asking vinoWhisper's server: the
+vinoPilot apps stand alone. The cost is a second ~2 GB in memory while both
+run a model, which is why it is loaded only at the first translation and
+dropped after `IDLE_UNLOAD_S` (five minutes) unused.
+
+On the NPU the pipeline gets vinoWhisper's window (`MAX_PROMPT_LEN` 3072,
+`MIN_RESPONSE_LEN` 1024), so a piece is at most 1,500 characters and an
+answer at most 1,024 tokens. Pieces follow `chunks()`: the first sentence
+alone, then pieces that at most double, so the first audio waits for one
+sentence's translation, not the file's. One piece is translated ahead on its
+own thread while the one before it is synthesized and played.
+
+It lives in `$XDG_DATA_HOME/vinospeak/translation/`, not the cache: a 1.7 GB
+opt-in shouldn't vanish with a cache clean, and the window's Kokoro row sums
+the cache folder.
+
+Tested in linuxlab only with an LLM stand-in (Claude through `claude -p`),
+2026-11-19: that proves the pieces, the streaming and the worker's events, not
+SmolLM3's translations, their speed, or NPU memory with both models loaded.
+
 ## Playback
 
 Players are tried in the order `pw-play`, `paplay`, `aplay`: PipeWire is the

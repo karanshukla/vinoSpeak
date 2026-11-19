@@ -1,5 +1,6 @@
 //! The About page: this app, vinopilot.ca and the other vinoPilot apps
-//! (vino-ui's), its Updates row, and the Model row with Delete… on it.
+//! (vino-ui's), its Updates row, the Model row with Delete… on it, and the
+//! Translation row.
 
 use std::path::PathBuf;
 
@@ -36,6 +37,7 @@ impl App {
             }
             vino_ui::about::page_with_updates(ui, &mut self.updater);
             self.model_row(ui);
+            self.translation_row(ui);
         });
     }
 
@@ -43,6 +45,9 @@ impl App {
         self.about = true;
         self.model.confirm = false;
         self.refresh_model();
+        if self.translation.step.is_none() {
+            self.refresh_translation();
+        }
     }
 
     pub(super) fn toggle_about(&mut self) {

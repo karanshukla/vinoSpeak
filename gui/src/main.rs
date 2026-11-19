@@ -9,6 +9,7 @@ mod search;
 mod sessions;
 mod settings;
 mod speech;
+mod translation;
 mod version;
 mod voices;
 

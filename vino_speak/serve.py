@@ -5,7 +5,8 @@ vinoSpeak's GUI for now; it may change without notice.
 Requests, one JSON object a line on stdin:
 
     {"op": "speak", "id": 1, "text": "...", "voice": "af_heart",
-     "language": "en-us" (or null: the voice's own), "speed": 1.0, "audio_device": null, "volume": 1.0}
+     "language": "en-us" (or null: the voice's own), "speed": 1.0, "audio_device": null, "volume": 1.0,
+     "translate": null}   (or "es": translated into that language first)
     {"op": "volume", "volume": 0.5}   (the reading playing, from its next tenth of a second)
     {"op": "stop"}
 
@@ -13,12 +14,14 @@ Events, one a line on stdout:
 
     {"event": "ready", "load_ms": 4810, "warm_up_ms": 2830}
     {"event": "started", "id": 1}
+    {"event": "translated", "id": 1, "text": "..."}  (each piece, as it is translated)
     {"event": "first-audio", "id": 1, "ms": 812}  (from the request to the first sample played)
     {"event": "done", "id": 1, "stopped": false}
     {"event": "error", "id": 1, "message": "..."}  (id null for a request that didn't parse)
 
 A speak or a stop ends the reading before it; a volume leaves it playing.
-The worker exits when stdin closes."""
+The worker exits when stdin closes. The translation model is loaded only for
+the first request that asks for a translation."""
 
 from __future__ import annotations
 
@@ -26,7 +29,7 @@ import json
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from typing import IO, Any, Protocol
 
 from .playback import Speech
@@ -52,7 +55,27 @@ class Speaker(Protocol):
         audio_device: str | None = ...,
         on_first_audio: Callable[[], None] | None = ...,
         volume: float = ...,
+        translate_to: str | None = ...,
+        translator: Any = ...,
     ) -> Speech: ...
+
+
+class Translates(Protocol):
+    def stream(self, text: str, language: str) -> Iterator[str]: ...
+
+
+class Announced:
+    """A translator whose every piece is also sent to the window."""
+
+    def __init__(self, translator: Translates, emit: Emit, reading_id: object) -> None:
+        self._translator = translator
+        self._emit = emit
+        self._id = reading_id
+
+    def stream(self, text: str, language: str) -> Iterator[str]:
+        for piece in self._translator.stream(text, language):
+            self._emit({"event": "translated", "id": self._id, "text": piece})
+            yield piece
 
 
 def emitter(out: IO[str]) -> Emit:
@@ -86,8 +109,21 @@ def warm_up(synthesizer: Speaker, emit: Emit, loaded: float) -> None:
     emit({"event": "ready", "load_ms": load_ms, "warm_up_ms": _ms(start)})
 
 
+Translators = Callable[[], Translates]
+
+
+def _no_translator() -> Translates:
+    raise ValueError("This worker can't translate.")
+
+
 class Reading:
-    def __init__(self, synthesizer: Speaker, request: dict[str, Any], emit: Emit) -> None:
+    def __init__(
+        self,
+        synthesizer: Speaker,
+        request: dict[str, Any],
+        emit: Emit,
+        translators: Translators = _no_translator,
+    ) -> None:
         asked = time.monotonic()
         self.id = request.get("id")
         self.emit = emit
@@ -98,6 +134,10 @@ class Reading:
         if not isinstance(text, str) or not isinstance(speed, int | float):
             raise ValueError("A speak request needs text, and a number for speed.")
         volume = volume_of(request)
+        target = request.get("translate")
+        if target is not None and not isinstance(target, str):
+            raise ValueError("translate must be a language, or null.")
+        translator = Announced(translators(), emit, self.id) if target else None
         emit({"event": "started", "id": self.id})
         self.speech = synthesizer.speak(
             text,
@@ -107,6 +147,8 @@ class Reading:
             audio_device if isinstance(audio_device, str) else None,
             on_first_audio=lambda: emit({"event": "first-audio", "id": self.id, "ms": _ms(asked)}),
             volume=volume,
+            translate_to=target or None,
+            translator=translator,
         )
         self.watcher = threading.Thread(target=self._watch, daemon=True)
         self.watcher.start()
@@ -150,7 +192,12 @@ def set_volume(reading: Reading | None, request: dict[str, Any], emit: Emit) -> 
         reading.speech.volume = volume
 
 
-def serve(synthesizer: Speaker, lines: Iterable[str], emit: Emit) -> None:
+def serve(
+    synthesizer: Speaker,
+    lines: Iterable[str],
+    emit: Emit,
+    translators: Translators = _no_translator,
+) -> None:
     """Answer requests until `lines` ends, then stop whatever is playing."""
     reading: Reading | None = None
     for line in lines:
@@ -168,16 +215,29 @@ def serve(synthesizer: Speaker, lines: Iterable[str], emit: Emit) -> None:
             reading = None
         if op == "speak":
             try:
-                reading = Reading(synthesizer, request, emit)
+                reading = Reading(synthesizer, request, emit, translators)
             except (OSError, RuntimeError, ValueError) as error:
                 emit({"event": "error", "id": request.get("id"), "message": str(error)})
     if reading is not None:
         reading.stop()
 
 
-def main(synthesizer: Callable[[], Speaker]) -> None:
+def once(make: Translators) -> Translators:
+    """`make`'s translator, made at the first call and kept; a call that
+    fails is tried again next time."""
+    made: list[Translates] = []
+
+    def get() -> Translates:
+        if not made:
+            made.append(make())
+        return made[0]
+
+    return get
+
+
+def main(synthesizer: Callable[[], Speaker], translators: Translators = _no_translator) -> None:
     """Load, warm up, then serve stdin; a load that fails is an error event
-    and exit status 1."""
+    and exit status 1. A translator is made only when a request needs one."""
     emit = emitter(sys.stdout)
     loaded = time.monotonic()
     try:
@@ -186,4 +246,4 @@ def main(synthesizer: Callable[[], Speaker]) -> None:
     except (OSError, RuntimeError, ValueError) as error:
         emit({"event": "error", "id": None, "message": str(error)})
         raise SystemExit(1) from None
-    serve(speaker, sys.stdin, emit)
+    serve(speaker, sys.stdin, emit, once(translators))

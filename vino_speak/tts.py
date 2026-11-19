@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import ovfetch, script, voices
+from . import ovfetch, script, ssml, voices
 from .lexicon import Lexicon
 from .model import compile_cache_dir, default_model_dir, ensure_model
 from .playback import Speech, require_player
@@ -18,6 +18,8 @@ from .playback import Speech, require_player
 if TYPE_CHECKING:
     import numpy as np
     from numpy.typing import NDArray
+
+    from .translate import Translator
 
 LANGUAGES = ("en-us", "en-gb", "es", "fr-fr", "hi", "it", "pt-br")
 DEFAULT_LANGUAGE = "en-us"
@@ -42,6 +44,15 @@ def is_npu(device: str) -> bool:
 class Audio:
     samples: NDArray[np.float32]
     sample_rate: int
+
+
+def check_translatable(text: str, voice: str, speed: float, translate_to: str) -> None:
+    from .translate import target_name
+
+    validate_inputs(text, voice, speed)
+    target_name(translate_to)
+    if ssml.is_ssml(text):
+        raise ValueError("SSML can't be translated; give plain text to translate.")
 
 
 def language_for(voice: str, language: str | None) -> str:
@@ -244,10 +255,23 @@ class Synthesizer:
         voice: str = DEFAULT_VOICE,
         language: str | None = None,
         speed: float = 1.0,
+        translate_to: str | None = None,
+        translator: Translator | None = None,
     ) -> Iterator[Audio]:
         """The text (plain or SSML) a chunk at a time, synthesized as it is
-        consumed. The lock is held per chunk, so other callers can interleave."""
-        return (self.render(step) for step in self.plan(text, voice, language, speed))
+        consumed. The lock is held per chunk, so other callers can interleave.
+        With `translate_to`, plain text is translated a piece at a time first,
+        and each piece read in that language as soon as it is ready."""
+        if translate_to is None:
+            return (self.render(step) for step in self.plan(text, voice, language, speed))
+        if translator is None:
+            raise ValueError("translate_to needs a Translator.")
+        check_translatable(text, voice, speed, translate_to)
+        return (
+            audio
+            for piece in translator.stream(text, translate_to)
+            for audio in self.stream(piece, voice, translate_to, speed)
+        )
 
     def speak(
         self,
@@ -258,12 +282,14 @@ class Synthesizer:
         audio_device: str | None = None,
         on_first_audio: Callable[[], None] | None = None,
         volume: float = 1.0,
+        translate_to: str | None = None,
+        translator: Translator | None = None,
     ) -> Speech:
         """Start playing the text on the speakers (or `audio_device`) and
         return at once. `on_first_audio` is called once the first samples
         are with the player; `volume` (0 to 1) can be changed on the Speech."""
         return Speech(
-            self.stream(text, voice, language, speed),
+            self.stream(text, voice, language, speed, translate_to, translator),
             audio_device=audio_device,
             sample_rate=SAMPLE_RATE,
             on_first_audio=on_first_audio,
@@ -309,16 +335,20 @@ def speak(
     model_dir: Path | None = None,
     audio_device: str | None = None,
     lexicon: Lexicon | None = None,
+    translate_to: str | None = None,
+    translator: Translator | None = None,
 ) -> None:
     """One-shot: speak text on the speakers (or `audio_device`) and return
-    when it has finished."""
-    validate_inputs(text, voice, speed, language)
-    script.plan(text, voice, language, speed, lexicon)
+    when it has finished; with `translate_to`, translated first by `translator`."""
+    if translate_to is None:
+        validate_inputs(text, voice, speed, language)
+        script.plan(text, voice, language, speed, lexicon)
+    else:
+        check_translatable(text, voice, speed, translate_to)
     player = require_player()
     synthesizer = Synthesizer(device, model_dir, lexicon)
-    speech = Speech(
-        synthesizer.stream(text, voice, language, speed), player, audio_device, SAMPLE_RATE
-    )
+    audio = synthesizer.stream(text, voice, language, speed, translate_to, translator)
+    speech = Speech(audio, player, audio_device, SAMPLE_RATE)
     try:
         speech.wait()
     finally:

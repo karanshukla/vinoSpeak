@@ -17,6 +17,7 @@ from . import (
     serve,
     session,
     ssml,
+    translate,
     voices,
 )
 from .model import default_model_dir
@@ -25,6 +26,7 @@ from .tts import (
     DEFAULT_VOICE,
     LANGUAGES,
     Synthesizer,
+    check_translatable,
     speak,
     synthesize,
 )
@@ -109,9 +111,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--voice",
-        default=DEFAULT_VOICE,
-        help="Kokoro voice (--list-voices), or a blend of up to "
+        help=f"Kokoro voice (default {DEFAULT_VOICE}, or with --translate one of that "
+        "language; --list-voices), or a blend of up to "
         f"{voices.MAX_BLEND} with weights: af_heart(2)+bm_george(1).",
+    )
+    parser.add_argument(
+        "--translate",
+        metavar="LANGUAGE",
+        choices=translate.TARGETS,
+        help=f"Translate the text into this language with {translate.LABEL} first, then read "
+        f"it: {', '.join(translate.TARGETS)}. Needs --download-translation-model once.",
+    )
+    parser.add_argument(
+        "--download-translation-model",
+        action="store_true",
+        help=f"Download the translation model ({translate.LABEL}, about 1.7 GB) "
+        f"into {translate.data_dir()}.",
+    )
+    parser.add_argument(
+        "--delete-translation-model",
+        action="store_true",
+        help="Delete it and its compiled copy.",
     )
     parser.add_argument(
         "--list-voices", action="store_true", help="List the voices and the language of each."
@@ -151,6 +171,8 @@ def model_status() -> None:
         return
     for directory, used in found.items():
         print(f"{size(used):>8}  {directory}")
+    if translate.is_downloaded():
+        print(f"{size(translate.disk_usage()):>8}  {translate.data_dir()} (translation)")
 
 
 def delete_model(parser: argparse.ArgumentParser) -> None:
@@ -165,6 +187,29 @@ def delete_model(parser: argparse.ArgumentParser) -> None:
         f"Deleted the model and its compiled cache ({size(freed)}) from {model.cache_dir()}. "
         "The next run downloads it again."
     )
+
+
+def translation_model(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> None:
+    """--download-translation-model or --delete-translation-model, alone."""
+    if arguments.text is not None or arguments.file is not None or arguments.translate:
+        parser.error("--download- and --delete-translation-model take no text")
+    if arguments.delete_translation_model:
+        freed = translate.delete()
+        print(f"Deleted the translation model ({size(freed)})." if freed else "Nothing to delete.")
+        return
+    if translate.is_downloaded():
+        print(f"The translation model is already in {translate.model_dir()}")
+        return
+    print(
+        f"Downloading {translate.LABEL} ({size(translate.download_bytes())}) "
+        f"into {translate.model_dir()}",
+        file=sys.stderr,
+    )
+    try:
+        translate.download()
+    except (OSError, RuntimeError) as error:
+        parser.error(str(error))
+    print(f"Downloaded. Read in another language with --translate {', '.join(translate.TARGETS)}")
 
 
 def list_voices() -> None:
@@ -183,12 +228,22 @@ def manage_model(parser: argparse.ArgumentParser, arguments: argparse.Namespace)
         model_status()
 
 
+def downloaded_translator(device: str) -> translate.Translator:
+    """A translator, once its model is downloaded; it loads at its first use."""
+    if not translate.is_downloaded():
+        raise ValueError(translate.NOT_DOWNLOADED)
+    return translate.Translator(device)
+
+
 def serve_requests(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> None:
     others = (arguments.text, arguments.file, arguments.output, arguments.audio_device)
     if any(o is not None for o in others) or arguments.print_text:
         parser.error("--serve takes its text on stdin; give it only --device and --model-dir")
     respellings = load_lexicon(parser, arguments)
-    serve.main(lambda: Synthesizer(arguments.device, arguments.model_dir, respellings))
+    serve.main(
+        lambda: Synthesizer(arguments.device, arguments.model_dir, respellings),
+        lambda: downloaded_translator(arguments.device),
+    )
 
 
 def text_to_speak(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> str:
@@ -300,11 +355,60 @@ def play_or_save(
         print(f"Subtitles saved to {arguments.subtitles}")
 
 
+def translate_and_read(
+    parser: argparse.ArgumentParser,
+    arguments: argparse.Namespace,
+    text: str,
+    respellings: lexicon.Lexicon,
+) -> None:
+    """--translate: the model is checked for, never downloaded, then the text
+    is translated and printed, saved or spoken a piece at a time."""
+    target = arguments.translate
+    if arguments.language is not None:
+        parser.error("--translate says which language to read in; drop --language")
+    arguments.voice = translate.voice_for(target, arguments.voice)
+    try:
+        check_translatable(text, arguments.voice, arguments.speed, target)
+    except ValueError as error:
+        parser.error(str(error))
+    if not translate.is_downloaded():
+        parser.error(translate.NOT_DOWNLOADED)
+    translator = translate.Translator(arguments.device)
+    try:
+        if arguments.print_text:
+            print(translator.translate(text, target))
+            return
+        if arguments.output is not None:
+            arguments.language = target
+            text = translator.translate(text, target)
+        else:
+            speak(
+                text,
+                voice=arguments.voice,
+                speed=arguments.speed,
+                device=arguments.device,
+                model_dir=arguments.model_dir,
+                audio_device=arguments.audio_device,
+                lexicon=respellings,
+                translate_to=target,
+                translator=translator,
+            )
+            return
+    except (OSError, RuntimeError, ValueError) as error:
+        parser.error(str(error))
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None
+    play_or_save(parser, arguments, text, respellings)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     arguments = parser.parse_args(argv)
     if arguments.list_voices:
         list_voices()
+        return
+    if arguments.download_translation_model or arguments.delete_translation_model:
+        translation_model(parser, arguments)
         return
     if arguments.model_status or arguments.delete_model:
         manage_model(parser, arguments)
@@ -321,6 +425,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     if arguments.audio_device and arguments.output is not None:
         parser.error("--audio-device is where speech plays; it can't go with --output")
     respellings = load_lexicon(parser, arguments)
+    if arguments.translate:
+        translate_and_read(parser, arguments, text, respellings)
+        return
+    arguments.voice = arguments.voice or DEFAULT_VOICE
     if arguments.print_text:
         print_text(parser, arguments, text, respellings)
         return

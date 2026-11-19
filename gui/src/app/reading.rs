@@ -68,20 +68,26 @@ impl App {
         else {
             return;
         };
+        let target = self.translate_to;
         match worker.speak(
             &preview.text,
             &self.voice,
             self.speed,
             self.output.as_deref(),
             volume,
+            target.map(|t| t.language),
         ) {
             Ok(id) => {
-                self.status = format!("Speaking {}", hit.name);
+                self.status = match target {
+                    Some(t) => format!("Translating {} into {}", hit.name, t.name),
+                    None => format!("Speaking {}", hit.name),
+                };
                 self.reading = Some(Reading {
                     id,
                     file: hit.path.clone(),
                     started: Instant::now(),
                     stop_sent: None,
+                    translated_into: target,
                 });
             }
             Err(e) => {
@@ -147,6 +153,9 @@ impl App {
             Event::FirstAudio { id, ms } => {
                 if let Some(reading) = self.reading.as_ref().filter(|r| r.id == id) {
                     debug_first_audio(reading, ms);
+                    if let Some(target) = reading.translated_into {
+                        self.status = format!("Speaking {} in {}", file_name(reading), target.name);
+                    }
                 }
                 None
             }

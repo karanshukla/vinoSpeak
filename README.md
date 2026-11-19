@@ -23,6 +23,9 @@ own telemetry is blocked.
   sentence plays while the rest is synthesized.
 - **41 Kokoro voices** in US/UK English, Spanish, French, Hindi, Italian and
   Brazilian Portuguese, at 0.5x to 2x speed, or a blend of several.
+- **Translates before it reads**, if you ask: SmolLM3-3B (the model
+  vinoWhisper uses, a 1.7 GB opt-in download) turns a file into Spanish,
+  French, Italian, Portuguese or English, and Kokoro reads it as it goes.
 - **SSML and your own pronunciations**: pauses, voice and speed changes and
   aliases in a small SSML subset, and a lexicon that respells the words
   Kokoro gets wrong.
@@ -66,7 +69,7 @@ player: [docs/install.md](docs/install.md).
 | Linux | Python comes with uv; espeak-ng and libsndfile come in the wheels |
 | An audio player | `pw-play`, `paplay` or `aplay`, or use `--output` |
 | For `--device NPU` | An Intel NPU and its driver. `--device CPU` needs no driver at all |
-| Disk | About 160 MB for the model, downloaded once into `~/.cache/vinospeak/` |
+| Disk | About 160 MB for the model, downloaded once into `~/.cache/vinospeak/`; 1.7 GB more in `~/.local/share/vinospeak/` if you turn translation on |
 
 ## Use
 
@@ -80,6 +83,7 @@ some-command | vinospeak --file -                  # plain text from stdin
 vinospeak --file 2026-10-27-140512.vwsession       # a vinoWhisper summary
 vinospeak '<speak>Wait.<break time="1s"/><voice name="bm_george">Done.</voice></speak>'
 vinospeak "Hola." --voice ef_dora --speed 1.2 --device CPU    # Spanish: the voice's language
+vinospeak --file notes.md --translate fr-fr                      # in French (after --download-translation-model)
 vinospeak "Hello." --voice "af_heart(2)+bm_george(1)"            # a blend of two voices
 ```
 
@@ -92,6 +96,7 @@ vinospeak "Hello." --voice "af_heart(2)+bm_george(1)"            # a blend of tw
 | `--device` | `NPU` (default), `GPU` or `CPU` |
 | `--audio-device` | A sink from `pactl list short sinks`, or an ALSA device |
 | `--kind` | Read `--file` as `plain`, `markdown` or `document` |
+| `--translate`, `--download-translation-model` | Translate into `es`, `fr-fr`, `it`, `pt-br`, `en-us` or `en-gb` first; the model downloads only when you ask |
 | `--lexicon` | Respell words from this TOML file instead of `~/.config/vinospeak/lexicon.toml` |
 | `--part` | `summary` or `transcript` of a vinoWhisper session |
 | `--http [HOST:]PORT` | Serve OpenAI's `/v1/audio/speech` (default `127.0.0.1:8880`) |

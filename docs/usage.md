@@ -29,6 +29,46 @@ Abbreviations like `e.g.` and `Dr.` don't end a sentence.
 `--print-text` prints what would be spoken and exits, without loading the
 model.
 
+## Translating
+
+```bash
+vinospeak --download-translation-model               # once: SmolLM3-3B, 1.7 GB
+vinospeak --file notes.md --translate es              # read it in Spanish
+vinospeak --file notes.md --translate fr-fr --print-text
+vinospeak --file notes.md --translate it --output notes-it.mp3 --subtitles notes-it.srt
+vinospeak --delete-translation-model
+```
+
+Translation is off until you download its model, and nothing is downloaded
+for you: `--translate` without it says how. The model is
+[SmolLM3-3B](https://huggingface.co/HuggingFaceTB/SmolLM3-3B) in the INT4
+export vinoWhisper uses for its cleanup and summaries, pinned to the same
+revision and hashes, but vinoSpeak keeps its own copy in
+`~/.local/share/vinospeak/translation/` (`$XDG_DATA_HOME`) so it doesn't
+need vinoWhisper installed.
+
+It is loaded at the first translation, never at start, on the same
+`--device` as Kokoro, and lets go of its ~2 GB of memory after five minutes
+unused. The first sentence is translated alone so speech starts soon; the
+rest goes in pieces of up to 1,500 characters, each translated while the one
+before it is spoken.
+
+| `--translate` | Read by, unless you give `--voice` |
+|---|---|
+| `es` | `ef_dora` |
+| `fr-fr` | `ff_siwis` |
+| `it` | `if_sara` |
+| `pt-br` | `pf_dora` |
+| `en-us`, `en-gb` | `af_heart`, `bf_emma` |
+
+SmolLM3 doesn't do Hindi, so `hi` voices only read Hindi you give them.
+SSML isn't translated: give plain text. Your lexicon applies to the
+translation. A 3B model translates well enough to follow, not to publish:
+check anything that matters.
+
+In the window, download it from About's Translation row; a Translate picker
+then joins the player.
+
 ## SSML
 
 Text (or a file, or stdin) that starts with `<speak` is read as SSML. Kokoro
