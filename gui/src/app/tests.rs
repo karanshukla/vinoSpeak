@@ -1252,3 +1252,27 @@ fn the_player_says_it_is_starting_until_the_first_audio() {
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Speaking");
 }
+
+#[test]
+fn the_choices_stay_put_when_a_reading_starts() {
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    pick_language(&mut h, "French");
+    let places = |h: &Harness<'_, App>| {
+        ["Translate", "Voice", "Output"].map(|label| h.get_by_label(label).rect())
+    };
+    let before = places(&h);
+    for heard in [false, true] {
+        h.state_mut().reading = Some(crate::speech::Reading {
+            id: 1,
+            file: scratch.0.join("notes.md"),
+            started: Instant::now(),
+            stop_sent: None,
+            translated_into: crate::translation::target("fr-fr"),
+            heard,
+        });
+        h.run_steps(3);
+        assert!(h.query_by_label("Stop").is_some());
+        assert_eq!(places(&h), before, "heard: {heard}");
+    }
+}

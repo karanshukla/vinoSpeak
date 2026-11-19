@@ -15,6 +15,10 @@ use crate::search::Hit;
 pub(super) const SPEEDS: [(f32, &str); 4] =
     [(0.8, "0.8×"), (1.0, "1.0×"), (1.25, "1.25×"), (1.5, "1.5×")];
 const BUTTON_DIAMETER: f32 = 44.0;
+/// The button and what it is doing, wide enough for the widest state (the
+/// spinner and "Translating…"), so nothing after it moves when the state
+/// changes (pinned by `app::tests::the_choices_stay_put_when_a_reading_starts`).
+const TRANSPORT_WIDTH: f32 = 200.0;
 /// What each choice takes in the player's row, icon and all: a group that
 /// doesn't fit starts the next row, rather than running off the window
 /// (pinned by `app::tests::the_player_wraps_rather_than_running_off_the_window`).
@@ -124,12 +128,16 @@ impl App {
         let speaking_this = self.reading.as_ref().is_some_and(|r| r.file == hit.path);
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(12.0, 8.0);
-            if speaking_this {
-                self.stop_button(ui);
-            } else {
-                self.read_aloud_button(ui);
-            }
-            ui.add_space(8.0);
+            let size = egui::vec2(TRANSPORT_WIDTH, BUTTON_DIAMETER);
+            let layout = egui::Layout::left_to_right(egui::Align::Center);
+            ui.allocate_ui_with_layout(size, layout, |ui| {
+                ui.set_min_size(size);
+                if speaking_this {
+                    self.stop_button(ui);
+                } else {
+                    self.read_aloud_button(ui);
+                }
+            });
             room_for(ui, TRANSLATE_ROOM);
             self.translate_picker(ui);
             room_for(ui, VOICE_ROOM);
