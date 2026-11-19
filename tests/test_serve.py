@@ -48,6 +48,7 @@ class FakeSynthesizer:
         volume=1.0,
         translate_to=None,
         translator=None,
+        on_progress=None,
     ):
         if not text.strip():
             raise ValueError("Text must not be empty.")
@@ -283,3 +284,14 @@ def test_cli_serve_takes_nothing_else(argv):
     with pytest.raises(SystemExit) as exit_info:
         cli.main(["--serve", *argv])
     assert exit_info.value.code == 2
+
+
+def test_progress_is_sent_in_steps_up_to_the_end():
+    from types import SimpleNamespace
+
+    events = []
+    reading = SimpleNamespace(id=4, shown=0.0, emit=events.append)
+    for done in (0.001, 0.004, 0.006, 0.0062, 0.5, 0.998, 1.0, 1.0):
+        serve.Reading._progress(reading, done)
+    assert [e["done"] for e in events] == [0.006, 0.5, 0.998, 1.0]
+    assert all(e == {"event": "progress", "id": 4, "done": e["done"]} for e in events)

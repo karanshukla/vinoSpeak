@@ -42,7 +42,8 @@ desktop's, and a change is heard mid-reading.
 
 Checked without anyone at the screen: `VINOSPEAK_GUI_QUERY` searches,
 `VINOSPEAK_GUI_SCREENSHOT=out.png` saves the window once the first hit's text is
-in and exits, and `VINOSPEAK_GUI_SPEAK=1` starts reading first.
+in and exits, and `VINOSPEAK_GUI_SPEAK=1` starts reading first (a number
+above 1 reads that many seconds before the screenshot, rather than 4).
 `VINOSPEAK_GUI_ABOUT=1` opens the About page, and `=delete` opens it at the
 model's delete confirmation.
 
@@ -51,7 +52,12 @@ About's Translation row downloads SmolLM3-3B (1.7 GB, `vinospeak
 unless vinoWhisper uses the same copy. Until it is there the player's
 Translate… button opens that row; once it is, Translate is a picker: pick a
 language and Read aloud translates the file into it as it reads, in a voice
-of that language.
+of that language. The voice picker then lists only that language's voices.
+
+The player is two rows that never reflow: the transport (Read aloud or Stop,
+what it is doing, the volume) and the settings for the next reading
+(Translate, Voice, Speed, Output) under their headings, four across or two by
+two in a narrow window.
 The worker loads the model only for the first translated reading. Until the
 first audio plays, the player shows a spinner with Starting… (or
 Translating…), since loading the models and translating the first sentence

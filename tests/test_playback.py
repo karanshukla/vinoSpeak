@@ -353,3 +353,13 @@ def test_stop_before_an_early_player_starts_starts_none(monkeypatch):
     speech._ready = playback.queue.Queue()
     speech._play()
     assert speech._error is None
+
+
+def test_progress_moves_through_each_chunk_as_its_slices_are_written(monkeypatch, tmp_path):
+    slice_ = round(24000 * playback.SLICE_SECONDS)
+    long = Audio(np.zeros(slice_ * 4, dtype=np.float32), 24000, progress=(0.0, 0.8))
+    short = Audio(np.zeros(slice_, dtype=np.float32), 24000, progress=(0.8, 1.0))
+    unmarked = chunk(0.1)
+    seen = []
+    played(monkeypatch, tmp_path, [long, short, unmarked], on_progress=seen.append)
+    assert seen == pytest.approx([0.2, 0.4, 0.6, 0.8, 1.0])

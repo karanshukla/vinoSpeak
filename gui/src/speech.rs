@@ -146,6 +146,11 @@ pub enum Event {
         id: u64,
         ms: u64,
     },
+    /// How far through the text playback is, 0 to 1.
+    Progress {
+        id: u64,
+        done: f32,
+    },
     Done {
         id: u64,
     },
@@ -166,6 +171,13 @@ fn event(line: &str) -> Option<Event> {
         "first-audio" => Event::FirstAudio {
             id: id?,
             ms: v.get("ms").and_then(serde_json::Value::as_u64).unwrap_or(0),
+        },
+        "progress" => Event::Progress {
+            id: id?,
+            done: v
+                .get("done")
+                .and_then(serde_json::Value::as_f64)?
+                .clamp(0.0, 1.0) as f32,
         },
         "done" => Event::Done { id: id? },
         "error" => Event::Error {
@@ -325,6 +337,8 @@ pub struct Reading {
     pub translated_into: Option<crate::translation::Target>,
     /// Whether its first audio has reached the speakers.
     pub heard: bool,
+    /// How far through the text playback is, 0 to 1.
+    pub done: f32,
 }
 
 #[cfg(test)]
@@ -346,6 +360,14 @@ mod tests {
         assert_eq!(
             event(r#"{"event": "first-audio", "id": 2, "ms": 812}"#),
             Some(Event::FirstAudio { id: 2, ms: 812 })
+        );
+        assert_eq!(
+            event(r#"{"event": "progress", "id": 2, "done": 0.42}"#),
+            Some(Event::Progress { id: 2, done: 0.42 })
+        );
+        assert_eq!(
+            event(r#"{"event": "progress", "id": 2, "done": 1.7}"#),
+            Some(Event::Progress { id: 2, done: 1.0 })
         );
         assert_eq!(
             event(r#"{"event": "done", "id": 2, "stopped": true}"#),

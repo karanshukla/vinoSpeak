@@ -11,16 +11,19 @@ use super::App;
 /// How long a preview may take before the screenshot is taken without it.
 const PREVIEW_WAIT: Duration = Duration::from_secs(30);
 /// How long a reading started for the screenshot plays before it is taken.
+/// How long a reading runs before the screenshot, unless `VINOSPEAK_GUI_SPEAK` says.
 const SPEAKING_WAIT: Duration = Duration::from_secs(4);
 const POLL: Duration = Duration::from_millis(100);
 
 /// `VINOSPEAK_GUI_SCREENSHOT=out.png`: where the screenshot goes.
 /// `VINOSPEAK_GUI_PICK=n` picks the nth file instead of the first, and
-/// `VINOSPEAK_GUI_SPEAK=1` starts reading it first.
+/// `VINOSPEAK_GUI_SPEAK=1` starts reading it first; a number above 1 is
+/// how many seconds it reads before the screenshot.
 pub(super) struct Capture {
     out: PathBuf,
     pub(super) pick: usize,
     speak: bool,
+    speaking_wait: Duration,
     requested: bool,
     deadline: Instant,
 }
@@ -35,6 +38,11 @@ impl Capture {
                 .and_then(|n| n.parse().ok())
                 .unwrap_or(0),
             speak: std::env::var_os("VINOSPEAK_GUI_SPEAK").is_some(),
+            speaking_wait: std::env::var("VINOSPEAK_GUI_SPEAK")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .filter(|&s| s > 1)
+                .map_or(SPEAKING_WAIT, Duration::from_secs),
             requested: false,
             deadline: Instant::now() + PREVIEW_WAIT,
         })
@@ -67,7 +75,7 @@ impl App {
         if ready && !capture.requested {
             if capture.speak && self.reading.is_none() && self.preview.is_some() {
                 capture.speak = false;
-                capture.deadline = Instant::now() + SPEAKING_WAIT;
+                capture.deadline = Instant::now() + capture.speaking_wait;
                 self.read_aloud(ctx);
                 return;
             }

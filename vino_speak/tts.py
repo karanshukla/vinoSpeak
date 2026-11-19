@@ -6,7 +6,7 @@ import os
 import threading
 import warnings
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,7 +14,7 @@ from . import ovfetch, script, ssml, voices
 from .lexicon import Lexicon
 from .model import compile_cache_dir, default_model_dir, ensure_model
 from .playback import Speech, require_player
-from .text import speakable_end
+from .text import chunks, speakable_end
 
 if TYPE_CHECKING:
     import numpy as np
@@ -45,6 +45,8 @@ def is_npu(device: str) -> bool:
 class Audio:
     samples: NDArray[np.float32]
     sample_rate: int
+    # How far through the reading's text this chunk starts and ends, 0 to 1.
+    progress: tuple[float, float] | None = None
 
 
 def check_translatable(text: str, voice: str, speed: float, translate_to: str) -> None:
@@ -270,15 +272,39 @@ class Synthesizer:
         With `translate_to`, plain text is translated a piece at a time first,
         and each piece read in that language as soon as it is ready."""
         if translate_to is None:
-            return (self.render(step) for step in self.plan(text, voice, language, speed))
+            return self._rendered(self.plan(text, voice, language, speed), 0.0, 1.0)
         if translator is None:
             raise ValueError("translate_to needs a Translator.")
         check_translatable(text, voice, speed, translate_to)
-        return (
-            audio
-            for piece in translator.stream(text, translate_to)
-            for audio in self.stream(piece, voice, translate_to, speed)
-        )
+        return self._translated(text, voice, speed, translate_to, translator)
+
+    def _rendered(self, steps: list[script.Step], start: float, span: float) -> Iterator[Audio]:
+        """Each step's audio, with the share of [start, start + span] its text
+        takes (pinned by `test_tts.py::test_each_chunk_says_how_far_through_the_text_it_is`)."""
+        total = sum(len(step.text) for step in steps) or 1
+        done = 0
+        for step in steps:
+            audio = self.render(step)
+            begin = start + span * done / total
+            done += len(step.text)
+            yield replace(audio, progress=(begin, start + span * done / total))
+
+    def _translated(
+        self, text: str, voice: str, speed: float, language: str, translator: Translator
+    ) -> Iterator[Audio]:
+        """Each translated piece read in turn, its progress the share of the
+        source text its piece takes."""
+        from .translate import MAX_PIECE_CHARS
+
+        sources = chunks(text, MAX_PIECE_CHARS)
+        total = sum(map(len, sources)) or 1
+        done = 0
+        for source, piece in zip(sources, translator.stream(text, language), strict=False):
+            start = done / total
+            done += len(source)
+            if piece.strip():
+                steps = self.plan(piece, voice, language, speed)
+                yield from self._rendered(steps, start, done / total - start)
 
     def speak(
         self,
@@ -291,16 +317,19 @@ class Synthesizer:
         volume: float = 1.0,
         translate_to: str | None = None,
         translator: Translator | None = None,
+        on_progress: Callable[[float], None] | None = None,
     ) -> Speech:
         """Start playing the text on the speakers (or `audio_device`) and
         return at once. `on_first_audio` is called once the first samples
-        are with the player; `volume` (0 to 1) can be changed on the Speech."""
+        are with the player, `on_progress` with how far through the text
+        playback is (0 to 1); `volume` (0 to 1) can be changed on the Speech."""
         return Speech(
             self.stream(text, voice, language, speed, translate_to, translator),
             audio_device=audio_device,
             sample_rate=SAMPLE_RATE,
             on_first_audio=on_first_audio,
             volume=volume,
+            on_progress=on_progress,
         )
 
 

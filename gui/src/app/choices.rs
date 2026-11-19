@@ -34,6 +34,9 @@ impl App {
             .as_deref()
             .and_then(crate::translation::target)
             .filter(|_| self.translation.downloaded);
+        if let Some(target) = self.translate_to {
+            self.voice_for(target);
+        }
         self.saved = Some(self.choices());
         self.settings = Some(path);
     }

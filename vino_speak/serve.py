@@ -16,6 +16,7 @@ Events, one a line on stdout:
     {"event": "started", "id": 1}
     {"event": "translated", "id": 1, "text": "..."}  (each piece, as it is translated)
     {"event": "first-audio", "id": 1, "ms": 812}  (from the request to the first sample played)
+    {"event": "progress", "id": 1, "done": 0.42}  (how far through the text playback is, 0 to 1)
     {"event": "done", "id": 1, "stopped": false}
     {"event": "error", "id": 1, "message": "..."}  (id null for a request that didn't parse)
 
@@ -43,6 +44,9 @@ OPS = ("speak", "volume", "stop")
 Emit = Callable[[dict[str, Any]], None]
 
 
+PROGRESS_STEP = 0.005
+
+
 class Speaker(Protocol):
     def synthesize(self, text: str, voice: str = ...) -> object: ...
 
@@ -57,6 +61,7 @@ class Speaker(Protocol):
         volume: float = ...,
         translate_to: str | None = ...,
         translator: Any = ...,
+        on_progress: Callable[[float], None] | None = ...,
     ) -> Speech: ...
 
 
@@ -74,7 +79,8 @@ class Announced:
 
     def stream(self, text: str, language: str) -> Iterator[str]:
         for piece in self._translator.stream(text, language):
-            self._emit({"event": "translated", "id": self._id, "text": piece})
+            if piece:
+                self._emit({"event": "translated", "id": self._id, "text": piece})
             yield piece
 
 
@@ -128,6 +134,7 @@ class Reading:
         self.id = request.get("id")
         self.emit = emit
         self.stopped = False
+        self.shown = 0.0
         text, voice, language = (request.get(k) for k in ("text", "voice", "language"))
         speed = request.get("speed", 1.0)
         audio_device = request.get("audio_device")
@@ -149,9 +156,18 @@ class Reading:
             volume=volume,
             translate_to=target or None,
             translator=translator,
+            on_progress=self._progress,
         )
         self.watcher = threading.Thread(target=self._watch, daemon=True)
         self.watcher.start()
+
+    def _progress(self, done: float) -> None:
+        """Sent once it has moved a step, so a long reading sends a few hundred
+        events, not one per slice (pinned by
+        `test_serve.py::test_progress_is_sent_in_steps_up_to_the_end`)."""
+        if done - self.shown >= PROGRESS_STEP or (done >= 1.0 > self.shown):
+            self.shown = done
+            self.emit({"event": "progress", "id": self.id, "done": round(done, 3)})
 
     def _watch(self) -> None:
         try:
