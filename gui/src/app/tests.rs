@@ -962,16 +962,43 @@ fn narrow_the_list_is_a_tab_and_picking_a_file_turns_to_reading() {
 }
 
 #[test]
-fn the_player_wraps_rather_than_running_off_the_window() {
+fn the_player_stays_inside_the_window() {
     let scratch = Scratch::new();
     let index = FakeIndex::recent(vec![scratch.file("notes.md", "Some notes.")]);
     let size = egui::vec2(960.0, 680.0);
     let mut h = window_with(&scratch, index, size, false);
     wait_for(&mut h, "Some notes.");
-    for name in ["Voice", "1.5×", "Output", "Volume"] {
+    for name in ["Translate…", "Voice", "Speed", "Output", "Volume"] {
         let right = h.get_by_label(name).rect().right();
         assert!(right <= size.x, "{name} ends at {right}");
     }
+}
+
+#[test]
+fn the_settings_go_two_by_two_when_narrow() {
+    use super::player::settings_per_row;
+    assert_eq!(settings_per_row(700.0), 4);
+    assert_eq!(settings_per_row(500.0), 2);
+    let scratch = Scratch::new();
+    let index = FakeIndex::recent(vec![scratch.file("notes.md", "Some notes.")]);
+    let mut h = window_with(&scratch, index, egui::vec2(1280.0, 800.0), false);
+    wait_for(&mut h, "Some notes.");
+    let top = |h: &Harness<'_, App>, name: &str| h.get_by_label(name).rect().top();
+    assert_eq!(top(&h, "Voice"), top(&h, "Output"), "one row when wide");
+    let index = FakeIndex::recent(vec![scratch.file("notes.md", "Some notes.")]);
+    let mut h = window_with(&scratch, index, NARROW, false);
+    wait_for(&mut h, "notes.md");
+    h.query_all_by_role(Role::ListBoxOption)
+        .find(|row| {
+            row.accesskit_node()
+                .label()
+                .is_some_and(|l| l.starts_with("notes.md"))
+        })
+        .unwrap()
+        .click();
+    wait_for(&mut h, "Some notes.");
+    assert_eq!(top(&h, "Voice"), top(&h, "Translate…"));
+    assert!(top(&h, "Output") > top(&h, "Voice"), "two rows when narrow");
 }
 
 #[test]
@@ -995,6 +1022,8 @@ fn the_voice_speed_and_volume_come_back_in_the_next_window() {
     h.state_mut().remember(settings.clone());
     h.state_mut().voice = voices::voice("bm_george").unwrap();
     h.state_mut().volume = 0.4;
+    h.get_by_label("Speed").click();
+    h.run();
     h.get_by_label("1.25×").click();
     h.run();
     h.get_by_role_and_label(Role::Button, "Mute").click();
@@ -1275,4 +1304,39 @@ fn the_choices_stay_put_when_a_reading_starts() {
         assert!(h.query_by_label("Stop").is_some());
         assert_eq!(places(&h), before, "heard: {heard}");
     }
+}
+
+#[test]
+fn translating_offers_only_voices_of_that_language() {
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    h.get_by_label("Voice").click();
+    h.run();
+    assert!(
+        h.query_by_label("Heart  ·  female").is_some(),
+        "every voice untranslated"
+    );
+    h.key_press(egui::Key::Escape);
+    h.run();
+    pick_language(&mut h, "Spanish");
+    h.get_by_label("Voice").click();
+    h.run();
+    assert!(h.query_by_label("Dora  ·  female").is_some());
+    assert!(
+        h.query_by_label("Heart  ·  female").is_none(),
+        "no American voice for Spanish"
+    );
+}
+
+#[test]
+fn a_restored_language_brings_a_voice_that_speaks_it() {
+    let scratch = Scratch::new();
+    let settings = scratch.0.join("config/vinospeak/gui.json");
+    std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    std::fs::write(&settings, r#"{"voice": "af_heart", "translate": "es"}"#).unwrap();
+    let mut h = translating_window(&scratch);
+    h.state_mut().remember(settings);
+    let state = h.state();
+    assert_eq!(state.translate_to.map(|t| t.language), Some("es"));
+    assert_eq!(state.voice.language, "es");
 }

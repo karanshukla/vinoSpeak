@@ -11,6 +11,8 @@ const SLIDER_HEIGHT: f32 = 24.0;
 const TRACK_HEIGHT: f32 = 4.0;
 const KNOB_RADIUS: f32 = 7.0;
 const MUTE_SIZE: f32 = 28.0;
+/// The mute button and slider side by side, as the transport row places them.
+pub(super) const VOLUME_WIDTH: f32 = MUTE_SIZE + 4.0 + SLIDER_WIDTH;
 /// What one arrow key moves the slider by.
 const STEP: f32 = 0.05;
 /// The speaker is drawn on the icons' 24-unit grid, inset this far in the button.

@@ -7,7 +7,6 @@ use std::time::Duration;
 
 use eframe::egui::{self, RichText};
 use vino_ui::a11y;
-use vino_ui::icons::{self, Icon};
 use vino_ui::theme;
 use vino_ui::widgets::{self, Button, ChipKind, Row, Tone};
 
@@ -208,28 +207,24 @@ impl App {
     pub(super) fn translate_picker(&mut self, ui: &mut egui::Ui) {
         let p = theme::palette(ui.ctx());
         if !self.translation.downloaded {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                icons::icon(ui, Icon::Captions, 14.0, p.muted);
-                let offered = ui.add(Button::ghost("Translate…")).on_hover_text(format!(
+            let offered = ui
+                .add(Button::secondary("Translate…"))
+                .on_hover_text(format!(
                     "Download {} ({}) on About to read a file in another language",
                     translation::LABEL,
                     model_cache::size(translation::DOWNLOAD_BYTES)
                 ));
-                if offered.clicked() {
-                    self.open_about();
-                    self.translation.step = Some(Step::ConfirmDownload);
-                    self.translation.error = None;
-                }
-            });
+            if offered.clicked() {
+                self.open_about();
+                self.translation.step = Some(Step::ConfirmDownload);
+                self.translation.error = None;
+            }
             return;
         }
         let chosen = self.translate_to;
         let label = chosen.map_or(UNTRANSLATED, |t| t.name).to_owned();
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
-            icons::icon(ui, Icon::Captions, 14.0, p.muted);
-            let shown = widgets::combo(ui, "translate", label, 190.0).show_ui(ui, |ui| {
+        {
+            let shown = widgets::combo(ui, "translate", label, f32::INFINITY).show_ui(ui, |ui| {
                 ui.set_min_width(220.0);
                 ui.selectable_value(&mut self.translate_to, None, UNTRANSLATED);
                 ui.add_space(4.0);
@@ -249,7 +244,7 @@ impl App {
                 "Translated by {} on this machine before it is read",
                 translation::LABEL
             ));
-        });
+        }
         if self.translate_to != chosen
             && let Some(target) = self.translate_to
         {
@@ -257,7 +252,7 @@ impl App {
         }
     }
 
-    fn voice_for(&mut self, target: Target) {
+    pub(super) fn voice_for(&mut self, target: Target) {
         if self.voice.language == target.language {
             return;
         }
