@@ -35,7 +35,8 @@ disabled until vinoWhisper has summarised it. Spreadsheets and source code are
 left out of the lists, though vinoSearch indexes them: `vinospeak --file` still
 reads one if you want it.
 
-The voice, speed and volume are kept between runs in
+The voice and blend, speed, volume, Translate, the save format and
+Subtitles, and whether the speech API is on are kept between runs in
 `~/.config/vinospeak/gui.json` (or under `$XDG_CONFIG_HOME`). Mute is not:
 the window always opens unmuted. Volume is the reading's own, not the
 desktop's, and a change is heard mid-reading.
@@ -58,12 +59,23 @@ the piece being spoken tinted; Translation / Original above it switches back
 to the file's own text. The translation stays with that file until the next
 reading.
 
-The player is two rows that never reflow: the transport (Read aloud or Stop,
-what it is doing, the volume) and the reading's settings (Translate, Voice,
-Speed, Output) under their headings, four across or two by two in a narrow
-window. The volume changes the reading as it plays; a change to any of the
-others starts it again from the sentence it was at, with the new setting
-(paused, if it was).
+The player's rows never reflow: the transport (Read aloud or Stop, what it
+is doing, the volume), then the reading's settings (Translate, Voice, Speed,
+Output, Blend with, Mix) under their headings, four across or two to a row
+in a narrow window, then Save as audio. The volume changes the reading as it
+plays; a change to any of the others starts it again from the sentence it
+was at, with the new setting (paused, if it was), once the pointer is let go.
+
+Blend with mixes a second voice into the first, and Mix says how much of it,
+in tenths: Heart 70% · George 30% is sent as `af_heart(7)+bm_george(3)`. It
+reads in the first voice's language.
+
+Save as audio saves the file's speech, with the settings chosen now, in the
+format picked (MP3, Opus, Ogg Vorbis, FLAC or WAV), and with Subtitles on an
+`.srt` beside it. The desktop's save dialog says where; a name typed without
+the suffix gets it. The worker saves beside any reading, so Read aloud keeps
+playing, and the player shows how far the save is, with Cancel. A cancelled
+save leaves no file.
 The worker loads the model only for the first translated reading. Until the
 first audio plays, the player shows a spinner with Starting… (or
 Translating…), since loading the models and translating the first sentence
@@ -85,8 +97,21 @@ and position are estimates from the text (docs/architecture.md, "Media
 controls").
 
 About also shows the downloaded model's size, with Delete… to remove it
-(`vinospeak --delete-model`). It waits for a reading to stop, and stops the
-`vinospeak --serve` worker first; the next reading downloads the model again.
+(`vinospeak --delete-model`). It waits for a reading or save to stop, and
+stops the `vinospeak --serve` worker first; the next reading downloads the
+model again.
+
+About's Pronunciations edits `~/.config/vinospeak/lexicon.toml` (docs/usage.md,
+"Pronunciations"): a word and how to say it, a row each. Save pronunciations
+rewrites the file as a `[words]` table, so comments in it are not kept, and
+the worker reads it again for the next reading. A file vinospeak would
+refuse is shown as an error and left alone.
+
+About's Speech API switch runs `vinospeak --http 8880` (OpenAI's
+`/v1/audio/speech` on 127.0.0.1) while the window is open, and says the URL
+once it is listening. It loads its own copy of the model, so it costs memory
+on top of the window's worker. A server that exits (the port taken, say)
+turns the switch off and says why.
 
 `cargo test` drives the window headless with
 [egui_kittest](https://crates.io/crates/egui_kittest), finding widgets by their

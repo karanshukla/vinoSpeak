@@ -1,7 +1,8 @@
-//! The player under a file's name, in two rows that never reflow: the
+//! The player under a file's name, in rows that never reflow: the
 //! transport (the round Read aloud / Stop button, what it is doing, the
-//! volume) and the reading's settings (translate, voice, speed,
-//! output), each under its heading, in four equal columns or two by two.
+//! volume), the reading's settings (translate, voice, speed, output, the
+//! voice blended in and how much), each under its heading, four or two to a
+//! row, and saving it to a file.
 
 use eframe::egui::{self, Color32, RichText, Sense, Stroke};
 use vino_ui::a11y;
@@ -217,6 +218,8 @@ impl App {
         self.transport(ui, speaking_this);
         ui.add_space(14.0);
         self.settings(ui);
+        ui.add_space(6.0);
+        self.save_row(ui);
     }
 
     /// The button and what it is doing on the left, the volume on the right,
@@ -249,8 +252,8 @@ impl App {
         });
     }
 
-    /// Translate, voice, speed and output; a change takes over the reading
-    /// under way from where it is.
+    /// Translate, voice, speed, output, blend and mix; a change takes over
+    /// the reading under way from where it is.
     fn settings(&mut self, ui: &mut egui::Ui) {
         let per_row = settings_per_row(ui.available_width());
         let mut cells: Vec<Setting> = vec![
@@ -258,6 +261,8 @@ impl App {
             ("VOICE", Self::voice_picker),
             ("SPEED", Self::speed_picker),
             ("OUTPUT", Self::output_picker),
+            ("BLEND WITH", Self::blend_picker),
+            ("MIX", Self::mix_slider),
         ];
         while !cells.is_empty() {
             let row: Vec<_> = cells.drain(..per_row.min(cells.len())).collect();
@@ -373,6 +378,64 @@ impl App {
                 chosen.accent, chosen.gender, chosen.id
             ));
         }
+    }
+
+    /// A second voice mixed into the first, offered as the voice picker
+    /// offers voices.
+    fn blend_picker(&mut self, ui: &mut egui::Ui) {
+        let language = self.translate_to.map(|t| t.language);
+        let label = self.blend.as_ref().map_or_else(
+            || "None".to_owned(),
+            |v| format!("{} · {}", v.name, v.gender),
+        );
+        let shown = widgets::combo(ui, "blend", label, f32::INFINITY).show_ui(ui, |ui| {
+            ui.set_min_width(220.0);
+            ui.selectable_value(&mut self.blend, None, "None");
+            let speaks = |v: &&crate::voices::Voice| language.is_none_or(|l| v.language == l);
+            for voice in self.voices.iter().filter(speaks) {
+                if voice.id != self.voice.id {
+                    let label = format!("{}  ·  {}", voice.name, voice.gender);
+                    ui.selectable_value(&mut self.blend, Some(voice.clone()), label);
+                }
+            }
+        });
+        ui.ctx()
+            .accesskit_node_builder(shown.response.id, |node| node.set_label("Blend with"));
+        shown
+            .response
+            .on_hover_text("A second voice mixed into the first");
+        if self.blend.as_ref().is_some_and(|b| b.id == self.voice.id) {
+            self.blend = None;
+        }
+    }
+
+    /// How much of the blended voice is heard, in tenths; let go to apply.
+    fn mix_slider(&mut self, ui: &mut egui::Ui) {
+        let Some(blend) = self.blend.clone() else {
+            let shown = ui.add_enabled(false, egui::Label::new("Pick a voice to blend"));
+            a11y::decorative(ui, shown.id);
+            return;
+        };
+        let mut mix = self.mix;
+        let slider = egui::Slider::new(&mut mix, 1..=crate::voices::MIX_TENTHS)
+            .show_value(false)
+            .step_by(1.0);
+        let shown = ui.add(slider);
+        ui.ctx()
+            .accesskit_node_builder(shown.id, |node| node.set_label("Mix"));
+        if mix != self.mix {
+            self.mix = mix;
+        }
+        let first = 10 - u32::from(self.mix);
+        let said = format!(
+            "{} {}% · {} {}%",
+            self.voice.name,
+            first * 10,
+            blend.name,
+            u32::from(self.mix) * 10
+        );
+        let shown = ui.label(RichText::new(said).size(12.0));
+        a11y::decorative(ui, shown.id);
     }
 
     /// Where speech plays.

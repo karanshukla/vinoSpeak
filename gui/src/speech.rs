@@ -9,8 +9,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 
-use crate::voices::Voice;
-
 /// What a failure to start vinospeak is put down to.
 pub const NOT_RUNNABLE: &str = "running vinospeak (uv tool install vinospeak)";
 
@@ -156,6 +154,20 @@ pub enum Event {
         id: u64,
         piece: Piece,
     },
+    /// How much of a save is synthesized, 0 to 1.
+    Saving {
+        id: u64,
+        done: f32,
+    },
+    /// The save is whole on disk, `seconds` long.
+    Saved {
+        id: u64,
+        seconds: f32,
+    },
+    /// The save was cancelled and left nothing behind.
+    SaveCancelled {
+        id: u64,
+    },
     Done {
         id: u64,
     },
@@ -199,6 +211,21 @@ fn event(line: &str) -> Option<Event> {
                 },
             }
         }
+        "saving" => Event::Saving {
+            id: id?,
+            done: v
+                .get("done")
+                .and_then(serde_json::Value::as_f64)?
+                .clamp(0.0, 1.0) as f32,
+        },
+        "saved" => Event::Saved {
+            id: id?,
+            seconds: v
+                .get("seconds")
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(0.0) as f32,
+        },
+        "save-cancelled" => Event::SaveCancelled { id: id? },
         "done" => Event::Done { id: id? },
         "error" => Event::Error {
             id,
@@ -298,7 +325,7 @@ impl Worker {
     pub fn speak(
         &mut self,
         text: &str,
-        voice: &Voice,
+        voice: &Spoken,
         speed: f32,
         output: Option<&str>,
         volume: f32,
@@ -310,7 +337,7 @@ impl Worker {
             "op": "speak",
             "id": self.next_id,
             "text": text,
-            "voice": voice.id,
+            "voice": voice.spec,
             "language": if translate.is_some() { None } else { Some(voice.language) },
             "speed": speed,
             "audio_device": output,
@@ -319,6 +346,42 @@ impl Worker {
             "from": from,
         }))?;
         Ok(self.next_id)
+    }
+
+    /// Save `text` spoken into `output` (its suffix names the format), with
+    /// subtitles timed to it if given, beside any reading; a save under way
+    /// is cancelled first. Its id for the events.
+    pub fn save(
+        &mut self,
+        text: &str,
+        voice: &Spoken,
+        speed: f32,
+        translate: Option<&str>,
+        output: &Path,
+        subtitles: Option<&Path>,
+    ) -> Result<u64> {
+        self.next_id += 1;
+        self.send(&serde_json::json!({
+            "op": "save",
+            "id": self.next_id,
+            "text": text,
+            "voice": voice.spec,
+            "language": if translate.is_some() { None } else { Some(voice.language) },
+            "speed": speed,
+            "translate": translate,
+            "output": output,
+            "subtitles": subtitles,
+        }))?;
+        Ok(self.next_id)
+    }
+
+    pub fn cancel_save(&mut self) -> Result<()> {
+        self.send(&serde_json::json!({"op": "cancel-save"}))
+    }
+
+    /// Read lexicon.toml again, for the next reading.
+    pub fn reload_lexicon(&mut self) -> Result<()> {
+        self.send(&serde_json::json!({"op": "lexicon"}))
     }
 
     /// The reading under way, if any, plays on at `volume` (0 to 1).
@@ -398,6 +461,14 @@ pub struct Reading {
     pub chosen: Chosen,
 }
 
+/// The voice as vinospeak takes it: one id, or a blend such as
+/// `af_heart(7)+bm_george(3)`, and the language it reads in, the first voice's.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Spoken {
+    pub spec: String,
+    pub language: &'static str,
+}
+
 /// The settings a reading is spoken with, but the volume, which a reading
 /// takes as it plays.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -474,6 +545,21 @@ mod tests {
                     end: 0.25
                 }
             })
+        );
+        assert_eq!(
+            event(r#"{"event": "saving", "id": 3, "done": 0.4}"#),
+            Some(Event::Saving { id: 3, done: 0.4 })
+        );
+        assert_eq!(
+            event(r#"{"event": "saved", "id": 3, "seconds": 12.5}"#),
+            Some(Event::Saved {
+                id: 3,
+                seconds: 12.5
+            })
+        );
+        assert_eq!(
+            event(r#"{"event": "save-cancelled", "id": 3}"#),
+            Some(Event::SaveCancelled { id: 3 })
         );
         assert_eq!(event(r#"{"event": "started", "id": 2}"#), None);
         assert_eq!(event("Traceback (most recent call last):"), None);

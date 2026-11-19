@@ -1,6 +1,6 @@
 //! The About page: this app, vinopilot.ca and the other vinoPilot apps
-//! (vino-ui's), its Updates row, the Model row with Delete… on it, and the
-//! Translation row.
+//! (vino-ui's), its Updates row, the Model row with Delete… on it, the
+//! Translation row, Pronunciations and the Speech API.
 
 use std::path::PathBuf;
 
@@ -38,6 +38,8 @@ impl App {
             vino_ui::about::page_with_updates(ui, &mut self.updater);
             self.model_row(ui);
             self.translation_row(ui);
+            self.lexicon_rows(ui);
+            self.api_rows(ui);
         });
     }
 
@@ -45,6 +47,7 @@ impl App {
         self.about = true;
         self.model.confirm = false;
         self.refresh_model();
+        self.load_lexicon();
         if self.translation.step.is_none() {
             self.refresh_translation();
         }
@@ -62,7 +65,7 @@ impl App {
     fn model_row(&mut self, ui: &mut egui::Ui) {
         let p = theme::palette(ui.ctx());
         let bytes = self.model.bytes.unwrap_or(0);
-        let reading = self.reading.is_some();
+        let reading = self.reading.is_some() || self.saving.is_some();
         if reading {
             self.model.confirm = false;
         }

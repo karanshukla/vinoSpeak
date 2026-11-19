@@ -49,7 +49,12 @@ impl App {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned(),
-            voice: self.voice.name.clone(),
+            voice: match &self.blend {
+                Some(blend) if blend.id != self.voice.id => {
+                    format!("{} + {}", self.voice.name, blend.name)
+                }
+                _ => self.voice.name.clone(),
+            },
             length: reading.length,
         }
     }

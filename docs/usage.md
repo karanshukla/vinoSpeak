@@ -114,7 +114,9 @@ Only whole words are respelled. An entry in lowercase matches any case; one
 with a capital matches only as written, so `NGINX` leaves `nginx` alone. When
 two entries overlap the longer one wins. `--lexicon FILE` uses another file
 instead. OpenVINO GenAI's Kokoro ignores inline phonemes, so an entry is a
-respelling, not IPA. The window's worker reads the lexicon when it starts.
+respelling, not IPA. The window's worker reads the lexicon when it starts,
+and again when About's Pronunciations are saved; that is also where the
+window edits it.
 
 ## Saving
 
@@ -134,6 +136,9 @@ does, which makes the save slightly slower. A sentence longer than two lines
 of 42 characters is split into cues that share its time by length, so those
 cues are close, not exact.
 
+In the window, Save as audio does the same for the file shown, beside any
+reading, with a format picker and a Subtitles switch (an `.srt` beside it).
+
 ## Voices
 
 ```bash
@@ -147,7 +152,8 @@ A voice's first letter says its language, so `--language` is only needed to
 read text in another one. A blend mixes up to 8 voices by weight (the
 weights needn't add up to anything; `af_heart+af_bella` is half each) and
 reads in its first voice's language. The window's worker and the Python API
-take the same blends.
+take the same blends; the window's Blend with and Mix pick a second voice and
+how much of it, in tenths.
 
 ## vinoWhisper sessions
 
@@ -182,6 +188,9 @@ curl http://127.0.0.1:8880/v1/audio/speech -H 'Content-Type: application/json' \
 | `speed` | 0.5 to 2 (OpenAI allows 0.25 to 4; outside Kokoro's range is refused, not changed) |
 | `response_format` | `mp3` (default), `opus`, `flac`, `wav`, or `pcm`: 24 kHz 16-bit mono, streamed as each chunk is ready. No `aac` |
 | `model`, `instructions` | Accepted and ignored |
+
+In the window, About's Speech API switch runs `vinospeak --http` on port
+8880 while the window is open.
 
 The language is the voice's own. `GET /v1/audio/voices` lists the voices and
 `GET /v1/models` the model under OpenAI's names. Only `pcm` starts sending

@@ -58,6 +58,13 @@ impl App {
         if !self.voices.contains(&self.voice) {
             self.voice = self.voices[0].clone();
         }
+        if self
+            .blend
+            .as_ref()
+            .is_some_and(|b| !self.voices.contains(b))
+        {
+            self.blend = None;
+        }
     }
 
     /// The worker is ready, and its load may have been the first download.

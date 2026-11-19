@@ -1,5 +1,5 @@
-//! The voice, speed, volume and translation language, restored at start and
-//! saved as they change.
+//! The voice and blend, speed, volume, translation language, how to save and
+//! the speech API, restored at start and saved as they change.
 //! Mute is not kept: a window that opens silent looks broken.
 
 use std::path::PathBuf;
@@ -37,6 +37,26 @@ impl App {
         if let Some(target) = self.translate_to {
             self.voice_for(target);
         }
+        self.blend = saved
+            .blend
+            .as_deref()
+            .and_then(|id| self.voices.iter().find(|v| v.id == id))
+            .cloned();
+        if let Some(mix) = saved
+            .mix
+            .filter(|m| (1..=crate::voices::MIX_TENTHS).contains(m))
+        {
+            self.mix = mix;
+        }
+        if let Some(format) = saved.save_format.as_deref().and_then(super::save::format) {
+            self.save_format = format;
+        }
+        if let Some(subtitles) = saved.subtitles {
+            self.save_subtitles = subtitles;
+        }
+        if saved.api == Some(true) {
+            self.api_on = true;
+        }
         self.saved = Some(self.choices());
         self.settings = Some(path);
     }
@@ -47,6 +67,11 @@ impl App {
             speed: Some(self.speed),
             volume: Some(self.volume),
             translate: self.translate_to.map(|t| t.language.to_owned()),
+            blend: self.blend.as_ref().map(|v| v.id.clone()),
+            mix: Some(self.mix),
+            save_format: Some(self.save_format.to_owned()),
+            subtitles: Some(self.save_subtitles),
+            api: Some(self.api_on),
         }
     }
 

@@ -253,6 +253,13 @@ impl App {
     }
 
     pub(super) fn voice_for(&mut self, target: Target) {
+        if self
+            .blend
+            .as_ref()
+            .is_some_and(|b| b.language != target.language)
+        {
+            self.blend = None;
+        }
         if self.voice.language == target.language {
             return;
         }

@@ -57,7 +57,6 @@ from .tts import DEFAULT_VOICE, Audio
 # `test_serve.py::test_main_warms_up_says_ready_then_serves`).
 WARM_UP = "Ready."
 OPS = ("speak", "volume", "pause", "resume", "stop", "save", "cancel-save", "lexicon")
-# Ops that leave the reading under way playing.
 BESIDE_READING = ("volume", "pause", "resume", "save", "cancel-save", "lexicon")
 
 Emit = Callable[[dict[str, Any]], None]

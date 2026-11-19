@@ -1,5 +1,5 @@
-//! The player's choices kept between runs: voice, speed, volume and the
-//! language to translate into, in
+//! The player's choices kept between runs: voice and blend, speed, volume,
+//! the language to translate into, how to save, and the speech API, in
 //! `vinospeak/gui.json` under the config folder.
 
 use std::path::{Path, PathBuf};
@@ -13,15 +13,28 @@ pub struct Settings {
     pub volume: Option<f32>,
     /// vinospeak's name for the language, as `--translate` takes it.
     pub translate: Option<String>,
+    /// The voice mixed in, and how many tenths of it.
+    pub blend: Option<String>,
+    pub mix: Option<u8>,
+    /// The suffix speech is saved with, and whether subtitles go beside it.
+    pub save_format: Option<String>,
+    pub subtitles: Option<bool>,
+    /// Whether `vinospeak --http` runs while the window is open.
+    pub api: Option<bool>,
 }
 
-/// `$XDG_CONFIG_HOME`, else `~/.config`, then `vinospeak/gui.json`.
-pub fn path() -> Option<PathBuf> {
+/// `$XDG_CONFIG_HOME`, else `~/.config`, then `vinospeak`: where vinospeak
+/// looks for lexicon.toml too.
+pub fn config_dir() -> Option<PathBuf> {
     let config = std::env::var_os("XDG_CONFIG_HOME")
         .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".config")))?;
-    Some(config.join("vinospeak").join("gui.json"))
+    Some(config.join("vinospeak"))
+}
+
+pub fn path() -> Option<PathBuf> {
+    Some(config_dir()?.join("gui.json"))
 }
 
 /// What was saved; a field missing, of the wrong type or out of range is None,
@@ -37,17 +50,26 @@ pub fn load(path: &Path) -> Settings {
             .and_then(serde_json::Value::as_f64)
             .map(|n| n as f32)
     };
-    Settings {
-        voice: saved
-            .get("voice")
+    let text = |key: &str| {
+        saved
+            .get(key)
             .and_then(serde_json::Value::as_str)
-            .map(str::to_owned),
+            .map(str::to_owned)
+    };
+    let flag = |key: &str| saved.get(key).and_then(serde_json::Value::as_bool);
+    Settings {
+        voice: text("voice"),
         speed: number("speed"),
         volume: number("volume").filter(|v| (0.0..=1.0).contains(v)),
-        translate: saved
-            .get("translate")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned),
+        translate: text("translate"),
+        blend: text("blend"),
+        mix: saved
+            .get("mix")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|m| u8::try_from(m).ok()),
+        save_format: text("save_format"),
+        subtitles: flag("subtitles"),
+        api: flag("api"),
     }
 }
 
@@ -62,6 +84,11 @@ pub fn save(path: &Path, settings: &Settings) -> std::io::Result<()> {
         "speed": settings.speed,
         "volume": settings.volume,
         "translate": settings.translate,
+        "blend": settings.blend,
+        "mix": settings.mix,
+        "save_format": settings.save_format,
+        "subtitles": settings.subtitles,
+        "api": settings.api,
     });
     let partial = path.with_extension("json.partial");
     std::fs::write(&partial, format!("{text:#}\n"))?;
@@ -87,6 +114,11 @@ mod tests {
             speed: Some(1.25),
             volume: Some(0.4),
             translate: Some("es".to_owned()),
+            blend: Some("af_heart".to_owned()),
+            mix: Some(3),
+            save_format: Some("opus".to_owned()),
+            subtitles: Some(true),
+            api: Some(false),
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), settings);
@@ -101,6 +133,11 @@ mod tests {
             speed: None,
             volume: None,
             translate: None,
+            blend: None,
+            mix: None,
+            save_format: None,
+            subtitles: None,
+            api: None,
         };
         assert_eq!(load(&path), nothing);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
