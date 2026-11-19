@@ -57,12 +57,20 @@ impl App {
 
     /// Read the previewed text; the worker stops whatever it was reading first.
     pub(super) fn read_aloud(&mut self, ctx: &egui::Context) {
+        self.read_from(ctx, 0.0);
+    }
+
+    /// Read the previewed text again from the sentence `at` (0 to 1) into it,
+    /// with the settings chosen now (pinned by
+    /// `app::tests::scrubbing_reads_again_from_where_the_bar_was_let_go`).
+    pub(super) fn read_from(&mut self, ctx: &egui::Context, at: f32) {
         if self.model.deleting {
             self.status = "Deleting the model; read it once that's done.".to_owned();
             return;
         }
         self.start_worker(ctx);
         let volume = self.heard_volume();
+        let chosen = self.chosen();
         let (Some(hit), Some(Ok(preview)), Some(worker)) =
             (&self.selected, &self.preview, &mut self.worker)
         else {
@@ -76,6 +84,7 @@ impl App {
             self.output.as_deref(),
             volume,
             target.map(|t| t.language),
+            at,
         ) {
             Ok(id) => {
                 self.translated = target.map(|into| Translated {
@@ -97,13 +106,26 @@ impl App {
                     stop_sent: None,
                     translated_into: target,
                     heard: false,
-                    done: 0.0,
+                    done: at,
+                    paused_at: None,
+                    length: speech::spoken_length(&preview.text, self.speed),
+                    chosen,
                 });
             }
             Err(e) => {
                 self.status = format!("{e:#}");
                 self.worker = None;
             }
+        }
+    }
+
+    /// The settings a reading started now is spoken with.
+    fn chosen(&self) -> speech::Chosen {
+        speech::Chosen {
+            voice: self.voice.id.clone(),
+            speed: self.speed,
+            output: self.output.clone(),
+            translate: self.translate_to.map(|t| t.language),
         }
     }
 
@@ -120,6 +142,54 @@ impl App {
             && worker.set_volume(volume).is_err()
         {
             self.worker = None;
+        }
+    }
+
+    /// Pause the reading under way, or resume it; the clock holds while it
+    /// is paused (pinned by `app::tests::space_pauses_and_resumes_the_reading`).
+    pub(super) fn toggle_pause(&mut self) {
+        let (Some(reading), Some(worker)) = (&mut self.reading, &mut self.worker) else {
+            return;
+        };
+        let paused = reading.paused_at.is_none();
+        if worker.pause(paused).is_err() {
+            self.worker = None;
+            return;
+        }
+        match reading.paused_at.take() {
+            Some(at) => reading.started += at.elapsed(),
+            None => reading.paused_at = Some(Instant::now()),
+        }
+    }
+
+    /// A reading whose voice, speed, output or Translate was changed goes on
+    /// with the new one from the sentence it was at, paused if it was (pinned
+    /// by `app::tests::a_new_setting_takes_over_the_reading_from_where_it_is`).
+    pub(super) fn follow_new_settings(&mut self, ctx: &egui::Context) {
+        let Some(reading) = &self.reading else {
+            return;
+        };
+        let now = self.chosen();
+        let shown = self
+            .selected
+            .as_ref()
+            .is_some_and(|hit| hit.path == reading.file);
+        if reading.chosen == now || reading.stop_sent.is_some() || !shown || reading.done >= 1.0 {
+            return;
+        }
+        let (at, paused) = (reading.done, reading.paused_at.is_some());
+        self.read_from(ctx, at);
+        if paused {
+            self.toggle_pause();
+        }
+    }
+
+    /// Read again from `at` (0 to 1) into the text; the end stops it.
+    pub(super) fn seek(&mut self, ctx: &egui::Context, at: f32) {
+        if at < 1.0 {
+            self.read_from(ctx, at);
+        } else {
+            self.stop_reading();
         }
     }
 

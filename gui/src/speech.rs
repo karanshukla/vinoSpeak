@@ -290,9 +290,11 @@ impl Worker {
             .context("vinospeak has stopped")
     }
 
-    /// Read `text` aloud at `volume` (0 to 1), stopping whatever was
-    /// playing, translated first into `translate` (vinospeak's name for a
-    /// language) if given; its id for the events.
+    /// Read `text` aloud at `volume` (0 to 1) from the sentence `from` of
+    /// the way into it (0 to 1), stopping whatever was playing, translated
+    /// first into `translate` (vinospeak's name for a language) if given;
+    /// its id for the events.
+    #[allow(clippy::too_many_arguments)]
     pub fn speak(
         &mut self,
         text: &str,
@@ -301,6 +303,7 @@ impl Worker {
         output: Option<&str>,
         volume: f32,
         translate: Option<&str>,
+        from: f32,
     ) -> Result<u64> {
         self.next_id += 1;
         self.send(&serde_json::json!({
@@ -313,6 +316,7 @@ impl Worker {
             "audio_device": output,
             "volume": volume,
             "translate": translate,
+            "from": from,
         }))?;
         Ok(self.next_id)
     }
@@ -320,6 +324,12 @@ impl Worker {
     /// The reading under way, if any, plays on at `volume` (0 to 1).
     pub fn set_volume(&mut self, volume: f32) -> Result<()> {
         self.send(&serde_json::json!({"op": "volume", "volume": volume}))
+    }
+
+    /// Hold the reading under way where it is, or let it go on.
+    pub fn pause(&mut self, paused: bool) -> Result<()> {
+        let op = if paused { "pause" } else { "resume" };
+        self.send(&serde_json::json!({ "op": op }))
     }
 
     pub fn stop(&mut self) -> Result<()> {
@@ -379,6 +389,40 @@ pub struct Reading {
     pub heard: bool,
     /// How far through the text playback is, 0 to 1.
     pub done: f32,
+    /// When it was paused, if it is.
+    pub paused_at: Option<Instant>,
+    /// How long the whole text should take to say, as the desktop's media
+    /// controls are told: speech has no length until it is synthesized.
+    pub length: Duration,
+    /// The settings it was started with.
+    pub chosen: Chosen,
+}
+
+/// The settings a reading is spoken with, but the volume, which a reading
+/// takes as it plays.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Chosen {
+    pub voice: String,
+    pub speed: f32,
+    pub output: Option<String>,
+    /// The language it is translated into, if any.
+    pub translate: Option<&'static str>,
+}
+
+/// Kokoro's speaking rate at 1.0×, in characters a second: 15.4 to 16.8
+/// across af_heart, ef_dora and ff_siwis (docs/architecture.md, "Media controls").
+const CHARS_PER_SECOND: f32 = 15.5;
+
+/// About how long `text` takes to say at `speed`.
+pub fn spoken_length(text: &str, speed: f32) -> Duration {
+    Duration::from_secs_f32(text.chars().count() as f32 / (CHARS_PER_SECOND * speed.max(0.1)))
+}
+
+impl Reading {
+    /// How long it has played, not counting a pause.
+    pub fn played(&self) -> Duration {
+        self.paused_at.unwrap_or_else(Instant::now) - self.started
+    }
 }
 
 #[cfg(test)]

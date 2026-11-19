@@ -59,13 +59,30 @@ to the file's own text. The translation stays with that file until the next
 reading.
 
 The player is two rows that never reflow: the transport (Read aloud or Stop,
-what it is doing, the volume) and the settings for the next reading
-(Translate, Voice, Speed, Output) under their headings, four across or two by
-two in a narrow window.
+what it is doing, the volume) and the reading's settings (Translate, Voice,
+Speed, Output) under their headings, four across or two by two in a narrow
+window. The volume changes the reading as it plays; a change to any of the
+others starts it again from the sentence it was at, with the new setting
+(paused, if it was).
 The worker loads the model only for the first translated reading. Until the
 first audio plays, the player shows a spinner with Starting… (or
 Translating…), since loading the models and translating the first sentence
 take seconds.
+
+The bar beside the volume shows how far through the text the reading is.
+Click or drag it, or focus it and press the arrow keys (5% a press), and the
+reading starts again from the start of that sentence, with the settings
+chosen now; a translated reading translates again from there. Each jump
+pays the time to the first audio again.
+
+Space pauses the reading where it is and resumes it (unless the search box
+is being typed in). The window is also a media player on the session bus
+(MPRIS, `org.mpris.MediaPlayer2.vinospeak`), so the desktop's media controls
+show the file being read, its voice, the app's icon and a position, and
+Play, Pause, Stop and the position slider there or on the keyboard's media
+keys drive it; Play with nothing under way reads the file shown. The length
+and position are estimates from the text (docs/architecture.md, "Media
+controls").
 
 About also shows the downloaded model's size, with Delete… to remove it
 (`vinospeak --delete-model`). It waits for a reading to stop, and stops the

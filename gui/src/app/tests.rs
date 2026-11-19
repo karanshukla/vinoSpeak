@@ -51,7 +51,7 @@ if [ "$1" = "--serve" ]; then
     current=
     while read -r line; do
         printf '%s\n' "$line" >> "$dir/calls"
-        case "$line" in *'"op":"volume"'*) continue ;; esac
+        case "$line" in *'"op":"volume"'*|*'"op":"pause"'*|*'"op":"resume"'*) continue ;; esac
         if [ -n "$current" ]; then
             echo interrupted >> "$dir/calls"
             echo "{\"event\": \"done\", \"id\": $current, \"stopped\": true}"
@@ -1305,6 +1305,9 @@ fn the_choices_stay_put_when_a_reading_starts() {
             translated_into: crate::translation::target("fr-fr"),
             heard,
             done: 0.0,
+            paused_at: None,
+            length: Duration::ZERO,
+            chosen: crate::speech::Chosen::default(),
         });
         h.run_steps(3);
         assert!(h.query_by_label("Stop").is_some());
@@ -1359,6 +1362,9 @@ fn the_bar_shows_how_far_the_reading_is_and_never_goes_back() {
         translated_into: None,
         heard: true,
         done: 0.0,
+        paused_at: None,
+        length: Duration::ZERO,
+        chosen: crate::speech::Chosen::default(),
     });
     for (done, expected) in [(0.4, 0.4), (0.2, 0.4), (0.9, 0.9)] {
         h.state_mut().on_progress(7, done);
@@ -1370,6 +1376,131 @@ fn the_bar_shows_how_far_the_reading_is_and_never_goes_back() {
         0.9,
         "another reading's"
     );
+}
+
+#[test]
+fn scrubbing_reads_again_from_where_the_bar_was_let_go() {
+    let scratch = Scratch::new();
+    let mut h = notes_window(&scratch, "One. Two. Three.");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "Stop");
+    h.get_by_role_and_label(Role::Slider, "Position").click();
+    wait_until(&mut h, "a speak from the middle", |_| {
+        scratch.read("calls").contains(r#""from":0.5"#)
+    });
+    let reading = h.state().reading.as_ref().unwrap();
+    assert_eq!((reading.id, reading.done), (2, 0.5));
+    h.run_steps(3);
+    h.key_press(egui::Key::ArrowRight);
+    h.run_steps(3);
+    let done = h.state().reading.as_ref().unwrap().done;
+    assert!((done - 0.55).abs() < 1e-6, "{done}");
+    h.state_mut().on_progress(3, 1.0);
+    h.run_steps(3);
+    h.key_press(egui::Key::ArrowRight);
+    wait_for(&mut h, "Finished notes.md");
+    assert_eq!(scratch.read("calls").matches(r#""op":"speak""#).count(), 3);
+}
+
+#[test]
+fn space_pauses_and_resumes_the_reading() {
+    let scratch = Scratch::new();
+    let mut h = notes_window(&scratch, "A long read.");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "Stop");
+    h.key_press(egui::Key::Space);
+    wait_for(&mut h, "Paused");
+    let paused = h.state().reading.as_ref().unwrap().played();
+    std::thread::sleep(Duration::from_millis(30));
+    assert_eq!(
+        h.state().reading.as_ref().unwrap().played(),
+        paused,
+        "the clock holds"
+    );
+    h.key_press(egui::Key::Space);
+    wait_until(&mut h, "a resume", |_| {
+        scratch.read("calls").contains(r#"{"op":"resume"}"#)
+    });
+    assert!(scratch.read("calls").contains(r#"{"op":"pause"}"#));
+    assert!(h.query_by_label("Paused").is_none());
+    assert!(h.query_by_label("Stop").is_some(), "still the same reading");
+}
+
+#[test]
+fn space_in_the_search_box_is_typed_not_a_pause() {
+    let scratch = Scratch::new();
+    let mut h = notes_window(&scratch, "A long read.");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "Stop");
+    h.get_by_role(Role::TextInput).focus();
+    h.run_steps(3);
+    h.key_press(egui::Key::Space);
+    h.run_steps(3);
+    assert!(h.state().reading.as_ref().unwrap().paused_at.is_none());
+}
+
+#[test]
+fn the_media_controls_show_and_drive_the_reading() {
+    use crate::mpris::{Command, Status};
+    let scratch = Scratch::new();
+    let mut h = notes_window(&scratch, "A long read.");
+    assert_eq!(h.state().now_playing().status, Status::Stopped);
+    let ctx = h.ctx.clone();
+    h.state_mut().on_media(&ctx, Command::PlayPause);
+    wait_for(&mut h, "Stop");
+    let now = h.state().now_playing();
+    assert_eq!(
+        (now.status, now.title.as_str(), now.voice.as_str()),
+        (Status::Playing, "notes.md", "Heart")
+    );
+    h.state_mut().on_media(&ctx, Command::Play);
+    assert_eq!(
+        h.state().now_playing().status,
+        Status::Playing,
+        "Play while playing does nothing"
+    );
+    h.state_mut().on_media(&ctx, Command::Pause);
+    assert_eq!(h.state().now_playing().status, Status::Paused);
+    h.state_mut().on_media(&ctx, Command::PlayPause);
+    assert_eq!(h.state().now_playing().status, Status::Playing);
+    let length = h.state().now_playing().length;
+    assert_eq!(length, crate::speech::spoken_length("A long read.", 1.0));
+    h.state_mut().on_progress(1, 0.5);
+    assert_eq!(h.state().position().as_millis(), (length / 2).as_millis());
+    h.state_mut().on_media(&ctx, Command::SeekTo(0.25));
+    wait_until(&mut h, "a seek", |_| {
+        scratch.read("calls").contains(r#""from":0.25"#)
+    });
+    h.state_mut().on_media(&ctx, Command::Stop);
+    wait_for(&mut h, "Read aloud");
+    assert_eq!(h.state().now_playing().status, Status::Stopped);
+}
+
+#[test]
+fn a_new_setting_takes_over_the_reading_from_where_it_is() {
+    let scratch = Scratch::new();
+    let mut h = notes_window(&scratch, "One. Two. Three. Four.");
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "Stop");
+    h.state_mut().on_progress(1, 0.5);
+    h.run_steps(2);
+    assert_eq!(h.state().reading.as_ref().unwrap().id, 1, "nothing changed");
+    h.state_mut().speed = 1.5;
+    wait_until(&mut h, "a faster speak from the middle", |_| {
+        let calls = scratch.read("calls");
+        calls.contains(r#""from":0.5"#) && calls.contains(r#""speed":1.5"#)
+    });
+    let ctx = h.ctx.clone();
+    h.state_mut().on_media(&ctx, crate::mpris::Command::Pause);
+    h.state_mut().voice = voices::voice("bm_george").unwrap();
+    wait_until(&mut h, "a new voice", |_| {
+        scratch.read("calls").contains("bm_george")
+    });
+    h.run_steps(2);
+    let reading = h.state().reading.as_ref().unwrap();
+    assert_eq!(reading.id, 3);
+    assert!(reading.paused_at.is_some(), "still paused");
+    assert_eq!(scratch.read("calls").matches(r#""op":"speak""#).count(), 3);
 }
 
 fn selected(h: &Harness<'_, App>, text: &str) -> bool {

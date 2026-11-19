@@ -1,6 +1,6 @@
 //! The player under a file's name, in two rows that never reflow: the
 //! transport (the round Read aloud / Stop button, what it is doing, the
-//! volume) and the settings for the next reading (translate, voice, speed,
+//! volume) and the reading's settings (translate, voice, speed,
 //! output), each under its heading, in four equal columns or two by two.
 
 use eframe::egui::{self, Color32, RichText, Sense, Stroke};
@@ -26,6 +26,13 @@ const SETTING_GAP: f32 = 12.0;
 /// The state and clock beside the button, wide enough for "Translating…" so
 /// the progress bar after it keeps its place as the state changes.
 const STATE_WIDTH: f32 = 150.0;
+
+/// The bar's track; the row it sits in is taller, so it is easy to grab.
+const TRACK_HEIGHT: f32 = 6.0;
+const SCRUB_HEIGHT: f32 = 20.0;
+const THUMB_RADIUS: f32 = 7.0;
+/// How far an arrow key moves the reading.
+const SCRUB_STEP: f32 = 0.05;
 
 /// A setting's heading and the picker drawn under it.
 type Setting = (&'static str, fn(&mut App, &mut egui::Ui));
@@ -130,10 +137,73 @@ fn round_button(
     response.on_hover_text(name)
 }
 
+/// Where on the bar the pointer is, 0 to 1.
+fn fraction_at(rect: egui::Rect, x: f32) -> f32 {
+    ((x - rect.left()) / rect.width()).clamp(0.0, 1.0)
+}
+
+/// How far through the reading playback is, as a bar to click or drag; where
+/// to read from once it is let go, or an arrow key moves it a step (pinned by
+/// `app::tests::scrubbing_reads_again_from_where_the_bar_was_let_go`).
+fn scrubber(ui: &mut egui::Ui, done: f32, width: f32) -> Option<f32> {
+    let p = theme::palette(ui.ctx());
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(width, SCRUB_HEIGHT), Sense::click_and_drag());
+    let pointer = response
+        .interact_pointer_pos()
+        .map(|at| fraction_at(rect, at.x));
+    let mut chosen = pointer.filter(|_| response.drag_stopped() || response.clicked());
+    if chosen.is_some() && !response.has_focus() {
+        response.request_focus();
+    }
+    if response.has_focus() {
+        let arrows = egui::EventFilter {
+            horizontal_arrows: true,
+            ..Default::default()
+        };
+        ui.memory_mut(|m| m.set_focus_lock_filter(response.id, arrows));
+        let (left, right) = ui.input(|i| {
+            (
+                i.key_pressed(egui::Key::ArrowLeft),
+                i.key_pressed(egui::Key::ArrowRight),
+            )
+        });
+        if left || right {
+            let step = if right { SCRUB_STEP } else { -SCRUB_STEP };
+            chosen = Some((done + step).clamp(0.0, 1.0));
+        }
+    }
+    let shown = pointer.filter(|_| response.dragged()).unwrap_or(done);
+    response.widget_info(|| egui::WidgetInfo::slider(true, f64::from(shown), "Position"));
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        let track = egui::Rect::from_center_size(rect.center(), egui::vec2(width, TRACK_HEIGHT));
+        painter.rect_filled(track, TRACK_HEIGHT / 2.0, p.pressed);
+        let played =
+            egui::Rect::from_min_size(track.min, egui::vec2(track.width() * shown, TRACK_HEIGHT));
+        painter.rect_filled(played, TRACK_HEIGHT / 2.0, p.primary_fill);
+        if response.hovered() || response.dragged() || response.has_focus() {
+            let thumb = egui::pos2(track.left() + track.width() * shown, track.center().y);
+            painter.circle_filled(thumb, THUMB_RADIUS, p.primary_fill);
+            if response.has_focus() {
+                painter.circle_stroke(thumb, THUMB_RADIUS + 2.0, Stroke::new(2.0_f32, p.accent));
+            }
+        }
+    }
+    if response.hovered() || response.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    response.on_hover_text("Read from here");
+    chosen
+}
+
 /// What the player says beside Stop: until the first audio, that it is
 /// starting or translating, since loading and translating take seconds
 /// (pinned by `app::tests::the_player_says_it_is_starting_until_the_first_audio`).
 pub(super) fn reading_state(reading: &crate::speech::Reading) -> &'static str {
+    if reading.paused_at.is_some() {
+        return "Paused";
+    }
     match (reading.heard, reading.translated_into) {
         (true, _) => "Speaking",
         (false, Some(_)) => "Translating…",
@@ -169,14 +239,18 @@ impl App {
                 ui.spacing_mut().item_spacing.x = 20.0;
                 let size = egui::vec2(super::volume::VOLUME_WIDTH, BUTTON_DIAMETER);
                 ui.allocate_ui_with_layout(size, layout, |ui| self.volume_controls(ui));
-                if let Some(done) = done.filter(|_| speaking_this) {
-                    widgets::progress(ui, done, ui.available_width());
+                if let Some(done) = done.filter(|_| speaking_this)
+                    && let Some(at) = scrubber(ui, done, ui.available_width())
+                {
+                    let ctx = ui.ctx().clone();
+                    self.seek(&ctx, at);
                 }
             });
         });
     }
 
-    /// Translate, voice, speed and output for the next Read aloud.
+    /// Translate, voice, speed and output; a change takes over the reading
+    /// under way from where it is.
     fn settings(&mut self, ui: &mut egui::Ui) {
         let per_row = settings_per_row(ui.available_width());
         let mut cells: Vec<Setting> = vec![
@@ -222,19 +296,19 @@ impl App {
         let Some(reading) = self.reading.as_ref() else {
             return;
         };
-        let secs = reading.started.elapsed().as_secs();
+        let secs = reading.played().as_secs();
         let state = reading_state(reading);
         let mut under = elapsed(secs);
         if let Some(target) = reading.translated_into {
             under = format!("{under} · into {}", target.name);
         }
-        let heard = reading.heard;
+        let spinning = !reading.heard && reading.paused_at.is_none();
         ui.vertical(|ui| {
             ui.set_min_width(STATE_WIDTH);
             ui.spacing_mut().item_spacing.y = 0.0;
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                if !heard {
+                if spinning {
                     ui.add(egui::Spinner::new().size(13.0).color(p.muted));
                 }
                 let shown = ui.label(RichText::new(state).family(theme::semibold()));
@@ -301,7 +375,7 @@ impl App {
         }
     }
 
-    /// Where speech plays. A change applies from the next Read aloud.
+    /// Where speech plays.
     fn output_picker(&mut self, ui: &mut egui::Ui) {
         let default = default_output_label(&self.outputs, self.default_output.as_deref());
         let selected = match &self.output {
@@ -321,9 +395,7 @@ impl App {
             });
             ui.ctx()
                 .accesskit_node_builder(shown.response.id, |node| node.set_label("Output"));
-            shown
-                .response
-                .on_hover_text("Where speech plays, from the next Read aloud");
+            shown.response.on_hover_text("Where speech plays");
         }
     }
 }

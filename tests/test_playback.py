@@ -164,6 +164,37 @@ def test_a_volume_change_applies_to_the_samples_not_yet_written(monkeypatch, tmp
     np.testing.assert_allclose(samples, [0.4, 0.1, 0.1])
 
 
+def test_a_paused_speech_writes_nothing_until_resumed(monkeypatch, tmp_path):
+    monkeypatch.setattr(playback, "SLICE_SECONDS", 1 / 24000)
+    out = tmp_path / "played.raw"
+    player_running(
+        monkeypatch, f"import sys; open({str(out)!r}, 'wb').write(sys.stdin.buffer.read())"
+    )
+    speech = []
+
+    def pause_after_the_first_sample():
+        speech[0].pause()
+
+    speech.append(
+        playback.Speech(
+            [chunk(0.1, 0.2, 0.3)], player="fake", on_first_audio=pause_after_the_first_sample
+        )
+    )
+    assert not speech[0].wait(timeout=0.5), "held while paused"
+    assert speech[0].paused
+    speech[0].resume()
+    assert speech[0].wait(timeout=10)
+    np.testing.assert_allclose(np.fromfile(out, dtype="<f4"), [0.1, 0.2, 0.3])
+
+
+def test_stop_ends_a_paused_speech(monkeypatch):
+    player_running(monkeypatch, "import sys; sys.stdin.buffer.read()")
+    speech = playback.Speech([chunk(0.1, 0.2)], player="fake", on_first_audio=lambda: None)
+    speech.pause()
+    speech.stop()
+    assert speech.wait(timeout=5)
+
+
 def test_stop_cuts_playback_off_without_waiting_for_synthesis(monkeypatch):
     player_running(monkeypatch, "import time; time.sleep(30)")
     release = threading.Event()

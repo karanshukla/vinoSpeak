@@ -307,6 +307,28 @@ where the rule is `1 kB`, and one format for every unit where GB alone has a
 decimal), and it would be a runtime dependency of a package whose import has
 to stay light.
 
+## Media controls
+
+The window is an MPRIS player (`org.mpris.MediaPlayer2.vinospeak`) on the
+session bus, where desktops look for players; the system bus is for system
+services. Its art is the app's icon, written to `$XDG_RUNTIME_DIR` at start
+as `mpris:artUrl`, since without one Plasma shows a blank disc.
+
+MPRIS counts in time, and a reading only knows how far through its text it
+is: speech has no length until it is synthesized, and the worker
+synthesizes a chunk ahead. So the window tells the desktop an estimated
+length, the text's characters at Kokoro's speaking rate, and the position as
+that share of it. Measured 2026-11-19 on the Wildcat Lake NPU, three English
+sentences (310 characters) at 1.0×: af_heart 15.44 characters a second,
+ef_dora 16.79, ff_siwis 15.49; the window uses 15.5, divided by the speed.
+A translated reading is estimated from the source text.
+
+A desktop counts the position on by itself while the status is Playing, and
+the reading's progress moves in steps, so `Seeked` is sent again only when
+the two are more than 2 s apart, and on each new reading. A seek from the
+desktop (`SetPosition`, `Seek`) is read as a share of the length and starts
+the reading again from that sentence, as the window's own bar does.
+
 ## Reading markdown
 
 The inline patterns in `readable.py` stop at the next opening delimiter, so
