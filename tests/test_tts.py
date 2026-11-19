@@ -491,3 +491,10 @@ def test_what_cant_be_translated_is_refused_before_the_model_loads(
             text, translate_to=target, translator=TaggingTranslator(), model_dir=tmp_path / "x"
         )
     assert not (tmp_path / "x").exists()
+
+
+def test_a_trailing_symbol_kokoro_cant_end_on_is_not_sent(fake_runtime):
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+    synthesizer.synthesize("Hola amigos.»", language="es")
+    assert synthesizer.synthesize("—", language="es").samples.size == 0
+    assert FakePipeline.instances[0].calls == [("Hola amigos.", "es", 1.0)]

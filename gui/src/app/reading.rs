@@ -88,6 +88,7 @@ impl App {
                     started: Instant::now(),
                     stop_sent: None,
                     translated_into: target,
+                    heard: false,
                 });
             }
             Err(e) => {
@@ -151,7 +152,9 @@ impl App {
                 None
             }
             Event::FirstAudio { id, ms } => {
-                if let Some(reading) = self.reading.as_ref().filter(|r| r.id == id) {
+                if let Some(reading) = self.reading.as_mut().filter(|r| r.id == id) {
+                    reading.heard = true;
+                    let reading = &*reading;
                     debug_first_audio(reading, ms);
                     if let Some(target) = reading.translated_into {
                         self.status = format!("Speaking {} in {}", file_name(reading), target.name);

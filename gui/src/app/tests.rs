@@ -254,7 +254,7 @@ fn window_with(
         (outputs, Some("hdmi_sink".to_owned())),
     );
     app.cache = Some(scratch.0.join("cache"));
-    app.translation_dir = Some(scratch.0.join("translation"));
+    app.translation_dir = Some(scratch.0.join("translation/SmolLM3-3B-int4-cw-ov"));
     app.refresh_translation();
     app.session_dirs = vec![scratch.sessions()];
     app.app_title_bar = app_title_bar;
@@ -1050,12 +1050,42 @@ fn pick_language(h: &mut Harness<'_, App>, name: &str) {
 }
 
 #[test]
-fn translate_is_offered_only_once_its_model_is_downloaded() {
+fn translate_picks_a_language_only_once_its_model_is_downloaded() {
     let scratch = Scratch::new();
     let h = notes_window(&scratch, "Read me.");
     assert!(h.query_by_label("Translate").is_none());
+    assert!(h.query_by_label("Translate…").is_some());
     let h = translating_window(&scratch);
     assert!(h.query_by_label("Translate").is_some());
+    assert!(h.query_by_label("Translate…").is_none());
+}
+
+#[test]
+fn translate_before_its_download_leads_to_the_download() {
+    let scratch = Scratch::new();
+    let index = FakeIndex::recent(vec![scratch.file("notes.md", "Read me.")]);
+    let mut h = tall_window(&scratch, index);
+    wait_for(&mut h, "Read me.");
+    h.get_by_role_and_label(Role::Button, "Translate…").click();
+    wait_for(&mut h, "Downloads 1.7 GB into your home folder.");
+    assert!(h.state().about);
+    assert!(
+        !scratch
+            .read("calls")
+            .contains("--download-translation-model"),
+        "nothing downloads before Download is pressed"
+    );
+}
+
+#[test]
+fn a_copy_vinowhisper_uses_is_shared_and_not_deleted_from_here() {
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    let model = scratch.0.join("translation/SmolLM3-3B-int4-cw-ov");
+    std::fs::write(model.join(".vinowhisper-verified"), "").unwrap();
+    h.get_by_role_and_label(Role::Tab, "About").click();
+    wait_for(&mut h, "shared with vinoWhisper: delete it there.");
+    assert!(h.query_by_label("Delete translation…").is_none());
 }
 
 #[test]
@@ -1197,4 +1227,52 @@ fn the_language_comes_back_in_the_next_window_while_its_model_is_there() {
     let mut without = notes_window(&scratch, "Read me.");
     without.state_mut().remember(settings);
     assert_eq!(without.state().translate_to, None);
+}
+
+#[test]
+fn the_player_says_it_is_starting_until_the_first_audio() {
+    let state =
+        |h: &Harness<'_, App>| super::player::reading_state(h.state().reading.as_ref().unwrap());
+    for (language, before) in [(None, "Starting…"), (Some("Spanish"), "Translating…")] {
+        let scratch = Scratch::new();
+        let mut h = translating_window(&scratch);
+        if let Some(language) = language {
+            pick_language(&mut h, language);
+        }
+        let ctx = h.ctx.clone();
+        h.state_mut().start_worker(&ctx);
+        h.state_mut().read_aloud(&ctx);
+        assert_eq!(state(&h), before);
+        wait_until(&mut h, "the first audio", |h| {
+            h.state().reading.as_ref().is_none_or(|r| r.heard)
+        });
+    }
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    h.get_by_role_and_label(Role::Button, "Read aloud").click();
+    wait_for(&mut h, "Speaking");
+}
+
+#[test]
+fn the_choices_stay_put_when_a_reading_starts() {
+    let scratch = Scratch::new();
+    let mut h = translating_window(&scratch);
+    pick_language(&mut h, "French");
+    let places = |h: &Harness<'_, App>| {
+        ["Translate", "Voice", "Output"].map(|label| h.get_by_label(label).rect())
+    };
+    let before = places(&h);
+    for heard in [false, true] {
+        h.state_mut().reading = Some(crate::speech::Reading {
+            id: 1,
+            file: scratch.0.join("notes.md"),
+            started: Instant::now(),
+            stop_sent: None,
+            translated_into: crate::translation::target("fr-fr"),
+            heard,
+        });
+        h.run_steps(3);
+        assert!(h.query_by_label("Stop").is_some());
+        assert_eq!(places(&h), before, "heard: {heard}");
+    }
 }

@@ -1,4 +1,6 @@
-from vino_speak.text import MAX_CHUNK_CHARS, chunks, sentences
+import pytest
+
+from vino_speak.text import MAX_CHUNK_CHARS, chunks, sentences, speakable_end
 
 SENTENCE = "This sentence is here to be about one hundred characters long so the chunk sizes are easy to read."
 
@@ -102,3 +104,17 @@ def test_sentences_are_not_joined_into_chunks():
     text = "One. Two is here. Three, with a clause."
     assert sentences(text) == ["One.", "Two is here.", "Three, with a clause."]
     assert len(chunks(text)) < 3
+
+
+@pytest.mark.parametrize(
+    "end", ["<", ">", "|", "_", '"', "'", "«", "»", "–", "—", "…", "»…", " — "]
+)
+def test_symbols_kokoro_cant_end_on_are_dropped_outside_english(end):
+    assert speakable_end(f"Hola amigos.{end}", "es") == "Hola amigos."
+    assert speakable_end(f"Hello friends.{end}", "en-us") == f"Hello friends.{end}"
+
+
+def test_symbols_kokoro_reads_are_kept_at_the_end():
+    for kept in ("50%", "Hola (amigos)", "A & B", "1 + 1", "Hola amigos."):
+        assert speakable_end(kept, "fr-fr") == kept
+    assert speakable_end("Hola <b> amigos.", "es") == "Hola <b> amigos.", "only the end"

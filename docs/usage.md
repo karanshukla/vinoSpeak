@@ -43,9 +43,11 @@ Translation is off until you download its model, and nothing is downloaded
 for you: `--translate` without it says how. The model is
 [SmolLM3-3B](https://huggingface.co/HuggingFaceTB/SmolLM3-3B) in the INT4
 export vinoWhisper uses for its cleanup and summaries, pinned to the same
-revision and hashes, but vinoSpeak keeps its own copy in
-`~/.local/share/vinospeak/translation/` (`$XDG_DATA_HOME`) so it doesn't
-need vinoWhisper installed.
+revision and hashes. It is kept in vinoWhisper's folder,
+`~/.local/share/vinowhisper/models/` (`$XDG_DATA_HOME`), so the two apps
+share one copy: if vinoWhisper already downloaded it, natively or as a
+Flatpak, vinoSpeak uses that and downloads nothing. vinoWhisper doesn't have to be installed.
+`--delete-translation-model` keeps a copy vinoWhisper has used.
 
 It is loaded at the first translation, never at start, on the same
 `--device` as Kokoro, and lets go of its ~2 GB of memory after five minutes
@@ -62,6 +64,8 @@ before it is spoken.
 | `en-us`, `en-gb` | `af_heart`, `bf_emma` |
 
 SmolLM3 doesn't do Hindi, so `hi` voices only read Hindi you give them.
+There is no German: SmolLM3 translates into it, but Kokoro has no German
+voice to read it.
 SSML isn't translated: give plain text. Your lexicon applies to the
 translation. A 3B model translates well enough to follow, not to publish:
 check anything that matters.

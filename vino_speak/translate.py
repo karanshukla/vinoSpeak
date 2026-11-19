@@ -1,6 +1,7 @@
 """Translation before speaking, by SmolLM3-3B on an OpenVINO device: the same
-INT4 export vinoWhisper uses, downloaded by vinoSpeak itself (1.7 GB) only
-when asked for, and loaded only for the first translation, never at start.
+INT4 export vinoWhisper uses, in vinoWhisper's folder so the two share one
+copy (1.7 GB), downloaded only when asked for, and loaded only for the first
+translation, never at start.
 
 SmolLM3 is trained on English, French, Spanish, Italian, Portuguese and
 German; Kokoro speaks the first five of those, so those are the targets."""
@@ -49,18 +50,48 @@ NOT_DOWNLOADED = (
     "Download it with vinospeak --download-translation-model, or from the window's About page."
 )
 _THINK = re.compile(r"<think>.*?</think>\s*", re.S)
-_WRAPPER = re.compile(r"\A\s*<text>\s*|\s*</text>\s*\Z")
+_OPENING = re.compile(r"\A\s*<text>")
+# SmolLM3 sometimes wraps its whole answer in bare angle brackets.
+_BRACKETED = re.compile(r"\A<([^<>]*)>\Z")
+
+
+# What vinoWhisper writes beside its copy: the revision once every file
+# matched its sha256, and a stamp once it has used it.
+VINOWHISPER_REVISION = ".vinowhisper-revision"
+VINOWHISPER_VERIFIED = ".vinowhisper-verified"
+VINOWHISPER_FLATPAK = "io.github.karanshukla.vinowhisper"
+MODEL_NAME = "SmolLM3-3B-int4-cw-ov"
+
+
+def _data_home() -> Path:
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
 
 
 def data_dir() -> Path:
-    """vinoSpeak's data, kept apart from the cache: a 1.7 GB opt-in shouldn't
-    vanish with a cache clean, nor be counted as the Kokoro model."""
-    data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
-    return data / "vinospeak" / "translation"
+    """vinoSpeak's own translation data (the compiled copy), kept apart from
+    the cache: it shouldn't vanish with a cache clean."""
+    return _data_home() / "vinospeak" / "translation"
+
+
+def native_model_dir() -> Path:
+    """vinoWhisper's folder for the same pinned model, so installing either
+    app after the other leaves one copy. Downloads go here."""
+    return _data_home() / "vinowhisper" / "models" / MODEL_NAME
+
+
+def flatpak_model_dir() -> Path:
+    """The same folder inside vinoWhisper's Flatpak, read but never written."""
+    flatpak = Path.home() / ".var" / "app" / VINOWHISPER_FLATPAK / "data"
+    return flatpak / "vinowhisper" / "models" / MODEL_NAME
 
 
 def model_dir() -> Path:
-    return data_dir() / "SmolLM3-3B-int4-cw-ov"
+    """The first downloaded copy, native before the Flatpak's; the native
+    folder when there is none."""
+    for directory in (native_model_dir(), flatpak_model_dir()):
+        if _holds_the_model(directory):
+            return directory
+    return native_model_dir()
 
 
 def compile_cache_dir() -> Path:
@@ -75,28 +106,91 @@ def download_bytes() -> int:
     return sum(int(pin["size"]) for pin in load_pins().files.values())
 
 
+def _vinowhisper_revision(directory: Path) -> str | None:
+    try:
+        return (directory / VINOWHISPER_REVISION).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+
 def is_downloaded(directory: Path | None = None) -> bool:
-    """Every pinned file there at its pinned size, after a verified download."""
-    directory = directory or model_dir()
+    """Every pinned file there at its pinned size, after a verified download
+    by vinoSpeak or by vinoWhisper."""
+    return _holds_the_model(directory or model_dir())
+
+
+def _holds_the_model(directory: Path) -> bool:
     pins = load_pins()
-    return model.is_stamped(directory, pins) and not model.verify(directory, pins, full=False)
+    if directory == flatpak_model_dir():
+        return _flatpak_copy_checked(directory, pins)
+    checked = model.is_stamped(directory, pins) or _vinowhisper_revision(directory) == pins.revision
+    return checked and not model.verify(directory, pins, full=False)
+
+
+def flatpak_stamp() -> Path:
+    return data_dir() / "flatpak-verified"
+
+
+def _fingerprint(directory: Path, pins: model.Pins) -> str:
+    """Size, mtime, ctime and inode of each file: the sandbox can set mtime
+    back, not ctime."""
+    lines = []
+    for name in sorted(pins.files):
+        stat = (directory / name).stat()
+        lines.append(f"{name} {stat.st_size} {stat.st_mtime_ns} {stat.st_ctime_ns} {stat.st_ino}")
+    return "\n".join([pins.revision, *lines]) + "\n"
+
+
+def _flatpak_copy_checked(directory: Path, pins: model.Pins) -> bool:
+    """The Flatpak's folder is writable from its sandbox, so nothing in it is
+    trusted: every file is hashed against the pins once, and the result kept
+    in vinoSpeak's own folder until a file changes (pinned by
+    `test_translate.py::test_a_flatpak_copy_is_hashed_once_and_again_after_a_change`)."""
+    if model.verify(directory, pins, full=False):
+        return False
+    fingerprint = _fingerprint(directory, pins)
+    try:
+        if flatpak_stamp().read_text(encoding="utf-8") == fingerprint:
+            return True
+    except OSError:
+        pass
+    if model.verify(directory, pins, full=True):
+        return False
+    flatpak_stamp().parent.mkdir(parents=True, exist_ok=True)
+    flatpak_stamp().write_text(fingerprint, encoding="utf-8")
+    return True
 
 
 def download(directory: Path | None = None) -> Path:
-    directory = directory or model_dir()
-    model.download_pinned(directory, load_pins(), "the translation model")
+    """Download and verify the pins, then mark it the way vinoWhisper does,
+    so vinoWhisper takes it as its own."""
+    directory = directory or native_model_dir()
+    pins = load_pins()
+    model.download_pinned(directory, pins, "the translation model")
+    (directory / VINOWHISPER_REVISION).write_text(pins.revision + "\n", encoding="utf-8")
     return directory
 
 
+def used_by_vinowhisper(directory: Path | None = None) -> bool:
+    directory = directory or model_dir()
+    return directory == flatpak_model_dir() or (directory / VINOWHISPER_VERIFIED).is_file()
+
+
 def disk_usage() -> int:
-    return model.disk_usage(data_dir()) if data_dir().is_dir() else 0
+    return sum(model.disk_usage(d) for d in (model_dir(), data_dir()) if d.is_dir())
 
 
-def delete() -> int:
-    """Delete the model and its compiled copy; the bytes freed."""
-    freed = disk_usage()
+def delete() -> tuple[int, bool]:
+    """Delete the compiled copy, and the model unless vinoWhisper uses it;
+    the bytes freed and whether the model was kept for vinoWhisper."""
+    directory = model_dir()
+    kept = used_by_vinowhisper(directory)
+    freed = model.disk_usage(data_dir()) if data_dir().is_dir() else 0
     shutil.rmtree(data_dir(), ignore_errors=True)
-    return freed
+    if not kept and directory.is_dir():
+        freed += model.disk_usage(directory)
+        shutil.rmtree(directory, ignore_errors=True)
+    return freed, kept
 
 
 def target_name(language: str) -> str:
@@ -110,10 +204,17 @@ def target_name(language: str) -> str:
 def prompt(language: str) -> str:
     name = target_name(language)
     return (
-        f"Translate the text the user sends into {name}. Reply with the translation "
+        f"Translate the text inside <text> into {name}. Reply with the translation "
         "only: no notes, no quotes and no explanation. Keep names, numbers and units as "
-        f"they are. If the text is already in {name}, repeat it unchanged."
+        "they are."
     )
+
+
+def request(text: str, language: str) -> str:
+    """The user's turn: the instruction again, the text wrapped
+    (docs/architecture.md, Translation; pinned by
+    `test_translate.py::test_the_request_repeats_the_language_and_wraps_the_text`)."""
+    return f"Translate into {target_name(language)}:\n<text>{text}</text>"
 
 
 def max_new_tokens(text: str) -> int:
@@ -121,8 +222,11 @@ def max_new_tokens(text: str) -> int:
 
 
 def tidy(answer: str) -> str:
-    """The answer without reasoning or the <text> wrapper a small model may echo."""
-    return _WRAPPER.sub("", _THINK.sub("", answer)).strip()
+    """The answer without reasoning, the <text> wrapper a small model may echo,
+    or anything it adds after the wrapper closes."""
+    answer = _OPENING.sub("", _THINK.sub("", answer))
+    answer = answer.partition("</text>")[0].strip()
+    return _BRACKETED.sub(r"\1", answer).strip()
 
 
 class Generates(Protocol):
@@ -202,7 +306,9 @@ class Translator:
                 self._model = self._load()
                 self._watch()
             try:
-                answer, truncated = self._model.generate(system, text, max_new_tokens(text))
+                answer, truncated = self._model.generate(
+                    system, request(text, language), max_new_tokens(text)
+                )
             finally:
                 self._last_used = self._clock()
         self.truncated = self.truncated or truncated

@@ -109,6 +109,19 @@ A chunk is never cut after an abbreviation or an initial (`e.g.`, `Dr.`,
 `J. R.`): Kokoro's pitch falls at the end of a chunk, and it would fall
 mid-sentence.
 
+### Symbols at the end
+
+Outside English, Kokoro returns an empty waveform for a text that ends in
+certain symbols, and the reading stopped there with "The generated waveform
+is empty or contains non-finite values." Measured on the NPU, 2026-11-18,
+with "Hola amigos." followed by each symbol, in Spanish, French, Italian and
+Brazilian Portuguese: `< > | _ ` " ' « » – — …` and the curly quotes broke
+every one; `/ \ # ^ ~ =` broke some; English read them all. The same symbol
+mid-text, or at the start, was fine. A clause break after `—` or `–` ends a
+chunk on one, and SmolLM3 sometimes wraps an answer in `<…>`, so readings hit
+it. `speakable_end()` drops a trailing run of them before synthesis, outside
+English; `%`, `&`, `+`, `)` and the like are kept, since Kokoro reads them.
+
 ## Voices and blends
 
 A voice is a `(510, 1, 256)` float32 embedding, one style vector per input
@@ -151,13 +164,47 @@ alone, then pieces that at most double, so the first audio waits for one
 sentence's translation, not the file's. One piece is translated ahead on its
 own thread while the one before it is synthesized and played.
 
-It lives in `$XDG_DATA_HOME/vinospeak/translation/`, not the cache: a 1.7 GB
-opt-in shouldn't vanish with a cache clean, and the window's Kokoro row sums
-the cache folder.
+The model lives in vinoWhisper's folder,
+`$XDG_DATA_HOME/vinowhisper/models/SmolLM3-3B-int4-cw-ov/`, so installing
+either app after the other leaves one 1.7 GB copy (the same rule as vinoPop's
+Gemma). The pins are vinoWhisper's, so each app takes the other's download:
+vinoSpeak accepts vinoWhisper's `.vinowhisper-revision` at the pinned
+revision, and writes one itself after its own verified download. vinoSpeak's
+delete leaves a copy vinoWhisper has used (it wrote `.vinowhisper-verified`),
+and deletes only its compiled copy in `$XDG_DATA_HOME/vinospeak/translation/`.
+Both stay out of the cache: a 1.7 GB opt-in shouldn't vanish with a cache
+clean, and the window's Kokoro row sums the cache folder. vinoWhisper's Flatpak
+keeps its copy under `~/.var/app/io.github.karanshukla.vinowhisper/data/`:
+vinoSpeak uses it when there is no native copy, never downloads into it and
+never deletes it, since it belongs to the sandbox. That folder is writable
+from inside the sandbox and vinoSpeak loads the model outside it, so nothing
+written there is trusted: every file is hashed against the pins before first
+use (a few seconds for 1.7 GB), and the result is kept in vinoSpeak's own
+`flatpak-verified` with each file's size, mtime, ctime and inode. The sandbox
+can set mtime back but not ctime, so any change means hashing again. The
+window shows Translate from vinoWhisper's marker alone; if the hash fails, the
+reading fails with the model's error.
+
+The window shows Translate… before the model is downloaded, as a button
+that opens About at the download confirmation: hidden until then, nobody
+found it (2026-11-18).
+
+The instruction goes in the user's turn as well as the system prompt, with
+the text in `<text>` tags. Measured on the Wildcat Lake NPU, 2026-11-18: with
+the text sent bare and the system prompt alone (which also said to repeat
+text already in the target language), Spanish came back untranslated for
+"Hello there.", "Good morning." and a full English sentence, and "The weather
+is lovely." came back as "What's the weather like?". With the request form,
+all six test lines came out right in Spanish and Italian. Into British
+English it once closed the `</text>` itself and added a note, so `tidy()`
+keeps only what comes before the first `</text>`. Brazilian Portuguese made
+real mistakes on the same text ("Good morning" as "Boa tarde", Thursday as
+quarta-feira): a 3B model's limit, not the prompt's.
 
 Tested in linuxlab only with an LLM stand-in (Claude through `claude -p`),
 2026-11-19: that proves the pieces, the streaming and the worker's events, not
 SmolLM3's translations, their speed, or NPU memory with both models loaded.
+The prompt measurement above is the real model on the NPU.
 
 ## Playback
 

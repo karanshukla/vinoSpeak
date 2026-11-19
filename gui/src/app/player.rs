@@ -15,6 +15,10 @@ use crate::search::Hit;
 pub(super) const SPEEDS: [(f32, &str); 4] =
     [(0.8, "0.8×"), (1.0, "1.0×"), (1.25, "1.25×"), (1.5, "1.5×")];
 const BUTTON_DIAMETER: f32 = 44.0;
+/// The button and what it is doing, wide enough for the widest state (the
+/// spinner and "Translating…"), so nothing after it moves when the state
+/// changes (pinned by `app::tests::the_choices_stay_put_when_a_reading_starts`).
+const TRANSPORT_WIDTH: f32 = 200.0;
 /// What each choice takes in the player's row, icon and all: a group that
 /// doesn't fit starts the next row, rather than running off the window
 /// (pinned by `app::tests::the_player_wraps_rather_than_running_off_the_window`).
@@ -108,21 +112,34 @@ fn round_button(
     response.on_hover_text(name)
 }
 
+/// What the player says beside Stop: until the first audio, that it is
+/// starting or translating, since loading and translating take seconds
+/// (pinned by `app::tests::the_player_says_it_is_starting_until_the_first_audio`).
+pub(super) fn reading_state(reading: &crate::speech::Reading) -> &'static str {
+    match (reading.heard, reading.translated_into) {
+        (true, _) => "Speaking",
+        (false, Some(_)) => "Translating…",
+        (false, None) => "Starting…",
+    }
+}
+
 impl App {
     pub(super) fn player(&mut self, ui: &mut egui::Ui, hit: &Hit) {
         let speaking_this = self.reading.as_ref().is_some_and(|r| r.file == hit.path);
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(12.0, 8.0);
-            if speaking_this {
-                self.stop_button(ui);
-            } else {
-                self.read_aloud_button(ui);
-            }
-            ui.add_space(8.0);
-            if self.translation.downloaded {
-                room_for(ui, TRANSLATE_ROOM);
-                self.translate_picker(ui);
-            }
+            let size = egui::vec2(TRANSPORT_WIDTH, BUTTON_DIAMETER);
+            let layout = egui::Layout::left_to_right(egui::Align::Center);
+            ui.allocate_ui_with_layout(size, layout, |ui| {
+                ui.set_min_size(size);
+                if speaking_this {
+                    self.stop_button(ui);
+                } else {
+                    self.read_aloud_button(ui);
+                }
+            });
+            room_for(ui, TRANSLATE_ROOM);
+            self.translate_picker(ui);
             room_for(ui, VOICE_ROOM);
             self.voice_picker(ui);
             room_for(ui, SPEED_ROOM);
@@ -142,14 +159,18 @@ impl App {
         if round_button(ui, Icon::Stop, "Stop", p.text, p.bg, true).clicked() {
             self.stop_reading();
         }
-        let secs = self
-            .reading
-            .as_ref()
-            .map_or(0, |r| r.started.elapsed().as_secs());
+        let Some(reading) = self.reading.as_ref() else {
+            return;
+        };
+        let secs = reading.started.elapsed().as_secs();
+        let state = reading_state(reading);
+        if !reading.heard {
+            ui.add(egui::Spinner::new().size(16.0).color(p.muted));
+        }
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            let shown = ui.label(RichText::new("Speaking").family(theme::semibold()));
-            a11y::decorative(ui, shown.id);
+            let shown = ui.label(RichText::new(state).family(theme::semibold()));
+            a11y::live(&shown);
             let clock = ui.label(RichText::new(elapsed(secs)).size(12.5).color(p.muted));
             a11y::decorative(ui, clock.id);
         });

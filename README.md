@@ -69,7 +69,7 @@ player: [docs/install.md](docs/install.md).
 | Linux | Python comes with uv; espeak-ng and libsndfile come in the wheels |
 | An audio player | `pw-play`, `paplay` or `aplay`, or use `--output` |
 | For `--device NPU` | An Intel NPU and its driver. `--device CPU` needs no driver at all |
-| Disk | About 160 MB for the model, downloaded once into `~/.cache/vinospeak/`; 1.7 GB more in `~/.local/share/vinospeak/` if you turn translation on |
+| Disk | About 160 MB for the model, downloaded once into `~/.cache/vinospeak/`; 1.7 GB more in `~/.local/share/vinowhisper/models/` if you turn translation on (shared with vinoWhisper) |
 
 ## Use
 

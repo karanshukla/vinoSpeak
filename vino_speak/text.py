@@ -21,6 +21,10 @@ MIN_CHUNK_CHARS = 100
 # `test_text.py::test_a_long_first_sentence_is_cut_after_its_first_clause_past_sixty_chars`,
 # `test_text.py::test_a_first_sentence_with_no_late_clause_break_goes_whole`).
 FIRST_CHUNK_CHARS = 60
+# Symbols that make Kokoro return an empty waveform when they end a
+# non-English text (docs/architecture.md, "Symbols at the end"; pinned by
+# `test_text.py::test_symbols_kokoro_cant_end_on_are_dropped_outside_english`).
+UNSPEAKABLE_END = re.compile(r"[\s<>|/\\#^~_=`\"'«»“”‘’–—…]+\Z")
 
 
 def _pieces(sentence: str, max_chars: int) -> list[str]:
@@ -102,3 +106,8 @@ def chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
             budget = min(max_chars, max(2 * len(out[-1]), MIN_CHUNK_CHARS))
         out.append(sentence)
     return out
+
+
+def speakable_end(text: str, language: str) -> str:
+    """The text without a trailing run of symbols Kokoro can't end on; English is left as is."""
+    return text if language.startswith("en") else UNSPEAKABLE_END.sub("", text)

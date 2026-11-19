@@ -3,6 +3,7 @@
   "model_dir": "kokoro-82m-int8-ov",
   "translation": {
     "model_dir": "SmolLM3-3B-int4-cw-ov",
+    "revision": "136eac7690714ab0a1e65806eb24f98d993f0438",
     "download_bytes": 1702009152,
     "targets": {"en-us": "af_heart", "en-gb": "bf_emma", "es": "ef_dora", "fr-fr": "ff_siwis", "it": "if_sara", "pt-br": "pf_dora"}
   },
