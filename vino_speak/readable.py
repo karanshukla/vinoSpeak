@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from . import ssml
+
 MARKDOWN_SUFFIXES = frozenset({".md", ".markdown", ".mdx", ".mkd"})
 CODE_SKIPPED = "Code skipped."
 # A line ending otherwise gets a full stop, so Kokoro pauses and chunks() can
@@ -198,7 +200,7 @@ KINDS = ("plain", "markdown", "document")
 def read(path: Path, kind: str | None = None) -> str:
     """The file's text for speaking, read as `kind`. Without one: markdown
     by its suffix, any other file as a hard-wrapped document, and `-` (stdin)
-    as plain text. vinoSearch's extracted text comes in on stdin as
+    as plain text; SSML (from `<speak`) as itself. vinoSearch's extracted text comes in on stdin as
     `document`. A file that isn't UTF-8 text is refused."""
     if str(path) == "-":
         text = sys.stdin.read()
@@ -207,6 +209,8 @@ def read(path: Path, kind: str | None = None) -> str:
             text = path.read_bytes().decode("utf-8-sig")
         except UnicodeDecodeError:
             raise ValueError(f"{path} is not a UTF-8 text file.") from None
+    if kind is None and ssml.is_ssml(text):
+        return text
     if kind is None and str(path) != "-":
         kind = "markdown" if path.suffix.lower() in MARKDOWN_SUFFIXES else "wrapped"
     if kind == "markdown":

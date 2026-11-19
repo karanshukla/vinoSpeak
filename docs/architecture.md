@@ -121,6 +121,19 @@ Checked on the real pipeline on CPU, 2026-11-18.
 OpenVINO GenAI 2026.4's Kokoro refuses `ja` and `zh`, so the nine Japanese
 and Mandarin voices in the model aren't offered, as in the window's picker.
 
+## SSML and the lexicon
+
+Everything spoken goes through `script.plan()`: SSML is parsed into pieces
+with their own voice, language and rate, the lexicon respells each piece's
+text (never the markup), and the pieces are cut into chunks, or into
+sentences for subtitles. A pause is a step of silence that never reaches the
+pipeline. Plans are made before the model loads, so a bad `<break>` or lexicon
+fails at once.
+
+Kokoro's pipeline in OpenVINO GenAI 2026.4 takes no phonemes: misaki's
+`[word](/IPA/)` is ignored (a word given 18 `ʃ` phonemes came out the length
+of the word, CPU, 2026-11-18), which is why the lexicon respells.
+
 ## Playback
 
 Players are tried in the order `pw-play`, `paplay`, `aplay`: PipeWire is the

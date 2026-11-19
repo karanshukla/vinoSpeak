@@ -250,3 +250,52 @@ def test_an_unknown_output_format_is_refused_before_the_model_loads(monkeypatch,
     with pytest.raises(SystemExit):
         cli.main(["Hello", "--output", str(tmp_path / "a.aiff")])
     assert "not '.aiff'" in capsys.readouterr().err
+
+
+@pytest.fixture
+def config_home(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    return tmp_path / "config"
+
+
+def test_print_text_respells_with_the_default_lexicon(config_home, capsys):
+    (config_home / "vinospeak").mkdir(parents=True)
+    (config_home / "vinospeak" / "lexicon.toml").write_text('[words]\nsql = "sequel"\n')
+    cli.main(["Write sql.", "--print-text"])
+    assert capsys.readouterr().out == "Write sequel.\n"
+
+
+def test_a_lexicon_given_replaces_the_default(config_home, tmp_path, capsys):
+    mine = tmp_path / "mine.toml"
+    mine.write_text('[words]\nsql = "ess queue ell"\n')
+    cli.main(["Write sql.", "--print-text", "--lexicon", str(mine)])
+    assert capsys.readouterr().out == "Write ess queue ell.\n"
+
+
+def test_a_broken_lexicon_is_a_usage_error(config_home, tmp_path, capsys):
+    (tmp_path / "bad.toml").write_text("[words")
+    with pytest.raises(SystemExit):
+        cli.main(["Hi.", "--lexicon", str(tmp_path / "bad.toml")])
+    assert "isn't valid TOML" in capsys.readouterr().err
+
+
+def test_the_lexicon_reaches_speak(config_home, monkeypatch, tmp_path):
+    mine = tmp_path / "mine.toml"
+    mine.write_text('[words]\nsql = "sequel"\n')
+    asked = {}
+    monkeypatch.setattr(cli, "speak", lambda text, **kwargs: asked.update(kwargs))
+    cli.main(["Hi.", "--lexicon", str(mine)])
+    assert asked["lexicon"].words == {"sql": "sequel"}
+
+
+def test_an_ssml_file_prints_its_text_and_pauses(config_home, tmp_path, capsys):
+    path = tmp_path / "script.ssml"
+    path.write_text('<speak>\n  <p>Hello</p>\n  <break time="2s"/>\n  World.\n</speak>\n')
+    cli.main(["--file", str(path), "--print-text"])
+    assert capsys.readouterr().out == "Hello.\n[pause 2 s]\nWorld.\n"
+
+
+def test_bad_ssml_is_a_usage_error(config_home, capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["<speak>open", "--print-text"])
+    assert "well-formed" in capsys.readouterr().err

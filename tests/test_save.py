@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from conftest import FakeSoundFile
 
-from vino_speak import save
+from vino_speak import save, script
 from vino_speak.tts import Audio
 
 
@@ -22,6 +22,14 @@ class FakeSynthesizer:
             raise RuntimeError("synthesis failed")
         self.calls.append((text, voice, language, speed))
         return Audio(np.zeros(self.rate, dtype=np.float32), self.rate)
+
+    def plan(self, text, voice="af_heart", language=None, speed=1.0, by_sentence=False):
+        return script.plan(text, voice, language, speed, by_sentence=by_sentence)
+
+    def render(self, step):
+        if not step.text:
+            return Audio(np.zeros(round(step.silence * self.rate), np.float32), self.rate)
+        return self.synthesize(step.text, step.voice, step.language, step.speed)
 
 
 @pytest.fixture(autouse=True)
@@ -111,3 +119,14 @@ def test_bad_subtitles_are_refused_before_any_synthesis(tmp_path):
     with pytest.raises(ValueError, match="srt or"):
         save.save(synthesizer, "Hi.", tmp_path / "a.wav", "af_heart", None, 1.0, tmp_path / "a.txt")
     assert synthesizer.calls == []
+
+
+def test_a_pause_is_silence_with_no_cue_and_moves_the_next_one_on(tmp_path):
+    subs = tmp_path / "a.vtt"
+    ssml = '<speak>One.<break time="500ms"/>Two.</speak>'
+
+    seconds = save.save(FakeSynthesizer(), ssml, tmp_path / "a.wav", "af_heart", None, 1.0, subs)
+
+    assert seconds == 2.5
+    assert len(FakeSoundFile.opened[0].writes[1]) == 12000
+    assert "00:00:01.500 --> 00:00:02.500\nTwo." in subs.read_text(encoding="utf-8")

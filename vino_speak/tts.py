@@ -10,10 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import ovfetch, voices
+from . import ovfetch, script, voices
+from .lexicon import Lexicon
 from .model import compile_cache_dir, default_model_dir, ensure_model
 from .playback import Speech, require_player
-from .text import chunks
 
 if TYPE_CHECKING:
     import numpy as np
@@ -118,7 +118,12 @@ class Synthesizer:
     create one and reuse it. Calls are serialized: the pipeline is not
     thread-safe."""
 
-    def __init__(self, device: str = DEFAULT_DEVICE, model_dir: Path | None = None):
+    def __init__(
+        self,
+        device: str = DEFAULT_DEVICE,
+        model_dir: Path | None = None,
+        lexicon: Lexicon | None = None,
+    ):
         model_dir = ensure_model(model_dir or default_model_dir(), trusted=model_dir is not None)
 
         try:
@@ -133,6 +138,7 @@ class Synthesizer:
 
         self.device = device
         self.model_dir = model_dir
+        self.lexicon = lexicon
         self._ov = ov
         self._genai = ov_genai
         _preload_npu_compiler(device)
@@ -213,6 +219,25 @@ class Synthesizer:
         with self._lock:
             return self._generate(text, voice, language_for(voice, language), speed)
 
+    def plan(
+        self,
+        text: str,
+        voice: str = DEFAULT_VOICE,
+        language: str | None = None,
+        speed: float = 1.0,
+        by_sentence: bool = False,
+    ) -> list[script.Step]:
+        """The synthesis calls for plain text or SSML, respelled by the lexicon."""
+        validate_inputs(text, voice, speed, language)
+        return script.plan(text, voice, language, speed, self.lexicon, by_sentence)
+
+    def render(self, step: script.Step) -> Audio:
+        if not step.text:
+            import numpy as np
+
+            return Audio(np.zeros(round(step.silence * SAMPLE_RATE), np.float32), SAMPLE_RATE)
+        return self.synthesize(step.text, step.voice, step.language, step.speed)
+
     def stream(
         self,
         text: str,
@@ -220,10 +245,9 @@ class Synthesizer:
         language: str | None = None,
         speed: float = 1.0,
     ) -> Iterator[Audio]:
-        """The text a chunk at a time, synthesized as it is consumed. The
-        lock is held per chunk, so other callers can interleave."""
-        validate_inputs(text, voice, speed, language)
-        return (self.synthesize(chunk, voice, language, speed) for chunk in chunks(text))
+        """The text (plain or SSML) a chunk at a time, synthesized as it is
+        consumed. The lock is held per chunk, so other callers can interleave."""
+        return (self.render(step) for step in self.plan(text, voice, language, speed))
 
     def speak(
         self,
@@ -257,8 +281,9 @@ def synthesize(
     model_dir: Path | None = None,
     subtitles: Path | None = None,
     on_progress: Callable[[int, int], None] | None = None,
+    lexicon: Lexicon | None = None,
 ) -> Path:
-    """One-shot: speak text into a WAV, FLAC, OGG, Opus or MP3 file (by its
+    """One-shot: speak text (plain or SSML) into a WAV, FLAC, OGG, Opus or MP3 file (by its
     suffix), and SubRip or WebVTT subtitles if asked for. `on_progress` is
     called with (chunks done, chunks in all)."""
     from .save import check_output, require_soundfile, save
@@ -269,7 +294,8 @@ def synthesize(
     require_soundfile()
     if subtitles is not None:
         check_suffix(subtitles)
-    synthesizer = Synthesizer(device, model_dir)
+    script.plan(text, voice, language, speed, lexicon)
+    synthesizer = Synthesizer(device, model_dir, lexicon)
     save(synthesizer, text, output, voice, language, speed, subtitles, on_progress)
     return output
 
@@ -282,12 +308,14 @@ def speak(
     device: str = DEFAULT_DEVICE,
     model_dir: Path | None = None,
     audio_device: str | None = None,
+    lexicon: Lexicon | None = None,
 ) -> None:
     """One-shot: speak text on the speakers (or `audio_device`) and return
     when it has finished."""
     validate_inputs(text, voice, speed, language)
+    script.plan(text, voice, language, speed, lexicon)
     player = require_player()
-    synthesizer = Synthesizer(device, model_dir)
+    synthesizer = Synthesizer(device, model_dir, lexicon)
     speech = Speech(
         synthesizer.stream(text, voice, language, speed), player, audio_device, SAMPLE_RATE
     )

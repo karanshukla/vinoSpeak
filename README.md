@@ -23,6 +23,9 @@ own telemetry is blocked.
   sentence plays while the rest is synthesized.
 - **41 Kokoro voices** in US/UK English, Spanish, French, Hindi, Italian and
   Brazilian Portuguese, at 0.5x to 2x speed, or a blend of several.
+- **SSML and your own pronunciations**: pauses, voice and speed changes and
+  aliases in a small SSML subset, and a lexicon that respells the words
+  Kokoro gets wrong.
 - **Plays or saves**: your speakers via PipeWire/PulseAudio/ALSA, or a WAV,
   FLAC, OGG, Opus or MP3, with SRT or WebVTT subtitles timed to it.
 - **NPU, GPU or CPU.** CPU works with no driver at all.
@@ -72,6 +75,7 @@ vinospeak --file notes.md                          # read a file aloud
 vinospeak --file notes.md --print-text             # see what it would say, no model load
 some-command | vinospeak --file -                  # plain text from stdin
 vinospeak --file 2026-10-27-140512.vwsession       # a vinoWhisper summary
+vinospeak '<speak>Wait.<break time="1s"/><voice name="bm_george">Done.</voice></speak>'
 vinospeak "Hola." --voice ef_dora --speed 1.2 --device CPU    # Spanish: the voice's language
 vinospeak "Hello." --voice "af_heart(2)+bm_george(1)"            # a blend of two voices
 ```
@@ -85,6 +89,7 @@ vinospeak "Hello." --voice "af_heart(2)+bm_george(1)"            # a blend of tw
 | `--device` | `NPU` (default), `GPU` or `CPU` |
 | `--audio-device` | A sink from `pactl list short sinks`, or an ALSA device |
 | `--kind` | Read `--file` as `plain`, `markdown` or `document` |
+| `--lexicon` | Respell words from this TOML file instead of `~/.config/vinospeak/lexicon.toml` |
 | `--part` | `summary` or `transcript` of a vinoWhisper session |
 | `--model-status`, `--delete-model` | Show or delete the downloaded model |
 | `--model-dir` | Use your own model directory, unchecked |

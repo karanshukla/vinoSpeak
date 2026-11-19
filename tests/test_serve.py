@@ -184,7 +184,9 @@ def test_main_reports_a_load_that_fails_and_exits_1(capsys):
 
 def test_cli_serve_loads_the_device_asked_for(monkeypatch):
     loaded = []
-    monkeypatch.setattr(cli, "Synthesizer", lambda device, model_dir: loaded.append(device))
+    monkeypatch.setattr(
+        cli, "Synthesizer", lambda device, model_dir, lexicon: loaded.append(device)
+    )
     monkeypatch.setattr(cli.serve, "main", lambda make: make())
     cli.main(["--serve", "--device", "CPU"])
     assert loaded == ["CPU"]

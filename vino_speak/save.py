@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from . import subtitles
-from .text import chunks, sentences
+from .script import Step
 from .tts import MISSING_DEPENDENCIES, SAMPLE_RATE, Audio
 
 # libsndfile's format and encoding for each suffix (pinned by
@@ -27,9 +27,16 @@ Progress = Callable[[int, int], None]
 
 
 class Synthesizes(Protocol):
-    def synthesize(
-        self, text: str, voice: str = ..., language: str | None = ..., speed: float = ...
-    ) -> Audio: ...
+    def plan(
+        self,
+        text: str,
+        voice: str = ...,
+        language: str | None = ...,
+        speed: float = ...,
+        by_sentence: bool = ...,
+    ) -> list[Step]: ...
+
+    def render(self, step: Step) -> Audio: ...
 
 
 def require_soundfile() -> Any:
@@ -67,23 +74,24 @@ def save(
     container, encoding = check_output(output)
     if subtitles_to is not None:
         subtitles.check_suffix(subtitles_to)
-    pieces = sentences(text) if subtitles_to is not None else chunks(text)
+    steps = synthesizer.plan(text, voice, language, speed, by_sentence=subtitles_to is not None)
     cues: list[subtitles.Cue] = []
     at = 0.0
     output.parent.mkdir(parents=True, exist_ok=True)
     partial = output.with_name(output.name + PARTIAL)
     try:
         with sf.SoundFile(partial, "w", SAMPLE_RATE, 1, encoding, format=container) as out:
-            for done, piece in enumerate(pieces, 1):
-                audio = synthesizer.synthesize(piece, voice, language, speed)
+            for done, step in enumerate(steps, 1):
+                audio = synthesizer.render(step)
                 if audio.sample_rate != SAMPLE_RATE:
                     raise RuntimeError(f"Speech came at {audio.sample_rate} Hz, not {SAMPLE_RATE}.")
                 out.write(audio.samples)
                 length = len(audio.samples) / SAMPLE_RATE
-                cues += subtitles.split(at, at + length, piece)
+                if step.text:
+                    cues += subtitles.split(at, at + length, step.text)
                 at += length
                 if on_progress is not None:
-                    on_progress(done, len(pieces))
+                    on_progress(done, len(steps))
         partial.replace(output)
     finally:
         with contextlib.suppress(FileNotFoundError):

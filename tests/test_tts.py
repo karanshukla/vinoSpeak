@@ -425,3 +425,28 @@ def test_the_language_is_the_voices_own_unless_one_is_asked_for(
     synthesizer.synthesize("Hola", voice=voice, language=language)
 
     assert FakePipeline.instances[0].calls[-1][1] == spoken_as
+
+
+def test_a_pause_renders_as_silence_without_the_pipeline(fake_runtime):
+    from vino_speak.script import Step
+
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+    audio = synthesizer.render(Step("", "af_heart", None, 1.0, silence=0.5))
+    assert audio.sample_rate == 24000
+    assert len(audio.samples) == 12000 and not audio.samples.any()
+    assert FakePipeline.instances[0].calls == []
+
+
+def test_stream_reads_ssml_and_the_synthesizers_lexicon(fake_runtime):
+    from vino_speak.lexicon import Lexicon
+
+    synthesizer = tts.Synthesizer("CPU", fake_runtime, Lexicon({"sql": "sequel"}))
+    audio = list(synthesizer.stream('<speak>sql<break time="1s"/>done</speak>'))
+    assert [len(a.samples) for a in audio] == [2, 24000, 2]
+    assert [call[0] for call in FakePipeline.instances[0].calls] == ["sequel", "done"]
+
+
+def test_bad_ssml_is_refused_before_the_model_loads(tmp_path):
+    with pytest.raises(ValueError, match="well-formed"):
+        tts.speak("<speak>open", model_dir=tmp_path / "never-created")
+    assert not (tmp_path / "never-created").exists()

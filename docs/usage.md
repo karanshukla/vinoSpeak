@@ -29,6 +29,48 @@ Abbreviations like `e.g.` and `Dr.` don't end a sentence.
 `--print-text` prints what would be spoken and exits, without loading the
 model.
 
+## SSML
+
+Text (or a file, or stdin) that starts with `<speak` is read as SSML. Kokoro
+can't do pitch, volume or emphasis, so only what it can honour is understood:
+
+| Element | What it does |
+|---|---|
+| `<break time="500ms"/>`, `<break strength="strong"/>` | A pause, up to 10 s; strengths `none` to `x-strong` are 0 to 1.25 s |
+| `<prosody rate="slow">` | Speed: `x-slow` 0.5x to `x-fast` 1.5x, `80%`, `+20%` or `1.2`, times `--speed`, held within 0.5 to 2 |
+| `<voice name="bm_george">` | Another voice or blend, in its own language |
+| `<lang xml:lang="fr-FR">`, `<speak xml:lang="en-GB">` | Read as that language |
+| `<sub alias="World Wide Web Consortium">W3C</sub>` | Say the alias |
+| `<say-as interpret-as="characters">API</say-as>` | Spell it out (`characters`, `spell-out`, `digits`, `telephone`) |
+| `<p>`, `<s>` | End a sentence |
+
+Any other element (`<emphasis>`, `<mark>`, `<audio>`) is read as its text. It
+has to be well-formed XML, so `&` is `&amp;`. `--print-text` shows the text and
+the pauses:
+
+```bash
+vinospeak --file script.ssml --print-text
+vinospeak --file script.ssml --output script.mp3 --subtitles script.srt
+```
+
+## Pronunciations
+
+Put the words Kokoro says wrong in `~/.config/vinospeak/lexicon.toml`
+(`$XDG_CONFIG_HOME/vinospeak/`), respelled as it should say them:
+
+```toml
+[words]
+kubectl = "cube control"
+NGINX = "engine x"
+"Dr. Who" = "Doctor Who"
+```
+
+Only whole words are respelled. An entry in lowercase matches any case; one
+with a capital matches only as written, so `NGINX` leaves `nginx` alone. When
+two entries overlap the longer one wins. `--lexicon FILE` uses another file
+instead. OpenVINO GenAI's Kokoro ignores inline phonemes, so an entry is a
+respelling, not IPA. The window's worker reads the lexicon when it starts.
+
 ## Saving
 
 ```bash

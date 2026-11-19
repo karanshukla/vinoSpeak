@@ -7,7 +7,7 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from . import __version__, model, readable, serve, session, voices
+from . import __version__, lexicon, model, readable, script, serve, session, ssml, voices
 from .model import default_model_dir
 from .tts import (
     DEFAULT_DEVICE,
@@ -60,6 +60,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Delete them; the next run downloads the model again. vinoPop's read-aloud "
         "shares them. A --model-dir is never deleted.",
+    )
+    parser.add_argument(
+        "--lexicon",
+        type=Path,
+        help='Respell words from this TOML file ([words] kubectl = "cube control") '
+        f"instead of {lexicon.default_path()}, which is used when it exists.",
     )
     parser.add_argument(
         "--print-text",
@@ -161,7 +167,8 @@ def serve_requests(parser: argparse.ArgumentParser, arguments: argparse.Namespac
     others = (arguments.text, arguments.file, arguments.output, arguments.audio_device)
     if any(o is not None for o in others) or arguments.print_text:
         parser.error("--serve takes its text on stdin; give it only --device and --model-dir")
-    serve.main(lambda: Synthesizer(arguments.device, arguments.model_dir))
+    respellings = load_lexicon(parser, arguments)
+    serve.main(lambda: Synthesizer(arguments.device, arguments.model_dir, respellings))
 
 
 def text_to_speak(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> str:
@@ -199,8 +206,38 @@ def progress_reporter() -> Callable[[int, int], None] | None:
     return report
 
 
-def play_or_save(parser: argparse.ArgumentParser, arguments: argparse.Namespace, text: str) -> None:
+def load_lexicon(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> lexicon.Lexicon:
+    try:
+        return lexicon.load(arguments.lexicon)
+    except ValueError as error:
+        parser.error(str(error))
+
+
+def print_text(
+    parser: argparse.ArgumentParser,
+    arguments: argparse.Namespace,
+    text: str,
+    respellings: lexicon.Lexicon,
+) -> None:
+    """What would be spoken: the text respelled, or SSML's text and pauses."""
+    if not ssml.is_ssml(text):
+        print(respellings.apply(text))
+        return
+    try:
+        steps = script.plan(text, arguments.voice, arguments.language, arguments.speed, respellings)
+    except ValueError as error:
+        parser.error(str(error))
+    print(script.spoken(steps))
+
+
+def play_or_save(
+    parser: argparse.ArgumentParser,
+    arguments: argparse.Namespace,
+    text: str,
+    respellings: lexicon.Lexicon,
+) -> None:
     options = {
+        "lexicon": respellings,
         "voice": arguments.voice,
         "language": arguments.language,
         "speed": arguments.speed,
@@ -244,10 +281,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("--subtitles are timed to a saved file: give --output too")
     if arguments.audio_device and arguments.output is not None:
         parser.error("--audio-device is where speech plays; it can't go with --output")
+    respellings = load_lexicon(parser, arguments)
     if arguments.print_text:
-        print(text)
+        print_text(parser, arguments, text, respellings)
         return
-    play_or_save(parser, arguments, text)
+    play_or_save(parser, arguments, text, respellings)
 
 
 if __name__ == "__main__":
