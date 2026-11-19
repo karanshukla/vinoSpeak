@@ -26,6 +26,19 @@ def test_the_lexicon_respells_text_but_not_markup():
     assert [(s.text, s.silence) for s in steps] == [("sequel", 0.0), ("", 1.0), ("brake", 0.0)]
 
 
+def test_a_sentence_keeps_its_written_text_beside_its_respelling():
+    words = Lexicon({"kubectl": "cube control", "Dr. Who": "Doctor Who"})
+    text = "Ask Dr. Who. Run kubectl. Done."
+    by_sentence = script.plan(text, "af_heart", None, 1.0, words, by_sentence=True)
+    assert [(s.text, s.written) for s in by_sentence] == [
+        ("Ask Doctor Who.", "Ask Dr. Who."),
+        ("Run cube control.", "Run kubectl."),
+        ("Done.", "Done."),
+    ]
+    chunked = script.plan(text, "af_heart", None, 1.0, words)
+    assert " ".join(s.text for s in chunked) == "Ask Doctor Who. Run cube control. Done."
+
+
 def test_a_zero_break_adds_no_step():
     steps = script.plan('<speak>A<break strength="none"/>B</speak>', "af_heart", None, 1.0)
     assert [s.text for s in steps] == ["A", "B"]

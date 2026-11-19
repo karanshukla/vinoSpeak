@@ -12,9 +12,10 @@ from vino_speak.tts import Audio
 class FakeSynthesizer:
     """A second of silence per call, or `fail_on` raised for that text."""
 
-    def __init__(self, rate=24000, fail_on=None):
+    def __init__(self, rate=24000, fail_on=None, lexicon=None):
         self.rate = rate
         self.fail_on = fail_on
+        self.lexicon = lexicon
         self.calls = []
 
     def synthesize(self, text, voice="af_heart", language=None, speed=1.0):
@@ -24,7 +25,7 @@ class FakeSynthesizer:
         return Audio(np.zeros(self.rate, dtype=np.float32), self.rate)
 
     def plan(self, text, voice="af_heart", language=None, speed=1.0, by_sentence=False):
-        return script.plan(text, voice, language, speed, by_sentence=by_sentence)
+        return script.plan(text, voice, language, speed, self.lexicon, by_sentence)
 
     def render(self, step):
         if not step.text:
@@ -93,6 +94,19 @@ def test_with_subtitles_each_sentence_is_one_call_and_one_cue(tmp_path):
 
     assert [call[0] for call in synthesizer.calls] == ["One.", "Two.", "Three."]
     assert "00:00:02,000 --> 00:00:03,000\nThree." in subs.read_text(encoding="utf-8")
+
+
+def test_subtitles_show_the_words_as_written_not_as_respelled(tmp_path):
+    from vino_speak.lexicon import Lexicon
+
+    synthesizer = FakeSynthesizer(lexicon=Lexicon({"kubectl": "cube control"}))
+    subs = tmp_path / "a.srt"
+
+    save.save(synthesizer, "Run kubectl. Done.", tmp_path / "a.wav", "af_heart", None, 1.0, subs)
+
+    assert synthesizer.calls[0][0] == "Run cube control."
+    cues = subs.read_text(encoding="utf-8")
+    assert "Run kubectl." in cues and "cube" not in cues
 
 
 def test_a_failed_save_leaves_neither_the_file_nor_its_partial(tmp_path):
