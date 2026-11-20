@@ -63,7 +63,7 @@ the sidebar above About (a tab in a narrow window): see [Settings](#settings).
 
 Behavior details:
 
-- **Persistence:** Voice and blend, speed, volume, output, Translate, the save
+- **Persistence:** Voice and blend, speed, volume, Translate, the save
   format and Subtitles, and whether the speech API is on are saved across runs
   in `~/.config/vinospeak/gui.json` (or under `$XDG_CONFIG_HOME`). Mute is not
   saved, so the window always opens unmuted.
