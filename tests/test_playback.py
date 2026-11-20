@@ -175,10 +175,17 @@ def test_a_paused_speech_writes_nothing_until_resumed(monkeypatch, tmp_path):
     def pause_after_the_first_sample():
         speech[0].pause()
 
-    speech.append(
-        playback.Speech(
-            [chunk(0.1, 0.2, 0.3)], player="fake", on_first_audio=pause_after_the_first_sample
-        )
+    # Kept before __init__ starts the playback thread: the first audio can
+    # arrive before the constructor returns.
+    original = playback.Speech.__init__
+
+    def keep(self, *args, **kwargs):
+        speech.append(self)
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(playback.Speech, "__init__", keep)
+    playback.Speech(
+        [chunk(0.1, 0.2, 0.3)], player="fake", on_first_audio=pause_after_the_first_sample
     )
     assert not speech[0].wait(timeout=0.5), "held while paused"
     assert speech[0].paused
