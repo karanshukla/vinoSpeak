@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import threading
 import warnings
+from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -27,6 +28,7 @@ DEFAULT_LANGUAGE = "en-us"
 DEFAULT_VOICE = "af_heart"
 DEFAULT_DEVICE = "NPU"
 MIN_SPEED, MAX_SPEED = 0.5, 2.0
+MAX_CACHED_VOICES = 64
 # Kokoro's output rate, known up front so a player can start before the first
 # chunk exists (pinned by
 # `test_playback.py::test_with_the_rate_known_the_player_starts_before_the_first_chunk`).
@@ -162,7 +164,7 @@ class Synthesizer:
         # `test_tts.py::test_once_the_override_has_worked_errors_are_not_retried`).
         self._unproven_override = False
         self._pipeline = self._load()
-        self._voices: dict[str, Any] = {}
+        self._voices: OrderedDict[str, Any] = OrderedDict()
         self._lock = threading.Lock()
 
     def _pipeline_for(self, **properties: str) -> Any:
@@ -211,15 +213,19 @@ class Synthesizer:
 
     def _voice(self, voice: str) -> Any:
         key = voices.canonical(voice)
-        if key not in self._voices:
-            shape = self._pipeline.get_speaker_embedding_shape()
-            parts = []
-            for voice_id, weight in voices.parse(voice):
-                voice_path = self.model_dir / "voices" / f"{voice_id}.bin"
-                if not voice_path.is_file():
-                    raise ValueError(f"Voice '{voice_id}' was not found in {voice_path.parent}.")
-                parts.append((read_voice(voice_path, shape), weight))
-            self._voices[key] = self._ov.Tensor(blend(parts))
+        if key in self._voices:
+            self._voices.move_to_end(key)
+            return self._voices[key]
+        shape = self._pipeline.get_speaker_embedding_shape()
+        parts = []
+        for voice_id, weight in voices.parse(voice):
+            voice_path = self.model_dir / "voices" / f"{voice_id}.bin"
+            if not voice_path.is_file():
+                raise ValueError(f"Voice '{voice_id}' was not found in {voice_path.parent}.")
+            parts.append((read_voice(voice_path, shape), weight))
+        self._voices[key] = self._ov.Tensor(blend(parts))
+        while len(self._voices) > MAX_CACHED_VOICES:
+            self._voices.popitem(last=False)
         return self._voices[key]
 
     def synthesize(

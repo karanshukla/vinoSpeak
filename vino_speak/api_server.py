@@ -20,6 +20,7 @@ import json
 import os
 import sys
 import time
+import urllib.parse
 from collections.abc import Callable, Iterator
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -168,17 +169,30 @@ def model_list() -> dict[str, Any]:
     }
 
 
+def _sanitize_log(text: str) -> str:
+    return "".join(
+        ch if (ord(ch) >= 0x20 and not (0x7F <= ord(ch) <= 0x9F)) else f"\\x{ord(ch):02x}"
+        for ch in text
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
     """One request. `speaker`, `api_key` and `local_only` are set on the
     subclass make_handler() returns."""
 
     server_version = "vinospeak"
+    # Bounds reading a request only; a client playing the stream in real time
+    # reads slower than synthesis (pinned by
+    # `test_api_server.py::test_a_client_that_sends_nothing_is_dropped` and
+    # `test_api_server.py::test_a_slow_reader_gets_the_whole_stream`).
+    timeout = 10
     speaker: Speaks
     api_key: str | None
     local_only: bool
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - the base's name
-        sys.stderr.write(f"vinospeak --http: {format % args}\n")
+        message = _sanitize_log(format % args)
+        sys.stderr.write(f"vinospeak --http: {message}\n")
 
     def _send(self, status: HTTPStatus, body: bytes, content_type: str) -> None:
         self.send_response(status)
@@ -203,7 +217,11 @@ class Handler(BaseHTTPRequestHandler):
             if not hmac.compare_digest(given.encode(), self.api_key.encode()):
                 raise RequestError("A valid API key is required.", HTTPStatus.UNAUTHORIZED)
             return
-        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
+        raw_host = (self.headers.get("Host") or "").strip()
+        try:
+            host = urllib.parse.urlsplit(f"//{raw_host}").hostname or ""
+        except ValueError:
+            host = ""
         if self.local_only and not is_loopback(host):
             raise RequestError(f"Host {host!r} is not this machine.", HTTPStatus.FORBIDDEN)
 
@@ -224,7 +242,9 @@ class Handler(BaseHTTPRequestHandler):
             self._check_access()
             if self.path != "/v1/audio/speech":
                 raise RequestError(f"No such endpoint: {self.path}", HTTPStatus.NOT_FOUND)
-            self._speak(self._body())
+            body = self._body()
+            self.connection.settimeout(None)
+            self._speak(body)
         except RequestError as error:
             self._error(error)
 

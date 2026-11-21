@@ -141,8 +141,8 @@ impl Player {
 
 /// The art written where the desktop can read it, as a file URL.
 fn art_url() -> Option<String> {
-    let dir = std::env::var_os("XDG_RUNTIME_DIR").map_or_else(std::env::temp_dir, PathBuf::from);
-    let path = dir.join("vinospeak-gui-art.svg");
+    let dir = std::env::var_os("XDG_RUNTIME_DIR").filter(|v| !v.is_empty())?;
+    let path = PathBuf::from(dir).join("vinospeak-gui-art.svg");
     std::fs::write(&path, ART).ok()?;
     Some(format!("file://{}", path.display()))
 }

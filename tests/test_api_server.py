@@ -1,7 +1,9 @@
 import http.client
 import json
+import socket
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
@@ -358,3 +360,54 @@ def test_requests_are_logged_to_stderr(capsys):
     handler = object.__new__(api_server.Handler)
     handler.log_message('"%s" %s', "GET /v1/models", "200")
     assert capsys.readouterr().err == 'vinospeak --http: "GET /v1/models" 200\n'
+
+
+def test_log_message_escapes_control_characters(capsys):
+    handler = object.__new__(api_server.Handler)
+    handler.log_message('"%s"', "GET /\x1b[31mpwn\r\n")
+    logged = capsys.readouterr().err
+    assert "\x1b" not in logged
+    assert "\\x1b[31mpwn\\x0d\\x0a" in logged
+
+
+def test_ipv6_loopback_without_port_and_spoofed_hosts(serve):
+    url, _ = serve()
+    assert call(f"{url}/v1/models", headers={"Host": "[::1]"})[0] == 200
+    assert call(f"{url}/v1/models", headers={"Host": "[::1]:8880"})[0] == 200
+    assert call(f"{url}/v1/models", headers={"Host": "evil.com:127.0.0.1"})[0] == 403
+
+
+def test_a_client_that_sends_nothing_is_dropped(serve, monkeypatch):
+    monkeypatch.setattr(api_server.Handler, "timeout", 0.2)
+    url, _ = serve()
+    with socket.create_connection(tuple(url.removeprefix("http://").split(":"))) as client:
+        client.settimeout(5)
+        assert client.recv(1) == b""
+
+
+class LongSpeaker(FakeSpeaker):
+    def render(self, step):
+        return Audio(np.full(2_000_000, 0.5, dtype=np.float32), 24000)
+
+
+def test_a_slow_reader_gets_the_whole_stream(serve, monkeypatch):
+    monkeypatch.setattr(api_server.Handler, "timeout", 0.2)
+    url, _ = serve(LongSpeaker())
+    host, port = url.removeprefix("http://").split(":")
+    body = json.dumps({"input": "Hello.", "response_format": "pcm"}).encode()
+    with socket.socket() as client:
+        client.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+        client.connect((host, int(port)))
+        client.sendall(
+            b"POST /v1/audio/speech HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+            b"Content-Type: application/json\r\nConnection: close\r\n"
+            + f"Content-Length: {len(body)}\r\n\r\n".encode()
+            + body
+        )
+        time.sleep(1)
+        client.settimeout(5)
+        received = bytearray()
+        while data := client.recv(1 << 16):
+            received += data
+    assert received.endswith(b"0\r\n\r\n")
+    assert len(received) > 4_000_000
