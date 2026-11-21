@@ -413,6 +413,19 @@ def test_a_blend_naming_a_missing_voice_is_refused(fake_runtime):
         synthesizer.synthesize("Hello", voice="af_heart+bm_nobody")
 
 
+def test_voice_blend_cache_is_bounded_as_lru(fake_runtime):
+    np.asarray([4.0, 0.0], dtype=np.float32).tofile(fake_runtime / "voices" / "bm_george.bin")
+    synthesizer = tts.Synthesizer("CPU", fake_runtime)
+    for w in range(1, tts.MAX_CACHED_VOICES + 20):
+        synthesizer.synthesize("Hello", voice=f"af_heart({w})+bm_george(1)")
+    assert len(synthesizer._voices) == tts.MAX_CACHED_VOICES
+    assert tts.voices.canonical("af_heart(1)+bm_george(1)") not in synthesizer._voices
+    assert (
+        tts.voices.canonical(f"af_heart({tts.MAX_CACHED_VOICES + 19})+bm_george(1)")
+        in synthesizer._voices
+    )
+
+
 @pytest.mark.parametrize(
     ("voice", "language", "spoken_as"),
     [("af_heart", None, "en-us"), ("ef_dora", None, "es"), ("ef_dora", "en-gb", "en-gb")],

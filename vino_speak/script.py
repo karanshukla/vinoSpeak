@@ -47,6 +47,9 @@ def _respelled(text: str, lexicon: Lexicon | None, by_sentence: bool) -> list[tu
     return [(chunk, chunk) for chunk in chunks(said)]
 
 
+MAX_STEPS = 2048
+
+
 def plan(
     text: str,
     voice: str,
@@ -57,9 +60,16 @@ def plan(
 ) -> list[Step]:
     parts = ssml.parse(text) if ssml.is_ssml(text) else [ssml.Say(text)]
     steps: list[Step] = []
+    total_silence = 0.0
     for part in parts:
         if isinstance(part, ssml.Pause):
             if part.seconds > 0:
+                total_silence += part.seconds
+                if total_silence > ssml.MAX_TOTAL_BREAK_SECONDS:
+                    raise ValueError(
+                        f"Total <break> time is at most {ssml.MAX_TOTAL_BREAK_SECONDS:g} s, "
+                        f"not {total_silence:g} s."
+                    )
                 steps.append(Step("", voice, language, speed, part.seconds))
             continue
         step_voice = part.voice or voice
@@ -69,6 +79,10 @@ def plan(
             Step(said, step_voice, step_language, rate, shown=None if said == shown else shown)
             for said, shown in _respelled(part.text, lexicon, by_sentence)
         ]
+        if len(steps) > MAX_STEPS:
+            raise ValueError(f"Input produces more than {MAX_STEPS} speech steps.")
+    if len(steps) > MAX_STEPS:
+        raise ValueError(f"Input produces more than {MAX_STEPS} speech steps.")
     if not any(step.text for step in steps):
         raise ValueError("There is no text to speak.")
     return steps

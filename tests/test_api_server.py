@@ -358,3 +358,52 @@ def test_requests_are_logged_to_stderr(capsys):
     handler = object.__new__(api_server.Handler)
     handler.log_message('"%s" %s', "GET /v1/models", "200")
     assert capsys.readouterr().err == 'vinospeak --http: "GET /v1/models" 200\n'
+
+
+def test_log_message_escapes_control_characters(capsys):
+    handler = object.__new__(api_server.Handler)
+    handler.log_message('"%s"', "GET /\x1b[31mpwn\r\n")
+    logged = capsys.readouterr().err
+    assert "\x1b" not in logged
+    assert "\\x1b[31mpwn\\x0d\\x0a" in logged
+
+
+def test_excessive_ssml_breaks_are_refused_by_speech_endpoint(serve):
+    url, _ = serve()
+    payload = "<speak>Hi" + '<break time="10s"/>' * 7 + "</speak>"
+    status, _, body = call(f"{url}/v1/audio/speech", {"input": payload})
+    assert status == 400
+    assert "Total <break> time is at most 60 s" in error_of(body)
+
+
+def test_authorization_requires_bearer_prefix(serve):
+    url, _ = serve(api_key="s3cret", local_only=False)
+    assert call(f"{url}/v1/models", headers={"Authorization": "s3cret"})[0] == 401
+    assert call(f"{url}/v1/models", headers={"Authorization": "Basic s3cret"})[0] == 401
+    assert call(f"{url}/v1/models", headers={"Authorization": "Bearer s3cret"})[0] == 200
+
+
+def test_ipv6_loopback_without_port_and_spoofed_hosts(serve):
+    url, _ = serve()
+    assert call(f"{url}/v1/models", headers={"Host": "[::1]"})[0] == 200
+    assert call(f"{url}/v1/models", headers={"Host": "[::1]:8880"})[0] == 200
+    assert call(f"{url}/v1/models", headers={"Host": "evil.com:127.0.0.1"})[0] == 403
+
+
+def test_saturated_synthesis_returns_503(serve):
+    url, _ = serve()
+    # Exhaust the handler class's semaphore
+    handler_cls = api_server.make_handler(FakeSpeaker(), None, True)
+    for _ in range(api_server.MAX_CONCURRENT_SYNTHESIS):
+        assert handler_cls.semaphore.acquire(blocking=False)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+    handler_cls.log_message = lambda *args: None
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        busy_url = f"http://127.0.0.1:{server.server_port}/v1/audio/speech"
+        status, _, body = call(busy_url, {"input": "Hello."})
+        assert status == 503
+        assert "busy" in error_of(body)
+    finally:
+        server.shutdown()
+        server.server_close()

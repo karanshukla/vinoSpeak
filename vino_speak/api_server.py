@@ -19,14 +19,16 @@ import ipaddress
 import json
 import os
 import sys
+import threading
 import time
+import urllib.parse
 from collections.abc import Callable, Iterator
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Protocol
 
-from . import voices
-from .script import Step
+from . import ssml, voices
+from .script import MAX_STEPS, Step
 from .tts import DEFAULT_VOICE, MAX_SPEED, MIN_SPEED, SAMPLE_RATE, Audio
 
 DEFAULT_HOST = "127.0.0.1"
@@ -37,6 +39,7 @@ API_KEY_VARIABLE = "VINOSPEAK_API_KEY"
 # `test_api_server.py::test_input_at_the_cap_is_spoken_and_one_more_character_is_refused`).
 MAX_INPUT_CHARS = 100_000
 MAX_BODY_BYTES = 1 << 20
+MAX_CONCURRENT_SYNTHESIS = 4
 MODEL_NAMES = ("kokoro", "tts-1", "tts-1-hd", "gpt-4o-mini-tts")
 # OpenAI's voices as Kokoro's of the same name, or the nearest in kind.
 OPENAI_VOICES = {
@@ -168,17 +171,27 @@ def model_list() -> dict[str, Any]:
     }
 
 
+def _sanitize_log(text: str) -> str:
+    return "".join(
+        ch if (ord(ch) >= 0x20 and not (0x7F <= ord(ch) <= 0x9F)) else f"\\x{ord(ch):02x}"
+        for ch in text
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
     """One request. `speaker`, `api_key` and `local_only` are set on the
     subclass make_handler() returns."""
 
     server_version = "vinospeak"
+    timeout = 10
     speaker: Speaks
     api_key: str | None
     local_only: bool
+    semaphore: threading.BoundedSemaphore
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - the base's name
-        sys.stderr.write(f"vinospeak --http: {format % args}\n")
+        message = _sanitize_log(format % args)
+        sys.stderr.write(f"vinospeak --http: {message}\n")
 
     def _send(self, status: HTTPStatus, body: bytes, content_type: str) -> None:
         self.send_response(status)
@@ -199,11 +212,18 @@ class Handler(BaseHTTPRequestHandler):
         web page can't reach the server through DNS rebinding (pinned by
         `test_api_server.py::test_a_request_for_another_host_is_refused`)."""
         if self.api_key is not None:
-            given = self.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+            auth = self.headers.get("Authorization", "")
+            if not auth.startswith("Bearer "):
+                raise RequestError("A valid API key is required.", HTTPStatus.UNAUTHORIZED)
+            given = auth[len("Bearer ") :].strip()
             if not hmac.compare_digest(given.encode(), self.api_key.encode()):
                 raise RequestError("A valid API key is required.", HTTPStatus.UNAUTHORIZED)
             return
-        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
+        raw_host = (self.headers.get("Host") or "").strip()
+        try:
+            host = urllib.parse.urlsplit(f"//{raw_host}").hostname or ""
+        except ValueError:
+            host = ""
         if self.local_only and not is_loopback(host):
             raise RequestError(f"Host {host!r} is not this machine.", HTTPStatus.FORBIDDEN)
 
@@ -224,7 +244,18 @@ class Handler(BaseHTTPRequestHandler):
             self._check_access()
             if self.path != "/v1/audio/speech":
                 raise RequestError(f"No such endpoint: {self.path}", HTTPStatus.NOT_FOUND)
-            self._speak(self._body())
+            body = self._body()
+            sem = getattr(self, "semaphore", None)
+            if sem is not None and not sem.acquire(blocking=False):
+                raise RequestError(
+                    "The speech server is busy; try again shortly.",
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+            try:
+                self._speak(body)
+            finally:
+                if sem is not None:
+                    sem.release()
         except RequestError as error:
             self._error(error)
 
@@ -253,6 +284,14 @@ class Handler(BaseHTTPRequestHandler):
         text, voice, speed, response_format = speech_request(body)
         try:
             steps = self.speaker.plan(text, voice, None, speed)
+            if len(steps) > MAX_STEPS:
+                raise ValueError(f"Input produces more than {MAX_STEPS} speech steps.")
+            total_silence = sum(step.silence for step in steps if step.silence > 0)
+            if total_silence > ssml.MAX_TOTAL_BREAK_SECONDS:
+                raise ValueError(
+                    f"Total <break> time is at most {ssml.MAX_TOTAL_BREAK_SECONDS:g} s, "
+                    f"not {total_silence:g} s."
+                )
         except ValueError as error:
             raise RequestError(str(error)) from None
         if response_format == "pcm":
@@ -296,7 +335,12 @@ def make_handler(speaker: Speaks, api_key: str | None, local_only: bool) -> type
     return type(
         "BoundHandler",
         (Handler,),
-        {"speaker": speaker, "api_key": api_key, "local_only": local_only},
+        {
+            "speaker": speaker,
+            "api_key": api_key,
+            "local_only": local_only,
+            "semaphore": threading.BoundedSemaphore(MAX_CONCURRENT_SYNTHESIS),
+        },
     )
 
 
