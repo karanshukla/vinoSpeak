@@ -30,18 +30,6 @@ def test_a_break_of_ten_seconds_is_kept_and_longer_is_refused():
         ssml.parse('<speak>A<break time="10001ms"/>B</speak>')
 
 
-def test_total_break_duration_and_count_are_capped():
-    six = "<speak>A" + '<break time="10s"/>' * 6 + "B</speak>"
-    assert sum(p.seconds for p in ssml.parse(six) if isinstance(p, Pause)) == 60.0
-    seven = "<speak>A" + '<break time="10s"/>' * 7 + "B</speak>"
-    with pytest.raises(ValueError, match="Total <break> time is at most 60 s"):
-        ssml.parse(seven)
-
-    too_many = "<speak>A" + '<break time="10ms"/>' * (ssml.MAX_BREAK_COUNT + 1) + "B</speak>"
-    with pytest.raises(ValueError, match="at most 256 <break>"):
-        ssml.parse(too_many)
-
-
 @pytest.mark.parametrize("attribute", ['time="soon"', 'strength="huge"'])
 def test_a_break_that_is_not_a_duration_is_refused(attribute):
     with pytest.raises(ValueError, match="<break"):

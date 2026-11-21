@@ -30,8 +30,6 @@ STRENGTHS = {
 # A longer break is refused, as Polly refuses one over 10 s (pinned by
 # `test_ssml.py::test_a_break_of_ten_seconds_is_kept_and_longer_is_refused`).
 MAX_BREAK_SECONDS = 10.0
-MAX_TOTAL_BREAK_SECONDS = 60.0
-MAX_BREAK_COUNT = 256
 RATES = {"x-slow": 0.5, "slow": 0.75, "medium": 1.0, "fast": 1.25, "x-fast": 1.5, "default": 1.0}
 DURATION = re.compile(r"(\d+(?:\.\d+)?)\s*(ms|s)\Z")
 PERCENT = re.compile(r"([+-]?\d+(?:\.\d+)?)%\Z")
@@ -128,8 +126,6 @@ class _Reader:
         self.parts: list[Part] = []
         self._text: list[str] = []
         self._style = Say("")
-        self._total_break_seconds = 0.0
-        self._break_count = 0
 
     def _flush(self) -> None:
         text = " ".join("".join(self._text).split())
@@ -157,17 +153,7 @@ class _Reader:
         tag = _local(element.tag)
         if tag == "break":
             self._flush()
-            seconds = break_seconds(element)
-            self._break_count += 1
-            if self._break_count > MAX_BREAK_COUNT:
-                raise ValueError(f"SSML may have at most {MAX_BREAK_COUNT} <break> elements.")
-            self._total_break_seconds += seconds
-            if self._total_break_seconds > MAX_TOTAL_BREAK_SECONDS:
-                raise ValueError(
-                    f"Total <break> time is at most {MAX_TOTAL_BREAK_SECONDS:g} s, "
-                    f"not {self._total_break_seconds:g} s."
-                )
-            self.parts.append(Pause(seconds))
+            self.parts.append(Pause(break_seconds(element)))
         elif tag == "sub":
             self._text.append(element.get("alias", "".join(element.itertext())))
         elif tag == "say-as":

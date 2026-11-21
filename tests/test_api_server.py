@@ -1,7 +1,9 @@
 import http.client
 import json
+import socket
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
@@ -368,21 +370,6 @@ def test_log_message_escapes_control_characters(capsys):
     assert "\\x1b[31mpwn\\x0d\\x0a" in logged
 
 
-def test_excessive_ssml_breaks_are_refused_by_speech_endpoint(serve):
-    url, _ = serve()
-    payload = "<speak>Hi" + '<break time="10s"/>' * 7 + "</speak>"
-    status, _, body = call(f"{url}/v1/audio/speech", {"input": payload})
-    assert status == 400
-    assert "Total <break> time is at most 60 s" in error_of(body)
-
-
-def test_authorization_requires_bearer_prefix(serve):
-    url, _ = serve(api_key="s3cret", local_only=False)
-    assert call(f"{url}/v1/models", headers={"Authorization": "s3cret"})[0] == 401
-    assert call(f"{url}/v1/models", headers={"Authorization": "Basic s3cret"})[0] == 401
-    assert call(f"{url}/v1/models", headers={"Authorization": "Bearer s3cret"})[0] == 200
-
-
 def test_ipv6_loopback_without_port_and_spoofed_hosts(serve):
     url, _ = serve()
     assert call(f"{url}/v1/models", headers={"Host": "[::1]"})[0] == 200
@@ -390,20 +377,37 @@ def test_ipv6_loopback_without_port_and_spoofed_hosts(serve):
     assert call(f"{url}/v1/models", headers={"Host": "evil.com:127.0.0.1"})[0] == 403
 
 
-def test_saturated_synthesis_returns_503(serve):
+def test_a_client_that_sends_nothing_is_dropped(serve, monkeypatch):
+    monkeypatch.setattr(api_server.Handler, "timeout", 0.2)
     url, _ = serve()
-    # Exhaust the handler class's semaphore
-    handler_cls = api_server.make_handler(FakeSpeaker(), None, True)
-    for _ in range(api_server.MAX_CONCURRENT_SYNTHESIS):
-        assert handler_cls.semaphore.acquire(blocking=False)
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
-    handler_cls.log_message = lambda *args: None
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    try:
-        busy_url = f"http://127.0.0.1:{server.server_port}/v1/audio/speech"
-        status, _, body = call(busy_url, {"input": "Hello."})
-        assert status == 503
-        assert "busy" in error_of(body)
-    finally:
-        server.shutdown()
-        server.server_close()
+    with socket.create_connection(tuple(url.removeprefix("http://").split(":"))) as client:
+        client.settimeout(5)
+        assert client.recv(1) == b""
+
+
+class LongSpeaker(FakeSpeaker):
+    def render(self, step):
+        return Audio(np.full(2_000_000, 0.5, dtype=np.float32), 24000)
+
+
+def test_a_slow_reader_gets_the_whole_stream(serve, monkeypatch):
+    monkeypatch.setattr(api_server.Handler, "timeout", 0.2)
+    url, _ = serve(LongSpeaker())
+    host, port = url.removeprefix("http://").split(":")
+    body = json.dumps({"input": "Hello.", "response_format": "pcm"}).encode()
+    with socket.socket() as client:
+        client.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+        client.connect((host, int(port)))
+        client.sendall(
+            b"POST /v1/audio/speech HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+            b"Content-Type: application/json\r\nConnection: close\r\n"
+            + f"Content-Length: {len(body)}\r\n\r\n".encode()
+            + body
+        )
+        time.sleep(1)
+        client.settimeout(5)
+        received = bytearray()
+        while data := client.recv(1 << 16):
+            received += data
+    assert received.endswith(b"0\r\n\r\n")
+    assert len(received) > 4_000_000

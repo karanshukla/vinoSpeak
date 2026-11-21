@@ -19,7 +19,6 @@ import ipaddress
 import json
 import os
 import sys
-import threading
 import time
 import urllib.parse
 from collections.abc import Callable, Iterator
@@ -27,8 +26,8 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Protocol
 
-from . import ssml, voices
-from .script import MAX_STEPS, Step
+from . import voices
+from .script import Step
 from .tts import DEFAULT_VOICE, MAX_SPEED, MIN_SPEED, SAMPLE_RATE, Audio
 
 DEFAULT_HOST = "127.0.0.1"
@@ -39,7 +38,6 @@ API_KEY_VARIABLE = "VINOSPEAK_API_KEY"
 # `test_api_server.py::test_input_at_the_cap_is_spoken_and_one_more_character_is_refused`).
 MAX_INPUT_CHARS = 100_000
 MAX_BODY_BYTES = 1 << 20
-MAX_CONCURRENT_SYNTHESIS = 4
 MODEL_NAMES = ("kokoro", "tts-1", "tts-1-hd", "gpt-4o-mini-tts")
 # OpenAI's voices as Kokoro's of the same name, or the nearest in kind.
 OPENAI_VOICES = {
@@ -183,11 +181,14 @@ class Handler(BaseHTTPRequestHandler):
     subclass make_handler() returns."""
 
     server_version = "vinospeak"
+    # Bounds reading a request only; a client playing the stream in real time
+    # reads slower than synthesis (pinned by
+    # `test_api_server.py::test_a_client_that_sends_nothing_is_dropped` and
+    # `test_api_server.py::test_a_slow_reader_gets_the_whole_stream`).
     timeout = 10
     speaker: Speaks
     api_key: str | None
     local_only: bool
-    semaphore: threading.BoundedSemaphore
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - the base's name
         message = _sanitize_log(format % args)
@@ -212,10 +213,7 @@ class Handler(BaseHTTPRequestHandler):
         web page can't reach the server through DNS rebinding (pinned by
         `test_api_server.py::test_a_request_for_another_host_is_refused`)."""
         if self.api_key is not None:
-            auth = self.headers.get("Authorization", "")
-            if not auth.startswith("Bearer "):
-                raise RequestError("A valid API key is required.", HTTPStatus.UNAUTHORIZED)
-            given = auth[len("Bearer ") :].strip()
+            given = self.headers.get("Authorization", "").removeprefix("Bearer ").strip()
             if not hmac.compare_digest(given.encode(), self.api_key.encode()):
                 raise RequestError("A valid API key is required.", HTTPStatus.UNAUTHORIZED)
             return
@@ -245,17 +243,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.path != "/v1/audio/speech":
                 raise RequestError(f"No such endpoint: {self.path}", HTTPStatus.NOT_FOUND)
             body = self._body()
-            sem = getattr(self, "semaphore", None)
-            if sem is not None and not sem.acquire(blocking=False):
-                raise RequestError(
-                    "The speech server is busy; try again shortly.",
-                    HTTPStatus.SERVICE_UNAVAILABLE,
-                )
-            try:
-                self._speak(body)
-            finally:
-                if sem is not None:
-                    sem.release()
+            self.connection.settimeout(None)
+            self._speak(body)
         except RequestError as error:
             self._error(error)
 
@@ -284,14 +273,6 @@ class Handler(BaseHTTPRequestHandler):
         text, voice, speed, response_format = speech_request(body)
         try:
             steps = self.speaker.plan(text, voice, None, speed)
-            if len(steps) > MAX_STEPS:
-                raise ValueError(f"Input produces more than {MAX_STEPS} speech steps.")
-            total_silence = sum(step.silence for step in steps if step.silence > 0)
-            if total_silence > ssml.MAX_TOTAL_BREAK_SECONDS:
-                raise ValueError(
-                    f"Total <break> time is at most {ssml.MAX_TOTAL_BREAK_SECONDS:g} s, "
-                    f"not {total_silence:g} s."
-                )
         except ValueError as error:
             raise RequestError(str(error)) from None
         if response_format == "pcm":
@@ -335,12 +316,7 @@ def make_handler(speaker: Speaks, api_key: str | None, local_only: bool) -> type
     return type(
         "BoundHandler",
         (Handler,),
-        {
-            "speaker": speaker,
-            "api_key": api_key,
-            "local_only": local_only,
-            "semaphore": threading.BoundedSemaphore(MAX_CONCURRENT_SYNTHESIS),
-        },
+        {"speaker": speaker, "api_key": api_key, "local_only": local_only},
     )
 
 
