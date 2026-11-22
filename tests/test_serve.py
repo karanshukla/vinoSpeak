@@ -460,7 +460,7 @@ def test_cli_serve_makes_a_translator_only_once_its_model_is_downloaded(monkeypa
     )
     cli.main(["--serve", "--device", "CPU"])
     monkeypatch.setattr(cli.translate, "is_downloaded", lambda: False)
-    with pytest.raises(ValueError, match="isn't downloaded"):
+    with pytest.raises(ValueError, match="is not downloaded"):
         made["t"]()
     monkeypatch.setattr(cli.translate, "is_downloaded", lambda: True)
     translator = made["t"]()

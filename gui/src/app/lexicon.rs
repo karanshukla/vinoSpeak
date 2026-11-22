@@ -101,7 +101,7 @@ impl App {
                                 .accesskit_node_builder(shown.id, |node| node.set_label(name));
                             let arrow = ui.label("as");
                             a11y::decorative(ui, arrow.id);
-                            let shown = ui.add(widgets::field(said, "Pronounce as", SAID_WIDTH));
+                            let shown = ui.add(widgets::field(said, "Spoken as", SAID_WIDTH));
                             let name = format!("Pronounce word {} as", n + 1);
                             ui.ctx()
                                 .accesskit_node_builder(shown.id, |node| node.set_label(name));
