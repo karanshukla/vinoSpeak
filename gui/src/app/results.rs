@@ -132,14 +132,19 @@ impl App {
     pub(super) fn results(&mut self, ui: &mut egui::Ui) {
         if self.vinosearch_missing.is_some() {
             ui.add_space(10.0);
-            widgets::banner(ui, Tone::Info, "Search and PDFs require vinoSearch.", |ui| {
-                if ui
-                    .add(Button::secondary("Get vinoSearch").small())
-                    .clicked()
-                {
-                    let _ = family::open(family::App::Search.page());
-                }
-            });
+            widgets::banner(
+                ui,
+                Tone::Info,
+                "Search and PDFs require vinoSearch.",
+                |ui| {
+                    if ui
+                        .add(Button::secondary("Get vinoSearch").small())
+                        .clicked()
+                    {
+                        let _ = family::open(family::App::Search.page());
+                    }
+                },
+            );
         } else if let Some(note) = self.search_note() {
             ui.add_space(10.0);
             a11y::live(&widgets::muted(ui, note));
