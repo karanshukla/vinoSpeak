@@ -133,7 +133,13 @@ jobs:
       # cargo test, instrumented: the same tests, one build. Line floor a few
       # points under what CI measured when it was set (71.6%, 2026-10-25);
       # main.rs and the real D-Bus/pactl/portal calls are not reachable here.
-      - run: cargo llvm-cov --locked --lcov --output-path lcov.info --fail-under-lines 68
+      - run: |
+          if ! cargo llvm-cov --locked --lcov --output-path lcov.info --fail-under-lines 68 > /tmp/cov.log 2>&1; then
+            msg=$(grep -E "(FAILED|thread .* panicked|left:|right:|assertion|error:|coverage)" -C 2 /tmp/cov.log | tr '\n' '|' | tail -c 3000)
+            echo "::error::${msg}"
+            cat /tmp/cov.log
+            exit 101
+          fi
       - name: Coverage summary
         run: |
           cargo llvm-cov report --summary-only
