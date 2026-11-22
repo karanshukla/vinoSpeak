@@ -88,7 +88,7 @@ impl App {
                     ..Margin::ZERO
                 })
                 .show(ui, |ui| {
-                    widgets::muted(ui, "Select a file or open one to start reading.");
+                    widgets::muted(ui, "Choose a file from the list to start reading.");
                     self.status_line(ui);
                 });
             return;

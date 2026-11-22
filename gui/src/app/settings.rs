@@ -76,7 +76,7 @@ impl App {
         widgets::group_label(ui, "Voice");
         widgets::group(ui, |ui| {
             Row::new("Blend with")
-                .help("Blend a second voice into the voice selected in the player.")
+                .help("Blend a second speaker into the one selected in the player.")
                 .show(ui, |ui, _| self.blend_picker(ui));
             let help = self.mix_said();
             Row::new("Mix")
@@ -98,7 +98,7 @@ impl App {
                     u32::from(self.mix) * 10
                 )
             }
-            None => "Select a second voice above to adjust the mix.".to_owned(),
+            None => "Select a second speaker above to adjust the ratio.".to_owned(),
         }
     }
 
@@ -145,7 +145,7 @@ impl App {
         widgets::group_label(ui, "Playback");
         widgets::group(ui, |ui| {
             Row::new("Output")
-                .help("Audio output device. Changes apply starting at the current sentence.")
+                .help("Audio playback device. Changes apply starting at the current sentence.")
                 .show(ui, |ui, _| self.output_picker(ui));
         });
     }
@@ -175,7 +175,7 @@ impl App {
         widgets::group_label(ui, "Save as audio");
         widgets::group(ui, |ui| {
             Row::new("Format")
-                .help("Audio format used when exporting from the player.")
+                .help("Audio file type used when exporting from the player.")
                 .show(ui, |ui, _| {
                     let label = save::kind(self.save_format).to_owned();
                     let shown = widgets::combo(ui, "save-format", label, 160.0).show_ui(ui, |ui| {
@@ -187,7 +187,7 @@ impl App {
                         .accesskit_node_builder(shown.response.id, |node| node.set_label("Format"));
                 });
             Row::new("Subtitles")
-                .help("Write a timed .srt subtitle file alongside the exported audio.")
+                .help("Write a timed .srt caption file alongside the exported audio.")
                 .show(ui, |ui, _| {
                     widgets::switch(ui, &mut self.save_subtitles, "Subtitles");
                 });

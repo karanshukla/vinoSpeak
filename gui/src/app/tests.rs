@@ -674,7 +674,7 @@ fn without_vinosearch_the_sessions_on_disk_are_listed_and_search_is_off() {
 fn without_vinosearch_or_sessions_the_list_says_how_to_open_a_file() {
     let scratch = Scratch::new();
     let mut h = window(&scratch, without_vinosearch());
-    wait_for(&mut h, "Use the folder button to open a file.");
+    wait_for(&mut h, "Use the folder button to open one.");
 }
 
 #[test]
@@ -1599,7 +1599,7 @@ fn a_blend_is_sent_as_one_voice_in_tenths_and_comes_back_next_run() {
     let mut h = notes_window(&scratch, "Read me.");
     h.state_mut().remember(settings.clone());
     h.get_by_role_and_label(Role::Tab, "Settings").click();
-    wait_for(&mut h, "Select a second voice above to adjust the mix.");
+    wait_for(&mut h, "Select a second speaker above to adjust the ratio.");
     let state = h.state_mut();
     state.blend = voices::voice("bm_george");
     state.mix = 3;

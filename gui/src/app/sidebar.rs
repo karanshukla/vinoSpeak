@@ -48,7 +48,7 @@ impl App {
                     ui,
                     Some(vino_ui::logo::speak),
                     "vinoSpeak",
-                    "Read files aloud",
+                    "Local text-to-speech",
                 );
             })
             .response

@@ -79,7 +79,7 @@ impl App {
         let mut add = false;
         let count = self.lexicon.entries.len();
         let help = match count {
-            0 => "No custom pronunciations yet.".to_owned(),
+            0 => "No custom words added yet.".to_owned(),
             1 => "1 word".to_owned(),
             n => format!("{n} words"),
         };

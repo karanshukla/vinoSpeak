@@ -154,7 +154,7 @@ impl App {
             (false, false) => ("Recently changed", "No files indexed yet."),
             (false, true) => (
                 "vinoWhisper sessions",
-                "No sessions found. Use the folder button to open a file.",
+                "No sessions found. Use the folder button to open one.",
             ),
         };
         widgets::group_label(ui, heading);

@@ -137,7 +137,7 @@ impl App {
             ui,
             widgets::ButtonKind::Secondary,
             Icon::Folder,
-            "Open file",
+            "Open a file",
         );
         if open.clicked() {
             self.ask_for_a_file(ui.ctx());
