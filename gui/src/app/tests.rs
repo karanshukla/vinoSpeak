@@ -1718,9 +1718,8 @@ fn saved_pronunciations_are_written_and_the_worker_reads_them_again() {
     h.get_by_label("Word 1").focus();
     h.get_by_label("Word 1").type_text("kubectl");
     h.run();
-    h.get_by_label("Pronounce word 1 as").focus();
-    h.get_by_label("Pronounce word 1 as")
-        .type_text("cube control");
+    h.get_by_label("Say word 1 as").focus();
+    h.get_by_label("Say word 1 as").type_text("cube control");
     h.run();
     h.get_by_role_and_label(Role::Button, "Save pronunciations")
         .click();

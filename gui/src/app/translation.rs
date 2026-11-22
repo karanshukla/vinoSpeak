@@ -73,8 +73,8 @@ impl Translation {
                 model_cache::size(self.bytes)
             ),
             None => format!(
-                "Not installed. Download {} ({size}) to translate text into Spanish, French, \
-                 Italian, Portuguese, or English before reading aloud.",
+                "Not installed. Download {} ({size}) to translate files (Spanish, French, \
+                 Italian, Portuguese, or English) before reading aloud.",
                 translation::LABEL
             ),
         }
