@@ -65,11 +65,11 @@ impl Translation {
             Some(Step::Deleting) => "Deleting…".to_owned(),
             None if self.shared => format!(
                 "{} on disk, shared with vinoWhisper (manage deletion in vinoWhisper). Select a \
-                 language under Translate in the player to use it.",
+                 target language in the player to translate before reading.",
                 model_cache::size(self.bytes)
             ),
             None if self.downloaded => format!(
-                "{} on disk. Select a language under Translate in the player to use it.",
+                "{} on disk. Select a target language in the player to translate before reading.",
                 model_cache::size(self.bytes)
             ),
             None => format!(
@@ -242,7 +242,7 @@ impl App {
             ui.ctx()
                 .accesskit_node_builder(shown.response.id, |node| node.set_label("Translate"));
             shown.response.on_hover_text(format!(
-                "Translates text locally with {} before reading aloud",
+                "Local translation with {} before reading aloud",
                 translation::LABEL
             ));
         }
@@ -314,7 +314,7 @@ mod tests {
         };
         assert_eq!(
             t.help(),
-            "1.7 GB on disk. Select a language under Translate in the player to use it."
+            "1.7 GB on disk. Select a target language in the player to translate before reading."
         );
     }
 

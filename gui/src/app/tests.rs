@@ -1225,7 +1225,7 @@ fn settings_downloads_the_translation_model_only_after_confirming() {
             .contains("--download-translation-model")
     );
     h.get_by_role_and_label(Role::Button, "Download").click();
-    wait_for(&mut h, "3 MB on disk. Select a language under Translate");
+    wait_for(&mut h, "3 MB on disk. Select a target language");
     assert!(shows(&h, "Downloaded."));
     assert!(h.state().translation.downloaded);
 }
@@ -1264,7 +1264,7 @@ fn deleting_the_translation_model_takes_translate_away() {
     let mut h = translating_window(&scratch);
     pick_language(&mut h, "Spanish");
     h.get_by_role_and_label(Role::Tab, "Settings").click();
-    wait_for(&mut h, "on disk. Select a language");
+    wait_for(&mut h, "on disk. Select a target language");
     h.get_by_role_and_label(Role::Button, "Delete translation…")
         .click();
     wait_for(

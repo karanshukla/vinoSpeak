@@ -76,7 +76,7 @@ impl App {
         widgets::group_label(ui, "Voice");
         widgets::group(ui, |ui| {
             Row::new("Blend with")
-                .help("Mix a second voice into the voice selected in the player.")
+                .help("Blend a second voice into the voice selected in the player.")
                 .show(ui, |ui, _| self.blend_picker(ui));
             let help = self.mix_said();
             Row::new("Mix")
