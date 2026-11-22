@@ -135,7 +135,7 @@ impl App {
             widgets::banner(
                 ui,
                 Tone::Info,
-                "File search and PDF support require vinoSearch.",
+                "Search and PDFs require vinoSearch.",
                 |ui| {
                     if ui
                         .add(Button::secondary("Get vinoSearch").small())
@@ -154,7 +154,7 @@ impl App {
             (false, false) => ("Recently changed", "No files indexed yet."),
             (false, true) => (
                 "vinoWhisper sessions",
-                "No sessions found. Use the folder button to open a file.",
+                "No sessions found. Use the folder button to open one.",
             ),
         };
         widgets::group_label(ui, heading);

@@ -628,7 +628,7 @@ fn a_file_vinospeak_refuses_says_why_and_cant_be_read_aloud() {
     scratch.mode("fail-preview");
     let index = FakeIndex::recent(vec![scratch.file("blob.bin", "binary")]);
     let mut h = window(&scratch, index);
-    wait_for(&mut h, "Unable to read this file: not a UTF-8 text file.");
+    wait_for(&mut h, "Cannot read file: not a UTF-8 text file.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
     h.run_steps(5);
     assert!(
@@ -663,7 +663,7 @@ fn without_vinosearch_the_sessions_on_disk_are_listed_and_search_is_off() {
     scratch.session_on_disk("2026-10-27-140512.vwsession", "session_v1.vwsession");
     let mut h = window(&scratch, without_vinosearch());
     wait_for(&mut h, "The summary of the session.");
-    assert!(shows(&h, "File search and PDF support require vinoSearch."));
+    assert!(shows(&h, "Search and PDFs require vinoSearch."));
     assert!(shows(&h, "vinoWhisper sessions"));
     assert!(shows(&h, "Local captioning on the NPU"));
     let search = h.get_by_label("Search");
@@ -674,7 +674,7 @@ fn without_vinosearch_the_sessions_on_disk_are_listed_and_search_is_off() {
 fn without_vinosearch_or_sessions_the_list_says_how_to_open_a_file() {
     let scratch = Scratch::new();
     let mut h = window(&scratch, without_vinosearch());
-    wait_for(&mut h, "Use the folder button to open a file.");
+    wait_for(&mut h, "Use the folder button to open one.");
 }
 
 #[test]
@@ -788,8 +788,8 @@ fn settings_with_a_model(scratch: &Scratch) -> Harness<'static, App> {
 
 fn confirm_delete(h: &mut Harness<'_, App>) {
     h.get_by_role_and_label(Role::Button, "Delete…").click();
-    wait_for(h, "Delete model");
-    h.get_by_role_and_label(Role::Button, "Delete model")
+    wait_for(h, "Delete the model");
+    h.get_by_role_and_label(Role::Button, "Delete the model")
         .click();
 }
 
@@ -1225,7 +1225,7 @@ fn settings_downloads_the_translation_model_only_after_confirming() {
             .contains("--download-translation-model")
     );
     h.get_by_role_and_label(Role::Button, "Download").click();
-    wait_for(&mut h, "3 MB on disk. Select a language under Translate");
+    wait_for(&mut h, "3 MB on disk. Select a target language");
     assert!(shows(&h, "Downloaded."));
     assert!(h.state().translation.downloaded);
 }
@@ -1264,14 +1264,14 @@ fn deleting_the_translation_model_takes_translate_away() {
     let mut h = translating_window(&scratch);
     pick_language(&mut h, "Spanish");
     h.get_by_role_and_label(Role::Tab, "Settings").click();
-    wait_for(&mut h, "on disk. Select a language");
+    wait_for(&mut h, "on disk. Select a target language");
     h.get_by_role_and_label(Role::Button, "Delete translation…")
         .click();
     wait_for(
         &mut h,
         "Translation will be unavailable until you download the model again.",
     );
-    h.get_by_role_and_label(Role::Button, "Delete translation model")
+    h.get_by_role_and_label(Role::Button, "Delete the translation model")
         .click();
     wait_for(&mut h, "Deleted the translation model (3 MB).");
     let state = h.state();
@@ -1599,7 +1599,7 @@ fn a_blend_is_sent_as_one_voice_in_tenths_and_comes_back_next_run() {
     let mut h = notes_window(&scratch, "Read me.");
     h.state_mut().remember(settings.clone());
     h.get_by_role_and_label(Role::Tab, "Settings").click();
-    wait_for(&mut h, "Select a second voice above to adjust the mix.");
+    wait_for(&mut h, "Select a second speaker above to adjust the ratio.");
     let state = h.state_mut();
     state.blend = voices::voice("bm_george");
     state.mix = 3;
@@ -1718,9 +1718,8 @@ fn saved_pronunciations_are_written_and_the_worker_reads_them_again() {
     h.get_by_label("Word 1").focus();
     h.get_by_label("Word 1").type_text("kubectl");
     h.run();
-    h.get_by_label("Pronounce word 1 as").focus();
-    h.get_by_label("Pronounce word 1 as")
-        .type_text("cube control");
+    h.get_by_label("Say word 1 as").focus();
+    h.get_by_label("Say word 1 as").type_text("cube control");
     h.run();
     h.get_by_role_and_label(Role::Button, "Save pronunciations")
         .click();

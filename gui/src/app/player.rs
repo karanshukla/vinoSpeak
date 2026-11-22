@@ -287,7 +287,7 @@ impl App {
         let state = reading_state(reading);
         let mut under = elapsed(secs);
         if let Some(target) = reading.translated_into {
-            under = format!("{under} · {}", target.name);
+            under = format!("{under} · into {}", target.name);
         }
         let spinning = !reading.heard && reading.paused_at.is_none();
         ui.vertical(|ui| {

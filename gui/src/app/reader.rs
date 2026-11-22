@@ -88,10 +88,7 @@ impl App {
                     ..Margin::ZERO
                 })
                 .show(ui, |ui| {
-                    widgets::muted(
-                        ui,
-                        "Select a file from the list or open one to start reading.",
-                    );
+                    widgets::muted(ui, "Choose a file from the list to start reading.");
                     self.status_line(ui);
                 });
             return;
@@ -255,16 +252,10 @@ impl App {
                 a11y::live(&widgets::muted(ui, "Loading text…"));
             }
             (_, Some(Err(e))) => {
-                a11y::live(&widgets::muted(
-                    ui,
-                    format!("Unable to read this file: {e}"),
-                ));
+                a11y::live(&widgets::muted(ui, format!("Cannot read file: {e}")));
             }
             (_, Some(Ok(preview))) if preview.paragraphs.is_empty() => {
-                widgets::muted(
-                    ui,
-                    "This file contains no readable text (it may be a scanned image).",
-                );
+                widgets::muted(ui, "This file has no readable text (possibly a scan).");
             }
             (_, Some(Ok(preview))) => {
                 widgets::page_scroll(ui, "the text", MEASURE, |ui| {

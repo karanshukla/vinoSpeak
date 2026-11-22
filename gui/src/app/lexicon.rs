@@ -61,7 +61,7 @@ impl App {
         widgets::group_help(
             ui,
             "Custom pronunciation respellings for words Kokoro mispronounces (for example, \
-             kubectl → cube control). Lowercase entries match any capitalization.",
+             kubectl as cube control). Lowercase entries match any capitalization.",
         );
         if let Some(error) = self.lexicon.error.clone() {
             let help = format!(
@@ -79,7 +79,7 @@ impl App {
         let mut add = false;
         let count = self.lexicon.entries.len();
         let help = match count {
-            0 => "No custom pronunciations yet.".to_owned(),
+            0 => "No custom words added yet.".to_owned(),
             1 => "1 word".to_owned(),
             n => format!("{n} words"),
         };
@@ -101,8 +101,8 @@ impl App {
                                 .accesskit_node_builder(shown.id, |node| node.set_label(name));
                             let arrow = ui.label("as");
                             a11y::decorative(ui, arrow.id);
-                            let shown = ui.add(widgets::field(said, "Pronounce as", SAID_WIDTH));
-                            let name = format!("Pronounce word {} as", n + 1);
+                            let shown = ui.add(widgets::field(said, "Spoken as", SAID_WIDTH));
+                            let name = format!("Say word {} as", n + 1);
                             ui.ctx()
                                 .accesskit_node_builder(shown.id, |node| node.set_label(name));
                             if ui.add(Button::ghost("Remove").small()).clicked() {
