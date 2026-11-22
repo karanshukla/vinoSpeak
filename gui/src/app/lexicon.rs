@@ -61,7 +61,7 @@ impl App {
         widgets::group_help(
             ui,
             "Custom pronunciation respellings for words Kokoro mispronounces (for example, \
-             kubectl → cube control). Lowercase entries match any capitalization.",
+             kubectl as cube control). Lowercase entries match any capitalization.",
         );
         if let Some(error) = self.lexicon.error.clone() {
             let help = format!(
