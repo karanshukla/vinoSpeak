@@ -788,8 +788,8 @@ fn settings_with_a_model(scratch: &Scratch) -> Harness<'static, App> {
 
 fn confirm_delete(h: &mut Harness<'_, App>) {
     h.get_by_role_and_label(Role::Button, "Delete…").click();
-    wait_for(h, "Delete model");
-    h.get_by_role_and_label(Role::Button, "Delete model")
+    wait_for(h, "Delete the model");
+    h.get_by_role_and_label(Role::Button, "Delete the model")
         .click();
 }
 
@@ -1271,7 +1271,7 @@ fn deleting_the_translation_model_takes_translate_away() {
         &mut h,
         "Translation will be unavailable until you download the model again.",
     );
-    h.get_by_role_and_label(Role::Button, "Delete translation model")
+    h.get_by_role_and_label(Role::Button, "Delete the translation model")
         .click();
     wait_for(&mut h, "Deleted the translation model (3 MB).");
     let state = h.state();

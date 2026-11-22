@@ -218,7 +218,7 @@ impl App {
                     a11y::live(&widgets::chip(ui, ChipKind::Neutral, "Deleting…"));
                 } else if self.model.confirm {
                     if ui
-                        .add(Button::destructive("Delete model").small())
+                        .add(Button::destructive("Delete the model").small())
                         .clicked()
                     {
                         delete = true;

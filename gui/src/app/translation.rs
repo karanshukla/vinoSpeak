@@ -131,7 +131,7 @@ impl App {
                 }
                 Some(Step::ConfirmDelete) => {
                     if ui
-                        .add(Button::destructive("Delete translation model").small())
+                        .add(Button::destructive("Delete the translation model").small())
                         .clicked()
                     {
                         start = Some(Step::Deleting);
