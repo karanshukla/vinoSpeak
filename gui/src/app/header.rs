@@ -117,7 +117,7 @@ impl App {
         let hint = if can_search {
             "Search file contents…"
         } else {
-            "Search requires vinoSearch"
+            "Searching requires vinoSearch"
         };
         let response = ui
             .add_enabled_ui(can_search, |ui| {
