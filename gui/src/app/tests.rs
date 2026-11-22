@@ -628,7 +628,7 @@ fn a_file_vinospeak_refuses_says_why_and_cant_be_read_aloud() {
     scratch.mode("fail-preview");
     let index = FakeIndex::recent(vec![scratch.file("blob.bin", "binary")]);
     let mut h = window(&scratch, index);
-    wait_for(&mut h, "Unable to read this file: not a UTF-8 text file.");
+    wait_for(&mut h, "Cannot read file: not a UTF-8 text file.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
     h.run_steps(5);
     assert!(
@@ -663,7 +663,7 @@ fn without_vinosearch_the_sessions_on_disk_are_listed_and_search_is_off() {
     scratch.session_on_disk("2026-10-27-140512.vwsession", "session_v1.vwsession");
     let mut h = window(&scratch, without_vinosearch());
     wait_for(&mut h, "The summary of the session.");
-    assert!(shows(&h, "File search and PDF support require vinoSearch."));
+    assert!(shows(&h, "Search and PDFs require vinoSearch."));
     assert!(shows(&h, "vinoWhisper sessions"));
     assert!(shows(&h, "Local captioning on the NPU"));
     let search = h.get_by_label("Search");

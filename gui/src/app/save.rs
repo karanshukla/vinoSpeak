@@ -156,8 +156,7 @@ impl App {
     /// `app::tests::save_as_sends_the_file_the_voice_and_subtitles_and_reports_it_saved`).
     pub(super) fn save_to(&mut self, ctx: &egui::Context, output: PathBuf) {
         if self.model.deleting {
-            self.save_note =
-                Some("Model deletion is in progress. Try again once it finishes.".to_owned());
+            self.save_note = Some("Model deletion in progress. Try again shortly.".to_owned());
             return;
         }
         self.start_worker(ctx);
