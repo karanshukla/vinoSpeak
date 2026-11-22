@@ -112,7 +112,7 @@ impl App {
         }
         let reading = self.reading.is_some();
         let mut start = None;
-        widgets::group_label(ui, "Translation");
+        widgets::group_label(ui, "Translation model");
         widgets::group(ui, |ui| {
             row.show(ui, |ui, _| match self.translation.step {
                 Some(Step::Downloading) => {
