@@ -2,7 +2,7 @@
 Type=Application
 Name=vinoSpeak
 GenericName=Read Files Aloud
-Comment=Find a file with vinoSearch and listen to it, spoken on your NPU
+Comment=Find files with vinoSearch and read them aloud locally
 Exec=@EXEC@
 Icon=dev.vinospeak.Listen
 Terminal=false

@@ -149,7 +149,9 @@ def collect() -> list[Result]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Check what vinoSpeak needs from this machine.")
+    parser = argparse.ArgumentParser(
+        description="Check system requirements and diagnostics for vinoSpeak."
+    )
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     arguments = parser.parse_args(argv)
 

@@ -3,9 +3,9 @@
 ## Local processing and privacy
 
 All speech synthesis runs locally on your hardware and plays directly to your
-speakers—or writes to a file if you pass `--output` (no audio is saved by
-default). The synthesis path makes no outbound network requests, collects no
-telemetry, and requires no account.
+speakers, or writes to a file when you pass `--output` (no audio is saved by
+default). Synthesis requires no account or network access and sends no
+telemetry.
 
 OpenVINO bundles Intel usage telemetry (Google Analytics) that defaults to
 enabled unless opted out; vinoSpeak blocks `openvino_telemetry` from loading
@@ -42,7 +42,7 @@ server never reads local files or plays audio on your speakers). Safeguards:
 commit and lists the SHA-256 digest and byte size of every file the pipeline can
 read (66 files, ~160 MB). Downloads request that exact revision and file set,
 then hash every file; if any file is missing, resized, or mismatched, the run
-aborts and failed files are deleted so the next run fetches them cleanly.
+aborts and failed files are deleted so the next run downloads them again.
 
 After all files match, a `.vinospeak-verified` stamp is written. Subsequent runs
 perform a fast file-size check; if the stamp is absent or from older pins, all
@@ -69,11 +69,12 @@ Scope and limitations:
 
 ## Translation model
 
-`--download-translation-model` (or **Download** on the GUI's About page) fetches
-`arankays/SmolLM3-3B-int4-cw-ov`—vinoWhisper's export of SmolLM3-3B—pinned to
-one revision with per-file SHA-256 digests in `vino_speak/translation_pins.json`
-and verified the same way as Kokoro. It is never downloaded automatically, and
-translation runs locally on your machine without sending text over the network.
+`--download-translation-model` (or **Download…** on the GUI's **Settings** page)
+fetches `arankays/SmolLM3-3B-int4-cw-ov` (vinoWhisper's export of SmolLM3-3B),
+pinned to a specific revision with per-file SHA-256 digests in
+`vino_speak/translation_pins.json` and verified the same way as Kokoro. It is
+never downloaded automatically, and translation runs locally on your machine
+without sending text over the network.
 
 ## Voice path restriction
 
@@ -92,7 +93,7 @@ The only library vinoSpeak loads outside pip is the NPU compiler when installed
 into `~/.local/lib/ovfetch-npu` via `ovfetch npu install` (ovfetch 0.6.0).
 Before opening the NPU, vinoSpeak `dlopen`s each library listed in that prefix's
 `ovfetch-preload.txt` in order. Because ovfetch verifies the upstream tarball
-against its ledger and the prefix lives in your own home directory, this carries
+against its ledger and the prefix is stored in your home directory, this carries
 the same trust model as packages in your virtualenv. vinoSpeak never writes to
 that prefix, and loads nothing if the prefix does not exist.
 

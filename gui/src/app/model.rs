@@ -23,23 +23,23 @@ impl Model {
     /// The line under the Model row's title, for `bytes` on disk.
     pub(super) fn help(&self, bytes: u64, reading: bool) -> String {
         if let Some(e) = &self.error {
-            format!("Couldn't delete it: {e}")
+            format!("Could not delete model: {e}")
         } else if self.confirm {
             format!(
-                "Deletes {}. The next reading downloads about 160 MB again, \
-                 and so does vinoPop's read-aloud, which shares it.",
+                "Removes {} from disk. The next reading will re-download about 160 MB \
+                 (shared with vinoPop's read-aloud feature).",
                 model_cache::size(bytes)
             )
         } else if bytes == 0 {
-            "Not downloaded. The first reading downloads about 160 MB.".to_owned()
+            "Not downloaded yet. The first reading downloads about 160 MB.".to_owned()
         } else if reading {
             format!(
-                "{} on disk. Stop the reading to delete it.",
+                "{} on disk. Stop playback before deleting.",
                 model_cache::size(bytes)
             )
         } else {
             format!(
-                "{} on disk, with OpenVINO's compiled copy of it.",
+                "{} on disk (including OpenVINO compiled cache).",
                 model_cache::size(bytes)
             )
         }
@@ -116,11 +116,11 @@ mod tests {
         let model = Model::default();
         assert_eq!(
             model.help(ON_DISK, false),
-            "163 MB on disk, with OpenVINO's compiled copy of it."
+            "163 MB on disk (including OpenVINO compiled cache)."
         );
         assert_eq!(
             model.help(0, false),
-            "Not downloaded. The first reading downloads about 160 MB."
+            "Not downloaded yet. The first reading downloads about 160 MB."
         );
     }
 
@@ -129,7 +129,7 @@ mod tests {
         let model = Model::default();
         assert_eq!(
             model.help(ON_DISK, true),
-            "163 MB on disk. Stop the reading to delete it."
+            "163 MB on disk. Stop playback before deleting."
         );
     }
 
@@ -141,8 +141,8 @@ mod tests {
         };
         assert_eq!(
             model.help(ON_DISK, false),
-            "Deletes 163 MB. The next reading downloads about 160 MB again, \
-             and so does vinoPop's read-aloud, which shares it."
+            "Removes 163 MB from disk. The next reading will re-download about 160 MB \
+             (shared with vinoPop's read-aloud feature)."
         );
     }
 
@@ -155,7 +155,7 @@ mod tests {
         };
         assert_eq!(
             model.help(ON_DISK, false),
-            "Couldn't delete it: The model is downloading."
+            "Could not delete model: The model is downloading."
         );
     }
 }

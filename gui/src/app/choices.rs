@@ -85,7 +85,7 @@ impl App {
             return;
         }
         if let Err(e) = settings::save(path, &choices) {
-            self.status = format!("Couldn't save your choices: {e}");
+            self.status = format!("Could not save settings: {e}");
         }
         self.saved = Some(choices);
     }

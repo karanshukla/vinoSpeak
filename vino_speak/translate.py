@@ -46,8 +46,8 @@ MIN_NEW_TOKENS = 64
 IDLE_UNLOAD_S = 300.0
 WATCH_EVERY_S = 30.0
 NOT_DOWNLOADED = (
-    f"The translation model ({LABEL}, about 1.7 GB) isn't downloaded. "
-    "Download it with vinospeak --download-translation-model, or from the window's About page."
+    f"The translation model ({LABEL}, about 1.7 GB) is not downloaded. "
+    "Download it with 'vinospeak --download-translation-model', or in the desktop app under Settings."
 )
 _THINK = re.compile(r"<think>.*?</think>\s*", re.S)
 _OPENING = re.compile(r"\A\s*<text>")

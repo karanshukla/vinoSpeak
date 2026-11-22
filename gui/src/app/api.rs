@@ -22,11 +22,11 @@ impl ApiState {
     fn help(&self) -> String {
         match self {
             ApiState::Off => format!(
-                "Off. Lets apps on this computer read text aloud with vinoSpeak through \
-                 OpenAI's /v1/audio/speech, on port {PORT}. It loads its own copy of the model."
+                "Off. Exposes an OpenAI-compatible /v1/audio/speech endpoint on localhost:{PORT} \
+                 for local apps. Loads a separate model instance in memory."
             ),
-            ApiState::Starting => "Loading the model…".to_owned(),
-            ApiState::Serving(url) => format!("On at {url}, for apps on this computer only."),
+            ApiState::Starting => "Loading model…".to_owned(),
+            ApiState::Serving(url) => format!("Listening at {url} (local connections only)."),
             ApiState::Failed(why) => format!("Stopped: {why}"),
         }
     }

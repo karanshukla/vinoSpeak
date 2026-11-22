@@ -41,7 +41,7 @@ OpenVINO telemetry disabled.
   [desktop window](gui/) integrated with vinoSearch, as well as a Python library
   API.
 
-<p align="center"><img src="docs/assets/gui.svg" width="800" alt="The vinoSpeak window. Typing &quot;how often is the lens cleaned&quot; finds lighthouse-log.pdf through vinoSearch; Read aloud starts speaking it and the status bar says so. Then a vinoWhisper session, Harbour safety meeting, is picked and its summary is read aloud."></p>
+<p align="center"><img src="docs/assets/gui.svg" width="800" alt="The vinoSpeak desktop window showing a search for &quot;how often is the lens cleaned&quot; finding lighthouse-log.pdf via vinoSearch, reading it aloud with status in the player bar, and then selecting the Harbour safety meeting vinoWhisper session to read its summary."></p>
 
 ## Install
 
@@ -77,17 +77,17 @@ Fedora Atomic and NixOS notes, and audio player packages.
 ## Usage
 
 ```bash
-vinospeak "Hello from vinoSpeak."                  # play it
+vinospeak "Hello from vinoSpeak."                  # play aloud
 vinospeak "Hello." --output hello.wav              # save a WAV (or .flac .ogg .opus .mp3)
 vinospeak --file notes.md --output notes.mp3 --subtitles notes.srt
 vinospeak --file notes.md                          # read a file aloud
-vinospeak --file notes.md --print-text             # see what it would say, no model load
+vinospeak --file notes.md --print-text             # preview spoken text without loading the model
 some-command | vinospeak --file -                  # plain text from stdin
-vinospeak --file 2026-10-27-140512.vwsession       # a vinoWhisper summary
+vinospeak --file 2026-10-27-140512.vwsession       # read a vinoWhisper session summary
 vinospeak '<speak>Wait.<break time="1s"/><voice name="bm_george">Done.</voice></speak>'
-vinospeak "Hola." --voice ef_dora --speed 1.2 --device CPU    # Spanish: the voice's language
-vinospeak --file notes.md --translate fr-fr                      # in French (after --download-translation-model)
-vinospeak "Hello." --voice "af_heart(2)+bm_george(1)"            # a blend of two voices
+vinospeak "Hola." --voice ef_dora --speed 1.2 --device CPU    # Spanish (inferred from the voice)
+vinospeak --file notes.md --translate fr-fr                      # translate to French (requires --download-translation-model)
+vinospeak "Hello." --voice "af_heart(2)+bm_george(1)"            # blend two voices
 ```
 
 | Option | Description |

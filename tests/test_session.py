@@ -185,8 +185,8 @@ def test_cli_prints_the_part_asked_for(capsys):
 @pytest.mark.parametrize(
     ("argv", "error"),
     [
-        (["--file", "a.md", "--part", "summary"], "--part is for a vinoWhisper session"),
-        (["--file", str(SESSION), "--kind", "plain"], "--kind doesn't apply"),
+        (["--file", "a.md", "--part", "summary"], "--part applies only to vinoWhisper sessions"),
+        (["--file", str(SESSION), "--kind", "plain"], "--kind does not apply"),
         (["--file", str(NO_SUMMARY), "--part", "summary"], "isn't summarised yet"),
     ],
 )

@@ -115,9 +115,9 @@ impl App {
     fn search_field(&mut self, ui: &mut egui::Ui, width: f32) {
         let can_search = self.vinosearch_missing.is_none();
         let hint = if can_search {
-            "Search by what's in them…"
+            "Search file contents…"
         } else {
-            "Searching needs vinoSearch"
+            "Search requires vinoSearch"
         };
         let response = ui
             .add_enabled_ui(can_search, |ui| {
@@ -137,7 +137,7 @@ impl App {
             ui,
             widgets::ButtonKind::Secondary,
             Icon::Folder,
-            "Open a file",
+            "Open file",
         );
         if open.clicked() {
             self.ask_for_a_file(ui.ctx());

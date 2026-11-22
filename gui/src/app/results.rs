@@ -21,7 +21,7 @@ const TILE: f32 = 30.0;
 /// spaces become a dot.
 fn subtitle(hit: &Hit) -> String {
     if hit.kind == Kind::Image {
-        return "Image · nothing to read".to_owned();
+        return "Image · No readable text".to_owned();
     }
     match hit.description.split_once("  ") {
         Some((place, detail)) => format!("{place} · {}", detail.trim()),
@@ -119,11 +119,11 @@ impl App {
         let typed = long_enough(&self.query);
         let still_typing = self.edited.is_some();
         if let Some(e) = &self.error {
-            Some(format!("vinoSearch didn't answer: {e}"))
+            Some(format!("Could not reach vinoSearch: {e}"))
         } else if typed && self.searching {
             Some("Searching…".to_owned())
         } else if typed && self.hits.is_empty() && !still_typing {
-            Some("Nothing close enough.".to_owned())
+            Some("No matching files found.".to_owned())
         } else {
             None
         }
@@ -132,24 +132,29 @@ impl App {
     pub(super) fn results(&mut self, ui: &mut egui::Ui) {
         if self.vinosearch_missing.is_some() {
             ui.add_space(10.0);
-            widgets::banner(ui, Tone::Info, "Search and PDFs need vinoSearch.", |ui| {
-                if ui
-                    .add(Button::secondary("Get vinoSearch").small())
-                    .clicked()
-                {
-                    let _ = family::open(family::App::Search.page());
-                }
-            });
+            widgets::banner(
+                ui,
+                Tone::Info,
+                "File search and PDF support require vinoSearch.",
+                |ui| {
+                    if ui
+                        .add(Button::secondary("Get vinoSearch").small())
+                        .clicked()
+                    {
+                        let _ = family::open(family::App::Search.page());
+                    }
+                },
+            );
         } else if let Some(note) = self.search_note() {
             ui.add_space(10.0);
             a11y::live(&widgets::muted(ui, note));
         }
         let (heading, empty) = match (self.showing_hits(), self.vinosearch_missing.is_some()) {
             (true, _) => ("Results", ""),
-            (false, false) => ("Recently changed", "Nothing indexed yet."),
+            (false, false) => ("Recently changed", "No files indexed yet."),
             (false, true) => (
                 "vinoWhisper sessions",
-                "No sessions yet. Open a file with the folder button.",
+                "No sessions found. Use the folder button to open a file.",
             ),
         };
         widgets::group_label(ui, heading);
@@ -221,6 +226,6 @@ mod tests {
     #[test]
     fn an_image_says_there_is_nothing_to_read() {
         let image = hit("~/pictures  Changed just now", Kind::Image);
-        assert_eq!(subtitle(&image), "Image · nothing to read");
+        assert_eq!(subtitle(&image), "Image · No readable text");
     }
 }

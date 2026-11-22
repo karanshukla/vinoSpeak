@@ -96,9 +96,9 @@ impl App {
         let save = ui
             .add_enabled(readable, Button::secondary(&label).min_width(width))
             .on_hover_text(if self.save_subtitles {
-                "With subtitles beside it. Format and subtitles are in Settings."
+                "Includes .srt subtitles. Change format and subtitle options in Settings."
             } else {
-                "Format and subtitles are in Settings."
+                "Change format and subtitle options in Settings."
             });
         if save.clicked() {
             self.ask_where_to_save(ui.ctx());
@@ -147,7 +147,7 @@ impl App {
         match chosen {
             Ok(Some(path)) => self.save_to(ctx, with_suffix(path, self.save_format)),
             Ok(None) => {}
-            Err(e) => self.save_note = Some(format!("Couldn't open the save dialog: {e:#}")),
+            Err(e) => self.save_note = Some(format!("Could not open save dialog: {e:#}")),
         }
     }
 
@@ -156,7 +156,8 @@ impl App {
     /// `app::tests::save_as_sends_the_file_the_voice_and_subtitles_and_reports_it_saved`).
     pub(super) fn save_to(&mut self, ctx: &egui::Context, output: PathBuf) {
         if self.model.deleting {
-            self.save_note = Some("Deleting the model; save once that's done.".to_owned());
+            self.save_note =
+                Some("Model deletion is in progress. Try again once it finishes.".to_owned());
             return;
         }
         self.start_worker(ctx);
@@ -218,20 +219,20 @@ impl App {
                     ""
                 };
                 format!(
-                    "Saved {} of speech to {}{beside}",
+                    "Saved {} of audio to {}{beside}",
                     length(*seconds),
                     saving.output.display()
                 )
             }
-            Event::SaveCancelled { id } if *id == saving.id => format!("Didn't save {name}"),
+            Event::SaveCancelled { id } if *id == saving.id => format!("Canceled saving {name}"),
             Event::Error {
                 id: Some(id),
                 message,
             } if *id == saving.id => {
-                format!("Couldn't save {name}: {message}")
+                format!("Could not save {name}: {message}")
             }
             Event::Exited(message) => {
-                self.save_note = Some(format!("Couldn't save {name}: {message}"));
+                self.save_note = Some(format!("Could not save {name}: {message}"));
                 self.saving = None;
                 return false;
             }

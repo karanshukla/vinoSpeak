@@ -42,104 +42,106 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--file",
         type=Path,
-        help="Read a text file aloud instead (- for stdin); markdown loses its markup and code blocks.",
+        help="Read a text file aloud instead (use - for stdin). Markdown formatting and code "
+        "blocks are stripped.",
     )
     parser.add_argument(
         "--kind",
         choices=readable.KINDS,
-        help="Read --file as this instead of by its suffix: document is text extracted from a "
-        "PDF, DOCX or slides, one heading, paragraph or table cell a line.",
+        help="Override file type detection for --file. Use 'document' for text extracted from "
+        "PDFs, DOCX files, or slides (one heading, paragraph, or table cell per line).",
     )
     parser.add_argument(
         "--part",
         choices=session.PARTS,
         help="Which part of a vinoWhisper session (.vwsession) to read "
-        "(default: the summary, if it has one).",
+        "(default: the summary, if available).",
     )
     parser.add_argument(
         "--serve",
         action="store_true",
-        help="Keep the model loaded and take requests on stdin (vinoSpeak's window uses this; "
-        "the protocol is private).",
+        help="Keep the model loaded and read JSON requests from stdin (internal worker mode used "
+        "by the desktop app).",
     )
     parser.add_argument(
         "--http",
         metavar="[HOST:]PORT",
         nargs="?",
         const=str(api_server.DEFAULT_PORT),
-        help="Keep the model loaded and serve OpenAI's /v1/audio/speech on this port "
-        f"(default {api_server.DEFAULT_PORT}, on 127.0.0.1; another host needs "
+        help="Keep the model loaded and serve an OpenAI-compatible /v1/audio/speech API "
+        f"(default: 127.0.0.1:{api_server.DEFAULT_PORT}; binding to another host requires "
         f"{api_server.API_KEY_VARIABLE}).",
     )
     parser.add_argument(
         "--model-status",
         action="store_true",
-        help=f"Show the downloaded model and OpenVINO's compiled cache in {model.cache_dir()}, "
-        "and their size.",
+        help=f"Show the downloaded model and OpenVINO compiled cache in {model.cache_dir()} "
+        "along with disk usage.",
     )
     parser.add_argument(
         "--delete-model",
         action="store_true",
-        help="Delete them; the next run downloads the model again. vinoPop's read-aloud "
-        "shares them. A --model-dir is never deleted.",
+        help="Delete the cached model and compiled cache (shared with vinoPop's read-aloud "
+        "feature); the next run re-downloads the model. Custom --model-dir paths are never deleted.",
     )
     parser.add_argument(
         "--lexicon",
         type=Path,
-        help='Respell words from this TOML file ([words] kubectl = "cube control") '
-        f"instead of {lexicon.default_path()}, which is used when it exists.",
+        help='Use custom pronunciation respellings from a TOML file ([words] kubectl = "cube control") '
+        f"instead of {lexicon.default_path()}.",
     )
     parser.add_argument(
         "--print-text",
         action="store_true",
-        help="Print the text that would be spoken and exit, without loading the model.",
+        help="Print the text that would be spoken and exit without loading the model.",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        help="Save the speech here instead of playing it: .wav, .flac, .ogg, .opus or .mp3.",
+        help="Save audio to a file instead of playing it (.wav, .flac, .ogg, .opus, or .mp3).",
     )
     parser.add_argument(
         "--subtitles",
         type=Path,
-        help="With --output, also save subtitles timed to it, a sentence a cue: .srt or .vtt.",
+        help="With --output, also write sentence-timed subtitles (.srt or .vtt).",
     )
     parser.add_argument(
         "--audio-device",
-        help="Play on this output instead of the default: a PipeWire or PulseAudio sink "
-        "name (pactl list short sinks), or an ALSA device.",
+        help="Audio output device: a PipeWire or PulseAudio sink name "
+        "(from 'pactl list short sinks') or an ALSA device.",
     )
     parser.add_argument(
         "--voice",
-        help=f"Kokoro voice (default {DEFAULT_VOICE}, or with --translate one of that "
-        "language; --list-voices), or a blend of up to "
-        f"{voices.MAX_BLEND} with weights: af_heart(2)+bm_george(1).",
+        help=f"Kokoro voice (default: {DEFAULT_VOICE}, or the target language's default with "
+        "--translate; see --list-voices), or a weighted blend of up to "
+        f"{voices.MAX_BLEND} voices such as af_heart(2)+bm_george(1).",
     )
     parser.add_argument(
         "--translate",
         metavar="LANGUAGE",
         choices=translate.TARGETS,
-        help=f"Translate the text into this language with {translate.LABEL} first, then read "
-        f"it: {', '.join(translate.TARGETS)}. Needs --download-translation-model once.",
+        help=f"Translate text into this language locally with {translate.LABEL} before speaking "
+        f"({', '.join(translate.TARGETS)}). Requires a one-time --download-translation-model.",
     )
     parser.add_argument(
         "--download-translation-model",
         action="store_true",
-        help=f"Download the translation model ({translate.LABEL}, about 1.7 GB) "
-        f"into {translate.native_model_dir()}, shared with vinoWhisper.",
+        help=f"Download the translation model ({translate.LABEL}, ~1.7 GB) "
+        f"into {translate.native_model_dir()} (shared with vinoWhisper).",
     )
     parser.add_argument(
         "--delete-translation-model",
         action="store_true",
-        help="Delete it and its compiled copy; a copy vinoWhisper uses is kept.",
+        help="Delete the translation model and its compiled cache "
+        "(preserves any copy used by vinoWhisper).",
     )
     parser.add_argument(
-        "--list-voices", action="store_true", help="List the voices and the language of each."
+        "--list-voices", action="store_true", help="List available voices and their languages."
     )
     parser.add_argument(
         "--language",
         choices=LANGUAGES,
-        help="Language to read the text as (default: the voice's own, so ef_dora reads Spanish).",
+        help="Override the spoken language (default: inferred from the voice, e.g. Spanish for ef_dora).",
     )
     parser.add_argument("--speed", type=float, default=1.0)
     parser.add_argument(
@@ -150,7 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model-dir",
         type=Path,
-        help=f"Model directory, used as given and not checked against the pins "
+        help=f"Use a local model directory as-is without hash verification "
         f"(default: {default_model_dir()}).",
     )
     return parser
@@ -258,14 +260,14 @@ def serve_requests(parser: argparse.ArgumentParser, arguments: argparse.Namespac
 def text_to_speak(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> str:
     """The positional text, or --file read as its kind or as a session's part."""
     if (arguments.text is None) == (arguments.file is None):
-        parser.error("give the text to speak or --file, not both")
+        parser.error("provide either text to speak or --file, not both")
     if arguments.kind and arguments.file is None:
-        parser.error("--kind says how to read --file")
+        parser.error("--kind requires --file")
     is_session = arguments.file is not None and session.is_session(arguments.file)
     if arguments.part and not is_session:
-        parser.error("--part is for a vinoWhisper session: --file x.vwsession")
+        parser.error("--part applies only to vinoWhisper sessions (--file x.vwsession)")
     if is_session and arguments.kind:
-        parser.error("a vinoWhisper session is read as one; --kind doesn't apply")
+        parser.error("--kind does not apply to a vinoWhisper session")
     try:
         if arguments.file is None:
             text: str = arguments.text
@@ -374,7 +376,7 @@ def translate_and_read(
     is translated and printed, saved or spoken a piece at a time."""
     target = arguments.translate
     if arguments.language is not None:
-        parser.error("--translate says which language to read in; drop --language")
+        parser.error("--language cannot be combined with --translate")
     arguments.voice = translate.voice_for(target, arguments.voice)
     try:
         check_translatable(text, arguments.voice, arguments.speed, target)
@@ -430,9 +432,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     text = text_to_speak(parser, arguments)
     if arguments.subtitles is not None and arguments.output is None:
-        parser.error("--subtitles are timed to a saved file: give --output too")
+        parser.error("--subtitles requires --output")
     if arguments.audio_device and arguments.output is not None:
-        parser.error("--audio-device is where speech plays; it can't go with --output")
+        parser.error("--audio-device cannot be used with --output")
     respellings = load_lexicon(parser, arguments)
     if arguments.translate:
         translate_and_read(parser, arguments, text, respellings)
