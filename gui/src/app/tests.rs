@@ -406,7 +406,7 @@ fn a_search_that_finds_nothing_says_so_and_keeps_the_recent_files() {
     let index = FakeIndex::recent(vec![scratch.file("notes.md", "Some notes.")]);
     let mut h = window(&scratch, index);
     h.state_mut().type_query("nothing like this");
-    wait_for(&mut h, "Nothing close enough.");
+    wait_for(&mut h, "No matching files found.");
     assert!(shows(&h, "Recently changed"));
     assert!(shows(&h, "notes.md"));
 }
@@ -628,7 +628,7 @@ fn a_file_vinospeak_refuses_says_why_and_cant_be_read_aloud() {
     scratch.mode("fail-preview");
     let index = FakeIndex::recent(vec![scratch.file("blob.bin", "binary")]);
     let mut h = window(&scratch, index);
-    wait_for(&mut h, "Can't read this file: not a UTF-8 text file.");
+    wait_for(&mut h, "Unable to read this file: not a UTF-8 text file.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
     h.run_steps(5);
     assert!(
@@ -641,13 +641,13 @@ fn a_file_vinospeak_refuses_says_why_and_cant_be_read_aloud() {
 fn a_search_vinosearch_fails_says_so() {
     let scratch = Scratch::new();
     let mut h = window(&scratch, FakeIndex::default());
-    wait_for(&mut h, "Nothing indexed yet.");
+    wait_for(&mut h, "No files indexed yet.");
     h.state_mut().index = Arc::new(FakeIndex {
         down: true,
         ..Default::default()
     });
     h.state_mut().type_query("anything");
-    wait_for(&mut h, "vinoSearch didn't answer");
+    wait_for(&mut h, "Could not reach vinoSearch");
 }
 
 fn without_vinosearch() -> FakeIndex {
@@ -663,7 +663,7 @@ fn without_vinosearch_the_sessions_on_disk_are_listed_and_search_is_off() {
     scratch.session_on_disk("2026-10-27-140512.vwsession", "session_v1.vwsession");
     let mut h = window(&scratch, without_vinosearch());
     wait_for(&mut h, "The summary of the session.");
-    assert!(shows(&h, "Search and PDFs need vinoSearch."));
+    assert!(shows(&h, "File search and PDF support require vinoSearch."));
     assert!(shows(&h, "vinoWhisper sessions"));
     assert!(shows(&h, "Local captioning on the NPU"));
     let search = h.get_by_label("Search");
@@ -674,7 +674,7 @@ fn without_vinosearch_the_sessions_on_disk_are_listed_and_search_is_off() {
 fn without_vinosearch_or_sessions_the_list_says_how_to_open_a_file() {
     let scratch = Scratch::new();
     let mut h = window(&scratch, without_vinosearch());
-    wait_for(&mut h, "Open a file with the folder button.");
+    wait_for(&mut h, "Use the folder button to open a file.");
 }
 
 #[test]
@@ -686,7 +686,7 @@ fn a_session_vinosearch_doesnt_list_joins_the_recent_files() {
     wait_for(&mut h, "Local captioning on the NPU");
     assert!(shows(&h, "notes.md"));
     assert!(shows(&h, "Recently changed"));
-    assert!(!shows(&h, "need vinoSearch"));
+    assert!(!shows(&h, "require vinoSearch"));
 }
 
 #[test]
@@ -749,7 +749,7 @@ fn a_session_without_a_summary_reads_its_transcript_and_says_why() {
     let mut h = window(&scratch, index);
     wait_for(&mut h, "The transcript of the session.");
     assert!(shows(&h, "27 October 2026, 14:05"));
-    assert!(shows(&h, "Not summarised yet"));
+    assert!(shows(&h, "No summary yet"));
     assert!(!scratch.read("calls").contains("--part summary"));
 }
 
@@ -788,8 +788,8 @@ fn settings_with_a_model(scratch: &Scratch) -> Harness<'static, App> {
 
 fn confirm_delete(h: &mut Harness<'_, App>) {
     h.get_by_role_and_label(Role::Button, "Delete…").click();
-    wait_for(h, "Delete the model");
-    h.get_by_role_and_label(Role::Button, "Delete the model")
+    wait_for(h, "Delete model");
+    h.get_by_role_and_label(Role::Button, "Delete model")
         .click();
 }
 
@@ -798,7 +798,7 @@ fn cancelling_the_confirmation_keeps_the_model() {
     let scratch = Scratch::new();
     let mut h = settings_with_a_model(&scratch);
     h.get_by_role_and_label(Role::Button, "Delete…").click();
-    wait_for(&mut h, "Deletes 2 MB");
+    wait_for(&mut h, "Removes 2 MB");
     h.get_by_role_and_label(Role::Button, "Cancel").click();
     wait_for(&mut h, "2 MB on disk");
     assert!(!scratch.read("calls").contains("--delete-model"));
@@ -841,7 +841,7 @@ fn the_model_cant_be_deleted_while_reading() {
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
     wait_for(&mut h, "Stop");
     h.get_by_role_and_label(Role::Tab, "Settings").click();
-    wait_for(&mut h, "Stop the reading to delete it.");
+    wait_for(&mut h, "Stop playback before deleting.");
     let delete = h.get_by_role_and_label(Role::Button, "Delete…");
     assert!(delete.accesskit_node().is_disabled());
 }
@@ -855,7 +855,7 @@ fn a_delete_vinospeak_refuses_says_why() {
     h.get_by_role_and_label(Role::Tab, "Settings").click();
     wait_for(&mut h, "2 MB on disk");
     confirm_delete(&mut h);
-    wait_for(&mut h, "Couldn't delete it: The model is downloading.");
+    wait_for(&mut h, "Could not delete model: The model is downloading.");
     assert!(scratch.0.join("cache/ov-cache/blob").is_file());
 }
 
@@ -1131,7 +1131,7 @@ fn translate_before_its_download_leads_to_the_download() {
     let mut h = tall_window(&scratch, index);
     wait_for(&mut h, "Read me.");
     h.get_by_role_and_label(Role::Button, "Translate…").click();
-    wait_for(&mut h, "Downloads 1.7 GB into your home folder.");
+    wait_for(&mut h, "Downloads 1.7 GB to your home directory.");
     assert_eq!(h.state().page, super::Page::Settings);
     assert!(
         !scratch
@@ -1148,7 +1148,10 @@ fn a_copy_vinowhisper_uses_is_shared_and_not_deleted_from_here() {
     let model = scratch.0.join("translation/SmolLM3-3B-int4-cw-ov");
     std::fs::write(model.join(".vinowhisper-verified"), "").unwrap();
     h.get_by_role_and_label(Role::Tab, "Settings").click();
-    wait_for(&mut h, "shared with vinoWhisper: delete it there.");
+    wait_for(
+        &mut h,
+        "shared with vinoWhisper (manage deletion in vinoWhisper).",
+    );
     assert!(h.query_by_label("Delete translation…").is_none());
 }
 
@@ -1206,7 +1209,7 @@ fn settings(scratch: &Scratch) -> Harness<'static, App> {
     let mut h = tall_window(scratch, index);
     wait_for(&mut h, "Some notes.");
     h.get_by_role_and_label(Role::Tab, "Settings").click();
-    wait_for(&mut h, "Off. Download SmolLM3-3B (1.7 GB)");
+    wait_for(&mut h, "Not installed. Download SmolLM3-3B (1.7 GB)");
     h
 }
 
@@ -1215,14 +1218,14 @@ fn settings_downloads_the_translation_model_only_after_confirming() {
     let scratch = Scratch::new();
     let mut h = settings(&scratch);
     h.get_by_role_and_label(Role::Button, "Download…").click();
-    wait_for(&mut h, "Downloads 1.7 GB into your home folder.");
+    wait_for(&mut h, "Downloads 1.7 GB to your home directory.");
     assert!(
         !scratch
             .read("calls")
             .contains("--download-translation-model")
     );
     h.get_by_role_and_label(Role::Button, "Download").click();
-    wait_for(&mut h, "3 MB on disk. Pick a language under Translate");
+    wait_for(&mut h, "3 MB on disk. Select a language under Translate");
     assert!(shows(&h, "Downloaded."));
     assert!(h.state().translation.downloaded);
 }
@@ -1234,7 +1237,7 @@ fn cancelling_the_download_downloads_nothing() {
     h.get_by_role_and_label(Role::Button, "Download…").click();
     wait_for(&mut h, "Downloads 1.7 GB");
     h.get_by_role_and_label(Role::Button, "Cancel").click();
-    wait_for(&mut h, "Off. Download");
+    wait_for(&mut h, "Not installed. Download");
     assert!(
         !scratch
             .read("calls")
@@ -1250,7 +1253,7 @@ fn a_download_that_fails_says_why_and_offers_it_again() {
     h.get_by_role_and_label(Role::Button, "Download…").click();
     wait_for(&mut h, "Downloads 1.7 GB");
     h.get_by_role_and_label(Role::Button, "Download").click();
-    wait_for(&mut h, "Couldn't do it: The Hub can't be reached.");
+    wait_for(&mut h, "Operation failed: The Hub can't be reached.");
     assert!(h.query_by_label("Download…").is_some());
     assert!(!h.state().translation.downloaded);
 }
@@ -1261,11 +1264,14 @@ fn deleting_the_translation_model_takes_translate_away() {
     let mut h = translating_window(&scratch);
     pick_language(&mut h, "Spanish");
     h.get_by_role_and_label(Role::Tab, "Settings").click();
-    wait_for(&mut h, "on disk. Pick a language");
+    wait_for(&mut h, "on disk. Select a language");
     h.get_by_role_and_label(Role::Button, "Delete translation…")
         .click();
-    wait_for(&mut h, "Translate goes away until you download it again.");
-    h.get_by_role_and_label(Role::Button, "Delete the translation model")
+    wait_for(
+        &mut h,
+        "Translation will be unavailable until you download the model again.",
+    );
+    h.get_by_role_and_label(Role::Button, "Delete translation model")
         .click();
     wait_for(&mut h, "Deleted the translation model (3 MB).");
     let state = h.state();
@@ -1549,10 +1555,7 @@ fn the_translation_shows_as_it_arrives_with_the_spoken_piece_marked() {
         !shows(&h, "Read me."),
         "the original gives way to the translation"
     );
-    assert!(shows(
-        &h,
-        "Spanish, translated by SmolLM3-3B on this machine"
-    ));
+    assert!(shows(&h, "Spanish (translated locally by SmolLM3-3B)"));
     assert!(selected(&h, "[es] The first piece."));
     assert!(!selected(&h, "[es] The second piece."));
     let id = h.state().reading.as_ref().unwrap().id;
@@ -1596,7 +1599,7 @@ fn a_blend_is_sent_as_one_voice_in_tenths_and_comes_back_next_run() {
     let mut h = notes_window(&scratch, "Read me.");
     h.state_mut().remember(settings.clone());
     h.get_by_role_and_label(Role::Tab, "Settings").click();
-    wait_for(&mut h, "Pick a voice to blend with first.");
+    wait_for(&mut h, "Select a second voice above to adjust the mix.");
     let state = h.state_mut();
     state.blend = voices::voice("bm_george");
     state.mix = 3;
@@ -1657,7 +1660,7 @@ fn saving_window(scratch: &Scratch) -> (Harness<'static, App>, PathBuf) {
 fn save_as_sends_the_file_the_voice_and_subtitles_and_reports_it_saved() {
     let scratch = Scratch::new();
     let (mut h, output) = saving_window(&scratch);
-    wait_for(&mut h, "Saved 1:05 of speech to");
+    wait_for(&mut h, "Saved 1:05 of audio to");
     assert!(output.is_file() && output.with_extension("srt").is_file());
     let calls = scratch.read("calls");
     let request = calls
@@ -1690,7 +1693,7 @@ fn a_save_under_way_shows_how_far_it_is_and_can_be_cancelled() {
     let (mut h, output) = saving_window(&scratch);
     wait_for(&mut h, "Saving notes.mp3 · 50%");
     h.get_by_role_and_label(Role::Button, "Cancel").click();
-    wait_for(&mut h, "Didn't save notes.mp3");
+    wait_for(&mut h, "Canceled saving notes.mp3");
     assert!(scratch.read("calls").contains(r#""op":"cancel-save""#));
     assert!(!output.exists());
 }
@@ -1700,7 +1703,7 @@ fn a_save_that_fails_says_why_and_the_reading_is_untouched() {
     let scratch = Scratch::new();
     scratch.mode("fail-save");
     let (mut h, _) = saving_window(&scratch);
-    wait_for(&mut h, "Couldn't save notes.mp3: no MP3 encoder");
+    wait_for(&mut h, "Could not save notes.mp3: no MP3 encoder");
     assert!(h.state().reading.is_none());
     assert!(!shows(&h, "Couldn't read"));
 }
@@ -1710,13 +1713,14 @@ fn saved_pronunciations_are_written_and_the_worker_reads_them_again() {
     let scratch = Scratch::new();
     let mut h = settings_with_a_model(&scratch);
     wait_for(&mut h, "Pronunciations");
-    h.get_by_role_and_label(Role::Button, "Add a word").click();
+    h.get_by_role_and_label(Role::Button, "Add word").click();
     h.run();
     h.get_by_label("Word 1").focus();
     h.get_by_label("Word 1").type_text("kubectl");
     h.run();
-    h.get_by_label("Say word 1 as").focus();
-    h.get_by_label("Say word 1 as").type_text("cube control");
+    h.get_by_label("Pronounce word 1 as").focus();
+    h.get_by_label("Pronounce word 1 as")
+        .type_text("cube control");
     h.run();
     h.get_by_role_and_label(Role::Button, "Save pronunciations")
         .click();
@@ -1741,8 +1745,8 @@ fn a_lexicon_that_cant_be_read_is_not_overwritten() {
     )
     .unwrap();
     let mut h = settings_with_a_model(&scratch);
-    wait_for(&mut h, "Can't be edited here");
-    assert!(h.query_by_label("Add a word").is_none());
+    wait_for(&mut h, "Cannot edit in Settings");
+    assert!(h.query_by_label("Add word").is_none());
     assert_eq!(
         scratch.read("config/lexicon.toml"),
         "[words]\nkubectl = 3\n"
@@ -1755,13 +1759,13 @@ fn the_speech_api_runs_while_its_switch_is_on() {
     let mut h = settings_with_a_model(&scratch);
     h.get_by_role_and_label(Role::Switch, "OpenAI speech API")
         .click();
-    wait_for(&mut h, "On at http://127.0.0.1:8880/v1");
+    wait_for(&mut h, "Listening at http://127.0.0.1:8880/v1");
     assert!(scratch.read("calls").contains("--http 8880"));
     h.get_by_role_and_label(Role::Switch, "OpenAI speech API")
         .click();
     h.run();
     assert!(h.state().api.is_none());
-    assert!(shows(&h, "Off. Lets apps on this computer"));
+    assert!(shows(&h, "Off. Exposes an OpenAI-compatible"));
 }
 
 #[test]

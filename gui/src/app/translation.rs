@@ -46,34 +46,35 @@ impl Translation {
     pub(super) fn help(&self) -> String {
         let size = model_cache::size(translation::DOWNLOAD_BYTES);
         if let Some(e) = &self.error {
-            return format!("Couldn't do it: {e}");
+            return format!("Operation failed: {e}");
         }
         match self.step {
             Some(Step::ConfirmDownload) => format!(
-                "Downloads {size} into your home folder. It loads only when you read with \
-                 Translate on, and lets go of its memory after five minutes unused."
+                "Downloads {size} to your home directory. The model loads only when translation \
+                 is enabled and unloads from memory after 5 minutes of inactivity."
             ),
             Some(Step::Downloading) => format!(
                 "Downloading… {} of {size}",
                 model_cache::size(self.bytes.min(translation::DOWNLOAD_BYTES))
             ),
             Some(Step::ConfirmDelete) => format!(
-                "Deletes {}. Translate goes away until you download it again.",
+                "Removes {} from disk. Translation will be unavailable until you download the \
+                 model again.",
                 model_cache::size(self.bytes)
             ),
             Some(Step::Deleting) => "Deleting…".to_owned(),
             None if self.shared => format!(
-                "{} on disk, shared with vinoWhisper: delete it there. Pick a language \
-                 under Translate to have a file read in it.",
+                "{} on disk, shared with vinoWhisper (manage deletion in vinoWhisper). Select a \
+                 language under Translate in the player to use it.",
                 model_cache::size(self.bytes)
             ),
             None if self.downloaded => format!(
-                "{} on disk. Pick a language under Translate to have a file read in it.",
+                "{} on disk. Select a language under Translate in the player to use it.",
                 model_cache::size(self.bytes)
             ),
             None => format!(
-                "Off. Download {} ({size}) to translate a file into Spanish, French, \
-                 Italian, Portuguese or English before it is read.",
+                "Not installed. Download {} ({size}) to translate text into Spanish, French, \
+                 Italian, Portuguese, or English before reading aloud.",
                 translation::LABEL
             ),
         }
@@ -130,7 +131,7 @@ impl App {
                 }
                 Some(Step::ConfirmDelete) => {
                     if ui
-                        .add(Button::destructive("Delete the translation model").small())
+                        .add(Button::destructive("Delete translation model").small())
                         .clicked()
                     {
                         start = Some(Step::Deleting);
@@ -210,7 +211,7 @@ impl App {
             let offered = ui
                 .add(Button::secondary("Translate…").min_width(ui.available_width()))
                 .on_hover_text(format!(
-                    "Download {} ({}) in Settings to read a file in another language",
+                    "Download {} ({}) in Settings to translate files before reading",
                     translation::LABEL,
                     model_cache::size(translation::DOWNLOAD_BYTES)
                 ));
@@ -241,7 +242,7 @@ impl App {
             ui.ctx()
                 .accesskit_node_builder(shown.response.id, |node| node.set_label("Translate"));
             shown.response.on_hover_text(format!(
-                "Translated by {} on this machine before it is read",
+                "Translates text locally with {} before reading aloud",
                 translation::LABEL
             ));
         }
@@ -281,11 +282,14 @@ mod tests {
     #[test]
     fn the_row_says_what_a_download_costs_before_it_starts() {
         let mut t = Translation::default();
-        assert!(t.help().starts_with("Off. Download SmolLM3-3B (1.7 GB)"));
+        assert!(
+            t.help()
+                .starts_with("Not installed. Download SmolLM3-3B (1.7 GB)")
+        );
         t.step = Some(Step::ConfirmDownload);
         assert!(
             t.help()
-                .starts_with("Downloads 1.7 GB into your home folder.")
+                .starts_with("Downloads 1.7 GB to your home directory.")
         );
     }
 
@@ -310,7 +314,7 @@ mod tests {
         };
         assert_eq!(
             t.help(),
-            "1.7 GB on disk. Pick a language under Translate to have a file read in it."
+            "1.7 GB on disk. Select a language under Translate in the player to use it."
         );
     }
 
@@ -321,6 +325,6 @@ mod tests {
             error: Some("no network".to_owned()),
             ..Translation::default()
         };
-        assert_eq!(t.help(), "Couldn't do it: no network");
+        assert_eq!(t.help(), "Operation failed: no network");
     }
 }

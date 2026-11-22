@@ -14,7 +14,7 @@ fn readable_filter() -> FileFilter {
     READABLE
         .iter()
         .flat_map(|ext| [format!("*.{ext}"), format!("*.{}", ext.to_uppercase())])
-        .fold(FileFilter::new("Text, sessions and documents"), |f, g| {
+        .fold(FileFilter::new("Text, sessions, and documents"), |f, g| {
             f.glob(&g)
         })
 }
@@ -23,7 +23,7 @@ fn readable_filter() -> FileFilter {
 pub fn dialog() -> Result<Option<PathBuf>> {
     let asked = async_io::block_on(async {
         SelectedFiles::open_file()
-            .title("Open a file to hear")
+            .title("Open file")
             .accept_label("Open")
             .modal(true)
             .multiple(false)
@@ -50,7 +50,7 @@ pub fn save_dialog(name: &str, kind: &str) -> Result<Option<PathBuf>> {
     let only = FileFilter::new(kind).glob(&format!("*.{suffix}"));
     let asked = async_io::block_on(async {
         SelectedFiles::save_file()
-            .title("Save the speech")
+            .title("Save audio")
             .accept_label("Save")
             .modal(true)
             .current_name(name)

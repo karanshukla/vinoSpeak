@@ -60,12 +60,13 @@ impl App {
         widgets::group_label(ui, "Pronunciations");
         widgets::group_help(
             ui,
-            "Words Kokoro says wrong, respelled as it should say them: kubectl as \
-             cube control. A word in lowercase matches any case.",
+            "Custom pronunciation respellings for words Kokoro mispronounces (for example, \
+             kubectl → cube control). Lowercase entries match any capitalization.",
         );
         if let Some(error) = self.lexicon.error.clone() {
-            let help =
-                format!("Can't be edited here: {error} Fix it by hand, then open Settings again.");
+            let help = format!(
+                "Cannot edit in Settings: {error} Fix the file manually, then reopen Settings."
+            );
             widgets::group(ui, |ui| {
                 Row::new("lexicon.toml")
                     .help(&help)
@@ -78,13 +79,13 @@ impl App {
         let mut add = false;
         let count = self.lexicon.entries.len();
         let help = match count {
-            0 => "No words yet.".to_owned(),
+            0 => "No custom pronunciations yet.".to_owned(),
             1 => "1 word".to_owned(),
             n => format!("{n} words"),
         };
         widgets::group(ui, |ui| {
             Row::new("Words").help(&help).show(ui, |ui, _| {
-                add = ui.add(Button::secondary("Add a word").small()).clicked();
+                add = ui.add(Button::secondary("Add word").small()).clicked();
             });
             if count == 0 {
                 return;
@@ -100,8 +101,8 @@ impl App {
                                 .accesskit_node_builder(shown.id, |node| node.set_label(name));
                             let arrow = ui.label("as");
                             a11y::decorative(ui, arrow.id);
-                            let shown = ui.add(widgets::field(said, "Say it as", SAID_WIDTH));
-                            let name = format!("Say word {} as", n + 1);
+                            let shown = ui.add(widgets::field(said, "Pronounce as", SAID_WIDTH));
+                            let name = format!("Pronounce word {} as", n + 1);
                             ui.ctx()
                                 .accesskit_node_builder(shown.id, |node| node.set_label(name));
                             if ui.add(Button::ghost("Remove").small()).clicked() {
@@ -156,7 +157,7 @@ impl App {
                     self.worker = None;
                 }
             }
-            Err(e) => self.lexicon.note = Some(format!("Couldn't save: {e}")),
+            Err(e) => self.lexicon.note = Some(format!("Could not save: {e}")),
         }
     }
 }

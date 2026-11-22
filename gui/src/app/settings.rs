@@ -76,7 +76,7 @@ impl App {
         widgets::group_label(ui, "Voice");
         widgets::group(ui, |ui| {
             Row::new("Blend with")
-                .help("A second voice mixed into the one picked in the player.")
+                .help("Mix a second voice into the voice selected in the player.")
                 .show(ui, |ui, _| self.blend_picker(ui));
             let help = self.mix_said();
             Row::new("Mix")
@@ -98,7 +98,7 @@ impl App {
                     u32::from(self.mix) * 10
                 )
             }
-            None => "Pick a voice to blend with first.".to_owned(),
+            None => "Select a second voice above to adjust the mix.".to_owned(),
         }
     }
 
@@ -145,7 +145,7 @@ impl App {
         widgets::group_label(ui, "Playback");
         widgets::group(ui, |ui| {
             Row::new("Output")
-                .help("Where speech plays. A change is heard from the sentence being read.")
+                .help("Audio output device. Changes apply starting at the current sentence.")
                 .show(ui, |ui, _| self.output_picker(ui));
         });
     }
@@ -175,7 +175,7 @@ impl App {
         widgets::group_label(ui, "Save as audio");
         widgets::group(ui, |ui| {
             Row::new("Format")
-                .help("What the player's Save as… saves the speech as.")
+                .help("Audio format used when exporting from the player.")
                 .show(ui, |ui, _| {
                     let label = save::kind(self.save_format).to_owned();
                     let shown = widgets::combo(ui, "save-format", label, 160.0).show_ui(ui, |ui| {
@@ -187,7 +187,7 @@ impl App {
                         .accesskit_node_builder(shown.response.id, |node| node.set_label("Format"));
                 });
             Row::new("Subtitles")
-                .help("An .srt beside the audio, timed to the speech.")
+                .help("Write a timed .srt subtitle file alongside the exported audio.")
                 .show(ui, |ui, _| {
                     widgets::switch(ui, &mut self.save_subtitles, "Subtitles");
                 });
@@ -212,13 +212,13 @@ impl App {
         let spoken_by = self.vinospeak.display().to_string();
         widgets::group_label(ui, "Model");
         widgets::group(ui, |ui| {
-            Row::new("Spoken by").help(&spoken_by).show(ui, |_, _| {});
+            Row::new("CLI binary").help(&spoken_by).show(ui, |_, _| {});
             row.show(ui, |ui, _| {
                 if self.model.deleting {
                     a11y::live(&widgets::chip(ui, ChipKind::Neutral, "Deleting…"));
                 } else if self.model.confirm {
                     if ui
-                        .add(Button::destructive("Delete the model").small())
+                        .add(Button::destructive("Delete model").small())
                         .clicked()
                     {
                         delete = true;

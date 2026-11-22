@@ -65,7 +65,7 @@ impl App {
     /// `app::tests::scrubbing_reads_again_from_where_the_bar_was_let_go`).
     pub(super) fn read_from(&mut self, ctx: &egui::Context, at: f32) {
         if self.model.deleting {
-            self.status = "Deleting the model; read it once that's done.".to_owned();
+            self.status = "Model deletion is in progress. Try again once it finishes.".to_owned();
             return;
         }
         self.start_worker(ctx);

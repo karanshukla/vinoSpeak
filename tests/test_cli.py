@@ -226,7 +226,7 @@ def test_without_language_the_voice_chooses_it(monkeypatch):
 def test_subtitles_need_an_output(capsys):
     with pytest.raises(SystemExit):
         cli.main(["Hello", "--subtitles", "a.srt"])
-    assert "give --output too" in capsys.readouterr().err
+    assert "--subtitles requires --output" in capsys.readouterr().err
 
 
 def test_subtitles_reach_the_save_and_are_reported(monkeypatch, capsys, tmp_path):
@@ -363,7 +363,7 @@ def test_a_spoken_translation_is_handed_to_speak_untranslated(translation, monke
 @pytest.mark.parametrize(
     ("argv", "complaint"),
     [
-        (["Hi.", "--translate", "es", "--language", "es"], "drop --language"),
+        (["Hi.", "--translate", "es", "--language", "es"], "cannot be combined with --translate"),
         (["<speak>Hi.</speak>", "--translate", "es"], "SSML can't be translated"),
     ],
 )

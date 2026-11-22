@@ -56,27 +56,29 @@ The player bar has two fixed rows that do not reflow:
 1. **Transport:** Read aloud / Stop button, current status, progress bar, and
    volume control.
 2. **Per reading:** Translate, Voice, Speed, and Save as audio under labeled
-   headings (four across, or two by two in a narrow window).
+   headings (four across, or in a 2×2 grid in a narrow window).
 
-What is set once rather than per reading is on **Settings**, at the foot of
-the sidebar above About (a tab in a narrow window): see [Settings](#settings).
+Persistent options are under **Settings** at the bottom of the sidebar above
+**About** (or as a tab in a narrow window). See [Settings](#settings).
 
 Behavior details:
 
-- **Persistence:** Voice and blend, speed, volume, Translate, the save
-  format and Subtitles, and whether the speech API is on are saved across runs
-  in `~/.config/vinospeak/gui.json` (or under `$XDG_CONFIG_HOME`). Mute is not
-  saved, so the window always opens unmuted.
-- **Volume and live changes:** Volume applies only to the reading rather than
-  the system output, and changes take effect mid-reading. Changing Translate,
-  Voice, Speed, Output, Blend with or Mix restarts playback from the current
-  sentence with the new setting (staying paused if it was paused), once the
-  pointer is let go.
-- **Save as audio:** saves the file's speech with the current settings, in the
-  format and with the subtitles chosen on Settings. The desktop's save dialog
-  says where; a name typed without the suffix gets it. The worker saves beside
-  any reading, so Read aloud keeps playing; while it saves, the cell shows its
-  progress and Cancel. A cancelled save leaves no file.
+- **Persistence:** Voice, blend, speed, volume, translation language, save
+  format, subtitle export, and the Speech API toggle are saved across runs in
+  `~/.config/vinospeak/gui.json` (or under `$XDG_CONFIG_HOME`). Mute state is
+  not saved, so the window always opens unmuted.
+- **Volume and live changes:** Volume applies only to vinoSpeak rather than
+  the system output, and changes take effect during playback. Changing
+  **Translate**, **Voice**, **Speed**, **Output**, **Blend with**, or **Mix**
+  restarts playback from the current sentence using the new setting once you
+  release the control (staying paused if playback was paused).
+- **Save as audio:** Exports spoken audio for the open file using the current
+  voice, speed, and translation settings, along with the format and subtitle
+  options configured in **Settings**. Choose the destination in the system save
+  dialog (the file extension is added automatically if omitted). Export runs
+  alongside playback without interrupting **Read aloud**, showing a progress bar
+  and a **Cancel** button while running. Canceling removes any partial output
+  file.
 - **Seeking:** Click or drag the progress bar beside the volume control, or
   focus it and use the arrow keys (5% per press), to restart playback from the
   start of that sentence with the current settings. Translated readings
@@ -94,15 +96,16 @@ Behavior details:
 
 | Group | What it does |
 |---|---|
-| Voice | **Blend with** mixes a second voice into the player's Voice, and **Mix** says how much, in tenths: Heart 70% · George 30% is sent as `af_heart(7)+bm_george(3)`. It reads in the first voice's language, and the player's Voice shows `Heart + George`. |
-| Playback | **Output**: where speech plays. |
-| Save as audio | **Format** (MP3, Opus, Ogg Vorbis, FLAC or WAV) and **Subtitles** (an `.srt` beside the audio) for the player's Save as. |
-| Pronunciations | Edits `~/.config/vinospeak/lexicon.toml` ([docs/usage.md](../docs/usage.md#pronunciations)), a word and how to say it per row. Saving rewrites the file as a `[words]` table, so comments in it are not kept, and the worker reads it again for the next reading. A file vinospeak would refuse is shown as an error and left alone. |
-| Translation | Downloads or deletes the translation model (below). |
-| Speech API | A switch that runs `vinospeak --http 8880` (OpenAI's `/v1/audio/speech` on 127.0.0.1) while the window is open, and shows the URL once it is listening. It loads its own copy of the model, so it costs memory on top of the window's worker. A server that exits (the port taken, say) turns the switch off and says why. |
-| Model | The Kokoro model's size, and Delete (below). |
+| Voice | **Blend with** mixes a second voice into the selected voice, and **Mix** sets the ratio in 10% steps (for example, Heart 70% · George 30% is sent as `af_heart(7)+bm_george(3)`). Playback uses the primary voice's language, and the player displays `Heart + George`. |
+| Playback | **Output** selects the audio output device. |
+| Save as audio | **Format** (MP3, Opus, Ogg Vorbis, FLAC, or WAV) and **Subtitles** (writes a matching `.srt` file next to the audio) used by the player's **Save as** button. |
+| Pronunciations | Edits `~/.config/vinospeak/lexicon.toml` ([docs/usage.md](../docs/usage.md#pronunciations)) with one word and pronunciation respelling per row. Saving rewrites the file as a `[words]` table (comments are not preserved) and reloads it in the worker for subsequent playback. Invalid files are reported as an error and left unmodified. |
+| Translation | Downloads or deletes the optional local translation model (see [Translation](#translation)). |
+| Speech API | Starts `vinospeak --http 8880` (OpenAI-compatible `/v1/audio/speech` on `127.0.0.1`) while the window is open and displays the base URL once ready. Because the HTTP server loads its own model instance, it uses additional memory alongside the GUI worker. If the server exits (for example, if port 8880 is already in use), the switch turns off and displays the error. |
+| Model | Shows the path to `vinospeak`, the cached Kokoro model size, and a **Delete…** button (see [Model management](#model-management)). |
 
-About shows the app, its updates and the other vinoPilot apps.
+The **About** page shows application details, update controls, and links to other
+vinoPilot apps.
 
 ## Translation
 
@@ -135,14 +138,14 @@ the next reading re-downloads the model.
 
 Environment variables allow driving the window without interactive input:
 
-- `VINOSPEAK_GUI_QUERY` — runs a search query on startup.
-- `VINOSPEAK_GUI_SCREENSHOT=out.png` — saves a screenshot once the first hit's
+- `VINOSPEAK_GUI_QUERY`: runs a search query on startup.
+- `VINOSPEAK_GUI_SCREENSHOT=out.png`: saves a screenshot once the first hit's
   text loads, then exits.
-- `VINOSPEAK_GUI_SPEAK=1` — starts reading before capturing the screenshot
+- `VINOSPEAK_GUI_SPEAK=1`: starts reading before capturing the screenshot
   (values greater than 1 read for that many seconds instead of the default 4 s).
-- `VINOSPEAK_GUI_SETTINGS=1` — opens the Settings page;
+- `VINOSPEAK_GUI_SETTINGS=1`: opens the Settings page;
   `VINOSPEAK_GUI_SETTINGS=delete` opens it at the model delete confirmation.
-- `VINOSPEAK_GUI_ABOUT=1` — opens the About page.
+- `VINOSPEAK_GUI_ABOUT=1`: opens the About page.
 
 `cargo test` runs headless UI tests using
 [egui_kittest](https://crates.io/crates/egui_kittest), locating widgets by their

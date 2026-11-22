@@ -159,9 +159,9 @@ Pauses (`<break>`) become silence steps that never hit the synthesis pipeline.
 Planning runs before model loading so invalid `<break>` values or malformed
 lexicons fail immediately.
 
-OpenVINO GenAI 2026.4's Kokoro pipeline ignores inline phonemes—misaki's
+OpenVINO GenAI 2026.4's Kokoro pipeline ignores inline phonemes (misaki's
 `[word](/IPA/)` syntax had no effect when tested with 18 `ʃ` phonemes, producing
-audio the length of the plain word (CPU, 2026-11-18)—which is why the lexicon
+audio the length of the plain word on CPU, 2026-11-18), which is why the lexicon
 uses plain-text respellings.
 
 ## Translation
@@ -177,14 +177,14 @@ unloads after `IDLE_UNLOAD_S` (five minutes) of inactivity.
 
 On the NPU, the pipeline uses vinoWhisper's context window (`MAX_PROMPT_LEN`
 3072, `MIN_RESPONSE_LEN` 1024), capping input pieces at 1,500 characters and
-outputs at 1,024 tokens. Pieces follow `chunks()`—the first sentence alone, then
-pieces that at most double—so playback starts after translating one sentence
-rather than the whole file. One piece is translated ahead on a background thread
-while the previous piece is synthesized and played.
+outputs at 1,024 tokens. Pieces follow `chunks()` (the first sentence alone,
+then pieces that at most double in length) so playback starts after translating
+one sentence rather than the whole file. One piece is translated ahead on a
+background thread while the previous piece is synthesized and played.
 
 ### Storage and sharing with vinoWhisper
 
-- **Shared directory:** The model lives in
+- **Shared directory:** The model is stored in
   `$XDG_DATA_HOME/vinowhisper/models/SmolLM3-3B-int4-cw-ov/` (same sharing rule
   as vinoPop's Gemma), so installing both apps keeps a single 1.7 GB copy.
 - **Shared pins and markers:** Both apps share pins; vinoSpeak accepts
@@ -243,9 +243,9 @@ Because `pw-play` only gained `--raw` after PipeWire 1.0 (Ubuntu 24.04 ships
 1.0.5, Debian 12 ships 0.3.65), vinoSpeak checks `pw-play --help` and skips it
 if `--raw` is absent.
 
-`Speech` uses two threads—one synthesizing and one feeding the player—connected
-by a single-chunk queue. Buffering one chunk ahead keeps audio continuous while
-avoiding wasted synthesis if `stop()` is called
+`Speech` uses two threads (one synthesizing and one feeding the player)
+connected by a single-chunk queue. Buffering one chunk ahead keeps audio
+continuous while avoiding wasted synthesis if `stop()` is called
 (`test_synthesis_runs_one_chunk_ahead_of_a_player_that_is_not_reading`).
 
 ### Progress and volume
@@ -306,8 +306,8 @@ so both follow the same contract for the model cache and formatting:
   (with voices in `voices/*.bin`) and OpenVINO's `ov-cache/`.
 - **Disk usage:** Sum of regular file byte sizes at any depth; symlinks are
   neither followed nor counted.
-- **Size formatting:** Decimal units—one decimal place from 1 GB up, whole
-  megabytes from 1 MB up, whole kilobytes below that (`163 MB`, `1.3 GB`,
+- **Size formatting:** Decimal units (one decimal place from 1 GB up, whole
+  megabytes from 1 MB up, and whole kilobytes below that: `163 MB`, `1.3 GB`,
   `1 kB`), with exact halves rounded to even (`2.5 MB` -> `2 MB`, `3.5 MB` ->
   `4 MB`; prior to 2026-11-15 the window rounded halves up).
 - **Skipped code marker:** Fenced code blocks are represented as
@@ -369,9 +369,9 @@ matching the window's own progress bar.
 
 Inline Markdown regexes in `readable.py` stop at the next opening delimiter so
 an unclosed `[` or `**` scans only to the next opener rather than the end of the
-line. Previously, using `.+?` caused quadratic runtime—a line with 5,000
-unclosed `**a ` tokens took 3.3 s and could hang the GUI preview (2026-10-25).
-With bounded delimiters, 25,000 tokens take about 20 ms
+line. Previously, using `.+?` caused quadratic runtime: a line with 5,000 unclosed
+`**a ` tokens took 3.3 s and could hang the GUI preview (2026-10-25). With
+bounded delimiters, 25,000 tokens take about 20 ms
 (`test_unclosed_inline_markup_is_linear`).
 
 In extracted documents (`--kind document`), hyphenated line breaks are rejoined

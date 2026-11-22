@@ -149,9 +149,9 @@ times match playback, which makes saving slightly slower. Sentences longer than
 two lines of 42 characters are split across cues with durations proportional to
 character length, so mid-sentence cue splits are approximate.
 
-In the window, the player's Save as does the same for the file shown, beside
-any reading, in the format and with the subtitles (an `.srt` beside it) chosen
-on Settings.
+In the desktop window, the player's **Save as** button exports the currently
+open file in the background without interrupting playback, using the format and
+subtitle options configured in **Settings**.
 
 ## Voices
 
@@ -166,8 +166,9 @@ Each voice ID's leading letter determines its default language, so `--language`
 is only needed when reading text in a different language. A blend combines up to
 8 voices by weight (weights do not need to sum to 1; `af_heart+af_bella` mixes
 them equally) and uses the first voice's language. The GUI worker and Python API
-accept the same blend syntax; Blend with and Mix on the window's Settings pick a
-second voice and how much of it, in tenths.
+accept the same blend syntax. In the desktop window, **Blend with** and **Mix**
+on the **Settings** page select a second voice and its blend ratio in 10%
+increments.
 
 ## vinoWhisper sessions
 
@@ -209,8 +210,8 @@ lists available voices and `GET /v1/models` exposes the model under OpenAI's
 model names. Only `pcm` streams audio as chunks finish; encoded formats are sent
 once synthesis completes.
 
-In the window, the Speech API switch in Settings runs `vinospeak --http` on
-port 8880 while the window is open.
+In the desktop window, the **Speech API** switch in **Settings** runs
+`vinospeak --http` on port 8880 while the window is open.
 
 By default the server binds only to `127.0.0.1`. To bind to another address, set
 `VINOSPEAK_API_KEY` and send `Authorization: Bearer <key>` on every request; see
@@ -221,7 +222,7 @@ By default the server binds only to `127.0.0.1`. To bind to another address, set
 The Kokoro model is fetched from Hugging Face at a pinned commit and every file
 is verified against its SHA-256 digest (see [SECURITY.md](../SECURITY.md)). Both
 the model (~160 MB) and OpenVINO's compiled-model cache (so subsequent runs skip
-NPU compilation) live under `~/.cache/vinospeak/` (`$XDG_CACHE_HOME/vinospeak/`).
+NPU compilation) are stored in `~/.cache/vinospeak/` (`$XDG_CACHE_HOME/vinospeak/`).
 
 ```bash
 vinospeak --model-status    # show cached files and disk usage

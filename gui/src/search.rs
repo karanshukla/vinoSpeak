@@ -195,7 +195,7 @@ fn recent(limit: u32) -> Result<Vec<Hit>> {
                 &(limit,),
             )
             .await
-            .context("this vinoSearch can't list recent files")?
+            .context("installed vinoSearch version does not support listing recent files")?
             .body()
             .deserialize()?;
         let now = std::time::SystemTime::now()
@@ -221,7 +221,7 @@ fn file_text(path: &Path) -> Result<String> {
                 &(path.to_string_lossy().as_ref(),),
             )
             .await
-            .context("vinoSearch couldn't extract the text")?
+            .context("vinoSearch could not extract text from this file")?
             .body()
             .deserialize()?;
         Ok(text)

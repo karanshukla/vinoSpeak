@@ -403,7 +403,7 @@ def test_smollm3_asks_greedily_without_reasoning_and_says_when_it_was_cut(fake_g
 
 
 def test_smollm3_refuses_a_model_that_isnt_downloaded(data_home):
-    with pytest.raises(RuntimeError, match="isn't downloaded"):
+    with pytest.raises(RuntimeError, match="is not downloaded"):
         translate.SmolLM3("CPU")
 
 

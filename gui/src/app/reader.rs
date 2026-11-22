@@ -88,7 +88,10 @@ impl App {
                     ..Margin::ZERO
                 })
                 .show(ui, |ui| {
-                    widgets::muted(ui, "Pick a file to hear it, or open one.");
+                    widgets::muted(
+                        ui,
+                        "Select a file from the list or open one to start reading.",
+                    );
                     self.status_line(ui);
                 });
             return;
@@ -163,7 +166,7 @@ impl App {
                 })
                 .inner;
             if !summarised {
-                widgets::muted(ui, "Not summarised yet");
+                widgets::muted(ui, "No summary yet");
             }
             if changed {
                 self.part = part;
@@ -186,7 +189,7 @@ impl App {
             widgets::muted(
                 ui,
                 format!(
-                    "{}, translated by {} on this machine",
+                    "{} (translated locally by {})",
                     into.name,
                     translation::LABEL
                 ),
@@ -215,7 +218,7 @@ impl App {
             let says = if under_way {
                 format!("Translating into {}…", translated.into.name)
             } else {
-                "Stopped before anything was translated.".to_owned()
+                "Stopped before translation started.".to_owned()
             };
             a11y::live(&widgets::muted(ui, says));
             return;
@@ -231,9 +234,9 @@ impl App {
                 widgets::muted(
                     ui,
                     if under_way {
-                        "Translating the rest…"
+                        "Translating remaining text…"
                     } else {
-                        "Stopped before the rest was translated."
+                        "Stopped before translation finished."
                     },
                 );
             }
@@ -243,19 +246,25 @@ impl App {
     fn text(&self, ui: &mut egui::Ui, hit: &Hit) {
         match (&hit.kind, &self.preview) {
             (Kind::Image, _) => {
-                widgets::muted(ui, "An image has no text to read.");
+                widgets::muted(ui, "Images do not contain readable text.");
             }
             (Kind::Document, None) => {
-                a11y::live(&widgets::muted(ui, "Getting the text from vinoSearch…"));
+                a11y::live(&widgets::muted(ui, "Extracting text via vinoSearch…"));
             }
             (_, None) => {
-                a11y::live(&widgets::muted(ui, "Preparing the text…"));
+                a11y::live(&widgets::muted(ui, "Loading text…"));
             }
             (_, Some(Err(e))) => {
-                a11y::live(&widgets::muted(ui, format!("Can't read this file: {e}")));
+                a11y::live(&widgets::muted(
+                    ui,
+                    format!("Unable to read this file: {e}"),
+                ));
             }
             (_, Some(Ok(preview))) if preview.paragraphs.is_empty() => {
-                widgets::muted(ui, "This file has no text to read (a scan?).");
+                widgets::muted(
+                    ui,
+                    "This file contains no readable text (it may be a scanned image).",
+                );
             }
             (_, Some(Ok(preview))) => {
                 widgets::page_scroll(ui, "the text", MEASURE, |ui| {
