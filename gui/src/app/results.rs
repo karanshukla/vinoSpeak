@@ -13,7 +13,6 @@ use super::App;
 use super::files::long_enough;
 use crate::search::{Hit, Kind};
 
-const ROW_RADIUS: f32 = 10.0;
 const TILE: f32 = 30.0;
 
 /// The line under a file's name. vinoSearch describes a hit as
@@ -49,7 +48,6 @@ fn row(ui: &mut egui::Ui, hit: &Hit, subtitle: &str) -> egui::Rect {
     });
     let shown = egui::Frame::new()
         .inner_margin(Margin::symmetric(10, 9))
-        .corner_radius(ROW_RADIUS)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal_top(|ui| {
@@ -73,7 +71,8 @@ fn row(ui: &mut egui::Ui, hit: &Hit, subtitle: &str) -> egui::Rect {
     shown.response.rect
 }
 
-/// The row's fill and outlines, painted into `background` under its content.
+/// The row's fill, hairline divider, and edge-anchored selection bar, painted
+/// into `background` under its content.
 fn highlight(
     ui: &egui::Ui,
     background: egui::layers::ShapeIdx,
@@ -82,29 +81,56 @@ fn highlight(
     chosen: bool,
 ) {
     let p = theme::palette(ui.ctx());
-    let outline = |width: f32| {
-        ui.painter().rect_stroke(
+    let painter = ui.painter();
+    if chosen {
+        painter.set(background, egui::Shape::rect_filled(rect, 0.0, p.tint));
+        painter.rect_filled(
+            egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height())),
+            0.0,
+            p.accent,
+        );
+    } else if response.hovered() {
+        painter.set(background, egui::Shape::rect_filled(rect, 0.0, p.field));
+    }
+    painter.hline(
+        rect.left()..=rect.right(),
+        rect.top(),
+        Stroke::new(1.0_f32, p.rule),
+    );
+    if response.has_focus() {
+        painter.rect_stroke(
             rect,
-            ROW_RADIUS,
-            Stroke::new(width, p.accent),
+            0.0,
+            Stroke::new(2.0_f32, p.accent),
             egui::StrokeKind::Inside,
         );
-    };
-    let fill = |color| {
-        ui.painter().set(
-            background,
-            egui::Shape::rect_filled(rect, ROW_RADIUS, color),
+    }
+}
+
+/// In-context hover preview for a file row: full name, path, and description
+/// without switching away from the current document.
+fn hit_hover_preview(response: &egui::Response, hit: &Hit, subtitle: &str) {
+    let name = hit.name.clone();
+    let path = hit.path.display().to_string();
+    let detail = subtitle.to_owned();
+    response.clone().on_hover_ui(move |ui| {
+        let p = theme::palette(ui.ctx());
+        ui.set_max_width(280.0);
+        ui.spacing_mut().item_spacing.y = 4.0;
+        ui.add(
+            egui::Label::new(
+                RichText::new(&name)
+                    .size(13.5)
+                    .family(theme::semibold())
+                    .color(p.text),
+            )
+            .wrap(),
         );
-    };
-    if chosen {
-        fill(p.tint);
-        outline(1.0);
-    } else if response.hovered() {
-        fill(p.field);
-    }
-    if response.has_focus() {
-        outline(2.0);
-    }
+        ui.add(egui::Label::new(RichText::new(&path).monospace().size(11.5).color(p.muted)).wrap());
+        if !detail.is_empty() {
+            widgets::small(ui, &detail);
+        }
+    });
 }
 
 impl App {
@@ -170,22 +196,33 @@ impl App {
 
     /// The listed files as a list box; the one clicked this frame.
     fn file_list(&self, ui: &mut egui::Ui) -> Option<Hit> {
+        let p = theme::palette(ui.ctx());
         let selected = self.selected.as_ref().map(|h| &h.path);
         let mut clicked = None;
         widgets::page_scroll(ui, "the files", f32::INFINITY, |ui| {
             a11y::list_box(ui, "Files");
-            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let mut last_rect = None;
             for (i, hit) in self.listed().iter().enumerate() {
                 let chosen = selected == Some(&hit.path);
                 let subtitle = subtitle(hit);
                 let background = ui.painter().add(egui::Shape::Noop);
                 let rect = row(ui, hit, &subtitle);
+                last_rect = Some(rect);
                 let response = ui.interact(rect, ui.scope_id().with(i), Sense::click());
                 highlight(ui, background, rect, &response, chosen);
+                hit_hover_preview(&response, hit, &subtitle);
                 a11y::list_box_option(&response, &format!("{}, {subtitle}", hit.name), chosen);
                 if response.clicked() {
                     clicked = Some(hit.clone());
                 }
+            }
+            if let Some(rect) = last_rect {
+                ui.painter().hline(
+                    rect.left()..=rect.right(),
+                    rect.bottom(),
+                    Stroke::new(1.0_f32, p.rule),
+                );
             }
         });
         clicked
