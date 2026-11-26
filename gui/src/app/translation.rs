@@ -149,7 +149,7 @@ impl App {
                     }
                 }
                 None => {
-                    if ui.add(Button::secondary("Download…")).clicked() {
+                    if ui.add(Button::tonal("Download…")).clicked() {
                         self.translation.step = Some(Step::ConfirmDownload);
                         self.translation.error = None;
                     }

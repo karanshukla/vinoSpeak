@@ -115,7 +115,7 @@ fn hit_hover_preview(response: &egui::Response, hit: &Hit, subtitle: &str) {
     let detail = subtitle.to_owned();
     response.clone().on_hover_ui(move |ui| {
         let p = theme::palette(ui.ctx());
-        ui.set_max_width(280.0);
+        ui.set_max_width(widgets::popup_width(ui.ctx(), 280.0));
         ui.spacing_mut().item_spacing.y = 4.0;
         ui.add(
             egui::Label::new(
@@ -163,10 +163,7 @@ impl App {
                 Tone::Info,
                 "Search and PDFs require vinoSearch.",
                 |ui| {
-                    if ui
-                        .add(Button::secondary("Get vinoSearch").small())
-                        .clicked()
-                    {
+                    if ui.add(Button::tonal("Get vinoSearch").small()).clicked() {
                         let _ = family::open(family::App::Search.page());
                     }
                 },

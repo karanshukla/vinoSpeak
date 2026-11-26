@@ -154,12 +154,12 @@ impl App {
     /// stays on Transcript, disabled: vino-ui's segmented can't disable one
     /// option alone.
     fn part_toggle(&mut self, ui: &mut egui::Ui, summarised: bool) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
             let mut part = self.part;
             let changed = ui
                 .add_enabled_ui(summarised, |ui| {
-                    widgets::segmented(ui, "Part", &mut part, &PARTS)
+                    widgets::button_group(ui, "Part", &mut part, &PARTS)
                 })
                 .inner;
             if !summarised {
@@ -180,9 +180,9 @@ impl App {
     }
 
     fn translation_toggle(&mut self, ui: &mut egui::Ui, into: translation::Target) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
-            widgets::segmented(ui, "Text shown", &mut self.show_original, &SHOWN);
+            widgets::button_group(ui, "Text shown", &mut self.show_original, &SHOWN);
             widgets::muted(
                 ui,
                 format!(

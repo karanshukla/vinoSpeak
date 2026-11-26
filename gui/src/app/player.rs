@@ -238,24 +238,22 @@ impl App {
     /// way from where it is, and Save as….
     fn reading_choices(&mut self, ui: &mut egui::Ui) {
         let per_row = settings_per_row(ui.available_width());
-        let mut cells: Vec<Setting> = vec![
+        let cells: [Setting; 4] = [
             ("TRANSLATE", Self::translate_picker),
             ("VOICE", Self::voice_picker),
             ("SPEED", Self::speed_picker),
             ("SAVE AS AUDIO", Self::save_cell),
         ];
-        while !cells.is_empty() {
-            let row: Vec<_> = cells.drain(..per_row.min(cells.len())).collect();
-            ui.spacing_mut().item_spacing.x = SETTING_GAP;
-            ui.columns(per_row, |columns| {
-                for (column, (heading, picker)) in columns.iter_mut().zip(row) {
-                    setting(column, heading, |ui| picker(self, ui));
-                }
-            });
-            if !cells.is_empty() {
-                ui.add_space(8.0);
-            }
-        }
+        widgets::responsive_grid(
+            ui,
+            &cells,
+            MIN_SETTING_WIDTH,
+            SETTING_GAP,
+            per_row,
+            |ui, (heading, picker), _| {
+                setting(ui, heading, |ui| picker(self, ui));
+            },
+        );
     }
 
     fn speed_picker(&mut self, ui: &mut egui::Ui) {
