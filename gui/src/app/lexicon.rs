@@ -85,7 +85,7 @@ impl App {
         };
         widgets::group(ui, |ui| {
             Row::new("Words").help(&help).show(ui, |ui, _| {
-                add = ui.add(Button::secondary("Add word").small()).clicked();
+                add = ui.add(Button::tonal("Add word").small()).clicked();
             });
             if count == 0 {
                 return;
@@ -94,7 +94,7 @@ impl App {
                 .inner_margin(egui::Margin::symmetric(14, 10))
                 .show(ui, |ui| {
                     for (n, (word, said)) in self.lexicon.entries.iter_mut().enumerate() {
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             let shown = ui.add(widgets::field(word, "Word", WORD_WIDTH));
                             let name = format!("Word {}", n + 1);
                             ui.ctx()

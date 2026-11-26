@@ -93,14 +93,41 @@ impl App {
         }
         let readable = matches!(self.preview, Some(Ok(_)));
         let label = format!("Save as {}…", kind(self.save_format));
-        let save = ui
-            .add_enabled(readable, Button::secondary(&label).min_width(width))
-            .on_hover_text(if self.save_subtitles {
-                "Includes .srt subtitles. Change format and subtitle options in Settings."
-            } else {
-                "Change format and subtitle options in Settings."
-            });
-        if save.clicked() {
+        let lead_w = (width - widgets::CONTROL_HEIGHT - 2.0).max(0.0);
+        let mut ask = false;
+        ui.add_enabled_ui(readable, |ui| {
+            let split = widgets::split_button(
+                ui,
+                Button::tonal(&label).min_width(lead_w),
+                "Save audio options",
+                |ui| {
+                    ui.set_min_width(widgets::popup_width(ui.ctx(), 180.0));
+                    for &(suffix, name) in &FORMATS {
+                        if ui
+                            .selectable_label(self.save_format == suffix, name)
+                            .clicked()
+                        {
+                            self.save_format = suffix;
+                            ui.close();
+                        }
+                    }
+                    ui.separator();
+                    ui.checkbox(&mut self.save_subtitles, "Include .srt subtitles");
+                },
+            );
+            if split
+                .primary
+                .on_hover_text(if self.save_subtitles {
+                    "Includes .srt subtitles. Open the menu or Settings to change format."
+                } else {
+                    "Open the menu or Settings to change format and subtitle options."
+                })
+                .clicked()
+            {
+                ask = true;
+            }
+        });
+        if ask {
             self.ask_where_to_save(ui.ctx());
         }
     }

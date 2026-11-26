@@ -30,11 +30,12 @@ impl App {
     pub(super) fn header_panel(&mut self, root: &mut egui::Ui) {
         let p = theme::palette(root.ctx());
         let header = theme::header(root.ctx(), self.kde_header.as_ref(), self.focused);
+        let inset = widgets::content_inset(root.ctx().content_rect().width()) as i8;
         egui::Panel::top("header")
             .show_separator_line(false)
             .frame(widgets::header_frame(header, p).inner_margin(Margin {
-                left: 16,
-                right: 16,
+                left: inset,
+                right: inset,
                 top: 8,
                 bottom: 0,
             }))

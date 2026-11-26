@@ -59,8 +59,6 @@ use crate::speech::{self, Part, Reading, Worker};
 use crate::voices::{self, Voice};
 
 const DEFAULT_VOICE: &str = "af_heart";
-/// A narrow window's page, from its left edge: the header's own inset.
-const NARROW_INSET: f32 = 16.0;
 
 /// What a background thread sends back to the window.
 enum Reply {
@@ -343,11 +341,7 @@ impl App {
             self.header_panel(root);
         }
         let bar = wide && self.app_title_bar;
-        let inset = if wide {
-            widgets::page_inset(window)
-        } else {
-            NARROW_INSET
-        };
+        let inset = widgets::content_inset(window);
         if bar {
             vino_ui::window::bar(root, inset, |ui| self.bar_title(ui), |_| {});
         }
@@ -398,7 +392,7 @@ impl App {
                 if !wide && self.listing {
                     egui::Frame::NONE
                         .inner_margin(Margin {
-                            right: 16,
+                            right: inset as i8,
                             ..margin
                         })
                         .show(ui, |ui| self.files_page(ui));
