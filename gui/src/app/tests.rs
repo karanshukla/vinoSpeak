@@ -1607,7 +1607,7 @@ fn a_blend_is_sent_as_one_voice_in_tenths_and_comes_back_next_run() {
     state.blend = voices::voice("bm_george");
     state.mix = 3;
     h.run();
-    assert!(h.query_by_label("Mix").is_some());
+    assert!(h.query_all_by_label("Mix").next().is_some());
     assert!(shows(&h, "Heart 70% · George 30%"));
     h.get_by_role_and_label(Role::Tab, "Settings").click();
     h.run();
