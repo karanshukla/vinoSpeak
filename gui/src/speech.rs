@@ -10,8 +10,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 
 /// What a failure to start vinospeak is put down to.
-pub const NOT_RUNNABLE: &str =
-    "Could not start vinospeak (install with: uv tool install vinospeak)";
+pub const NOT_RUNNABLE: &str = "Couldn't start vinospeak (install with: uv tool install vinospeak)";
 
 /// How long the worker has to stop a reading, or to exit, before it is killed.
 pub const STOP_GRACE: Duration = Duration::from_secs(2);

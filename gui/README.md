@@ -122,17 +122,18 @@ delete it later (unless vinoWhisper shares the same copy).
   spoken piece highlighted. A **Translation / Original** toggle above the text
   switches back to the source text, and the translation stays attached to that
   file until the next reading.
-- The worker loads the translation model only on the first translated reading.
-  Until the first audio plays, the player displays a spinner labeled
-  `Starting…` or `Translating…`, since loading models and translating the first
-  sentence take several seconds.
+- The worker loads the translation model only on the first translated reading
+  and unloads it after 5 minutes of inactivity. Until the first audio plays, the
+  player displays a spinner labeled `Starting…` or `Translating…`, since loading
+  models and translating the first sentence take several seconds.
 
 ## Model management
 
-The **Settings** page displays the total size of the cached Kokoro model and
-provides a **Delete…** button (`vinospeak --delete-model`). Deleting waits for
-any active reading to stop and shuts down the `vinospeak --serve` worker first;
-the next reading re-downloads the model.
+The **Settings** page displays the total size of the cached Kokoro model
+(including OpenVINO's compiled cache) and provides a **Delete…** button
+(`vinospeak --delete-model`). Deleting waits for any active reading to stop and
+shuts down the `vinospeak --serve` worker first; the next reading re-downloads
+the model.
 
 ## Headless testing and automation
 

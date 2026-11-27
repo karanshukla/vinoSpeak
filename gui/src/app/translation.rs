@@ -46,35 +46,28 @@ impl Translation {
     pub(super) fn help(&self) -> String {
         let size = model_cache::size(translation::DOWNLOAD_BYTES);
         if let Some(e) = &self.error {
-            return format!("Operation failed: {e}");
+            return format!("Failed: {e}");
         }
         match self.step {
-            Some(Step::ConfirmDownload) => format!(
-                "Downloads {size} to your home directory. The model loads only when translation \
-                 is enabled and unloads from memory after 5 minutes of inactivity."
-            ),
+            Some(Step::ConfirmDownload) => {
+                format!("Downloads {size}. Only loads when you translate.")
+            }
             Some(Step::Downloading) => format!(
-                "Downloading… {} of {size}",
+                "{} of {size}",
                 model_cache::size(self.bytes.min(translation::DOWNLOAD_BYTES))
             ),
             Some(Step::ConfirmDelete) => format!(
-                "Removes {} from disk. Translation will be unavailable until you download the \
-                 model again.",
+                "Deletes {}. You can download it again later.",
                 model_cache::size(self.bytes)
             ),
-            Some(Step::Deleting) => "Deleting…".to_owned(),
+            Some(Step::Deleting) => String::new(),
             None if self.shared => format!(
-                "{} on disk, shared with vinoWhisper (manage deletion in vinoWhisper). Select a \
-                 target language in the player to translate before reading.",
+                "{} on disk · shared with vinoWhisper (delete it there).",
                 model_cache::size(self.bytes)
             ),
-            None if self.downloaded => format!(
-                "{} on disk. Select a target language in the player to translate before reading.",
-                model_cache::size(self.bytes)
-            ),
+            None if self.downloaded => format!("{} on disk.", model_cache::size(self.bytes)),
             None => format!(
-                "Not installed. Download {} ({size}) to translate files (Spanish, French, \
-                 Italian, Portuguese, or English) before reading aloud.",
+                "Not downloaded. {} ({size}) translates files locally before reading.",
                 translation::LABEL
             ),
         }
@@ -131,7 +124,7 @@ impl App {
                 }
                 Some(Step::ConfirmDelete) => {
                     if ui
-                        .add(Button::destructive("Delete the translation model").small())
+                        .add(Button::destructive("Delete model").small())
                         .clicked()
                     {
                         start = Some(Step::Deleting);
@@ -142,8 +135,11 @@ impl App {
                 }
                 None if self.translation.shared => {}
                 None if self.translation.downloaded => {
-                    let button = Button::secondary("Delete translation…");
-                    if ui.add_enabled(!reading, button).clicked() {
+                    let shown = ui.add_enabled(!reading, Button::secondary("Delete…"));
+                    ui.ctx().accesskit_node_builder(shown.id, |node| {
+                        node.set_label("Delete translation model");
+                    });
+                    if shown.clicked() {
                         self.translation.step = Some(Step::ConfirmDelete);
                         self.translation.error = None;
                     }
@@ -211,8 +207,7 @@ impl App {
             let offered = ui
                 .add(Button::secondary("Translate…").min_width(ui.available_width()))
                 .on_hover_text(format!(
-                    "Download {} ({}) in Settings to translate files before reading",
-                    translation::LABEL,
+                    "Download translation model ({}) in Settings",
                     model_cache::size(translation::DOWNLOAD_BYTES)
                 ));
             if offered.clicked() {
@@ -241,10 +236,9 @@ impl App {
             });
             ui.ctx()
                 .accesskit_node_builder(shown.response.id, |node| node.set_label("Translate"));
-            shown.response.on_hover_text(format!(
-                "Local translation with {} before reading aloud",
-                translation::LABEL
-            ));
+            shown
+                .response
+                .on_hover_text(format!("Translate locally with {}", translation::LABEL));
         }
         if self.translate_to != chosen
             && let Some(target) = self.translate_to
@@ -282,15 +276,12 @@ mod tests {
     #[test]
     fn the_row_says_what_a_download_costs_before_it_starts() {
         let mut t = Translation::default();
-        assert!(
-            t.help()
-                .starts_with("Not installed. Download SmolLM3-3B (1.7 GB)")
+        assert_eq!(
+            t.help(),
+            "Not downloaded. SmolLM3-3B (1.7 GB) translates files locally before reading."
         );
         t.step = Some(Step::ConfirmDownload);
-        assert!(
-            t.help()
-                .starts_with("Downloads 1.7 GB to your home directory.")
-        );
+        assert_eq!(t.help(), "Downloads 1.7 GB. Only loads when you translate.");
     }
 
     #[test]
@@ -300,9 +291,9 @@ mod tests {
             bytes: 512_000_000,
             ..Translation::default()
         };
-        assert_eq!(t.help(), "Downloading… 512 MB of 1.7 GB");
+        assert_eq!(t.help(), "512 MB of 1.7 GB");
         t.bytes = 2_000_000_000;
-        assert_eq!(t.help(), "Downloading… 1.7 GB of 1.7 GB");
+        assert_eq!(t.help(), "1.7 GB of 1.7 GB");
     }
 
     #[test]
@@ -312,10 +303,7 @@ mod tests {
             bytes: 1_702_000_000,
             ..Translation::default()
         };
-        assert_eq!(
-            t.help(),
-            "1.7 GB on disk. Select a target language in the player to translate before reading."
-        );
+        assert_eq!(t.help(), "1.7 GB on disk.");
     }
 
     #[test]
@@ -325,6 +313,6 @@ mod tests {
             error: Some("no network".to_owned()),
             ..Translation::default()
         };
-        assert_eq!(t.help(), "Operation failed: no network");
+        assert_eq!(t.help(), "Failed: no network");
     }
 }

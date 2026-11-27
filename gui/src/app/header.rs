@@ -116,9 +116,9 @@ impl App {
     fn search_field(&mut self, ui: &mut egui::Ui, width: f32) {
         let can_search = self.vinosearch_missing.is_none();
         let hint = if can_search {
-            "Search file contents…"
+            "Search files…"
         } else {
-            "Searching requires vinoSearch"
+            "Install vinoSearch to search"
         };
         let response = ui
             .add_enabled_ui(can_search, |ui| {

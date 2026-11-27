@@ -306,7 +306,7 @@ impl App {
 
     fn read_aloud_button(&mut self, ui: &mut egui::Ui) {
         let p = theme::palette(ui.ctx());
-        let readable = matches!(self.preview, Some(Ok(_)));
+        let readable = matches!(self.preview, Some(Ok(_))) && !self.model.deleting;
         let button = round_button(
             ui,
             Icon::Play,

@@ -91,7 +91,7 @@ impl App {
             });
             return;
         }
-        let readable = matches!(self.preview, Some(Ok(_)));
+        let readable = matches!(self.preview, Some(Ok(_))) && !self.model.deleting;
         let label = format!("Save as {}…", kind(self.save_format));
         let lead_w = (width - widgets::CONTROL_HEIGHT - 2.0).max(0.0);
         let mut ask = false;
@@ -115,15 +115,12 @@ impl App {
                     ui.checkbox(&mut self.save_subtitles, "Include .srt subtitles");
                 },
             );
-            if split
-                .primary
-                .on_hover_text(if self.save_subtitles {
-                    "Includes .srt subtitles. Open the menu or Settings to change format."
-                } else {
-                    "Open the menu or Settings to change format and subtitle options."
-                })
-                .clicked()
-            {
+            let primary = if self.save_subtitles {
+                split.primary.on_hover_text("Includes .srt subtitles")
+            } else {
+                split.primary
+            };
+            if primary.clicked() {
                 ask = true;
             }
         });
@@ -174,7 +171,7 @@ impl App {
         match chosen {
             Ok(Some(path)) => self.save_to(ctx, with_suffix(path, self.save_format)),
             Ok(None) => {}
-            Err(e) => self.save_note = Some(format!("Could not open save dialog: {e:#}")),
+            Err(e) => self.save_note = Some(format!("Couldn't open save dialog: {e:#}")),
         }
     }
 
@@ -183,7 +180,7 @@ impl App {
     /// `app::tests::save_as_sends_the_file_the_voice_and_subtitles_and_reports_it_saved`).
     pub(super) fn save_to(&mut self, ctx: &egui::Context, output: PathBuf) {
         if self.model.deleting {
-            self.save_note = Some("Model deletion in progress. Try again shortly.".to_owned());
+            self.save_note = Some("Deleting model — try again shortly.".to_owned());
             return;
         }
         self.start_worker(ctx);
@@ -239,15 +236,11 @@ impl App {
                 return true;
             }
             Event::Saved { id, seconds } if *id == saving.id => {
-                let beside = if self.save_subtitles {
-                    ", with subtitles"
-                } else {
-                    ""
-                };
+                let beside = if self.save_subtitles { " + .srt" } else { "" };
                 format!(
-                    "Saved {} of audio to {}{beside}",
-                    length(*seconds),
-                    saving.output.display()
+                    "Saved {} ({}){beside}",
+                    saving.output.display(),
+                    length(*seconds)
                 )
             }
             Event::SaveCancelled { id } if *id == saving.id => format!("Canceled saving {name}"),
@@ -255,10 +248,10 @@ impl App {
                 id: Some(id),
                 message,
             } if *id == saving.id => {
-                format!("Could not save {name}: {message}")
+                format!("Couldn't save {name}: {message}")
             }
             Event::Exited(message) => {
-                self.save_note = Some(format!("Could not save {name}: {message}"));
+                self.save_note = Some(format!("Couldn't save {name}: {message}"));
                 self.saving = None;
                 return false;
             }

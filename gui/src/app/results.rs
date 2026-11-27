@@ -145,11 +145,11 @@ impl App {
         let typed = long_enough(&self.query);
         let still_typing = self.edited.is_some();
         if let Some(e) = &self.error {
-            Some(format!("Could not reach vinoSearch: {e}"))
+            Some(format!("Couldn't reach vinoSearch: {e}"))
         } else if typed && self.searching {
             Some("Searching…".to_owned())
         } else if typed && self.hits.is_empty() && !still_typing {
-            Some("No matching files found.".to_owned())
+            Some("No matches.".to_owned())
         } else {
             None
         }
@@ -172,17 +172,21 @@ impl App {
             ui.add_space(10.0);
             a11y::live(&widgets::muted(ui, note));
         }
-        let (heading, empty) = match (self.showing_hits(), self.vinosearch_missing.is_some()) {
+        let no_search = self.vinosearch_missing.is_some();
+        let (heading, empty) = match (self.showing_hits(), no_search) {
             (true, _) => ("Results", ""),
             (false, false) => ("Recently changed", "No files indexed yet."),
-            (false, true) => (
-                "vinoWhisper sessions",
-                "No sessions found. Use the folder button to open one.",
-            ),
+            (false, true) => ("vinoWhisper sessions", "No sessions yet."),
         };
         widgets::group_label(ui, heading);
         if !self.showing_hits() && self.recent.is_empty() {
             widgets::muted(ui, empty);
+            if no_search {
+                ui.add_space(8.0);
+                if ui.add(Button::secondary("Open file…").small()).clicked() {
+                    self.ask_for_a_file(ui.ctx());
+                }
+            }
             return;
         }
         if let Some(hit) = self.file_list(ui) {
