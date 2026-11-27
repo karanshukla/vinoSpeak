@@ -1,6 +1,6 @@
 [package]
 name = "vinospeak-gui"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2024"
 # egui 0.37 (vino-ui's), as vinoWhisper's gui; CI builds with it
 rust-version = "1.95"
