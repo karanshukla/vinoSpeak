@@ -79,14 +79,18 @@ fn round_button(
     enabled: bool,
 ) -> egui::Response {
     let p = theme::palette(ui.ctx());
-    let (rect, response) = ui.allocate_exact_size(
-        egui::Vec2::splat(BUTTON_DIAMETER),
-        if enabled {
-            Sense::click()
-        } else {
-            Sense::hover()
-        },
-    );
+    let (rect, response) = ui
+        .add_enabled_ui(enabled, |ui| {
+            ui.allocate_exact_size(
+                egui::Vec2::splat(BUTTON_DIAMETER),
+                if enabled {
+                    Sense::click()
+                } else {
+                    Sense::hover()
+                },
+            )
+        })
+        .inner;
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, name));
     if ui.is_rect_visible(rect) {
         let fade = |c: Color32| if enabled { c } else { c.gamma_multiply(0.45) };
