@@ -238,7 +238,7 @@ impl App {
         match chosen {
             Ok(Some(path)) => self.open(ctx, path),
             Ok(None) => {}
-            Err(e) => self.status = format!("Could not open file dialog: {e:#}"),
+            Err(e) => self.status = format!("Couldn't open file dialog: {e:#}"),
         }
     }
 

@@ -24,8 +24,8 @@ pub(super) struct Pronunciations {
     note: Option<String>,
 }
 
-const WORD_WIDTH: f32 = 150.0;
-const SAID_WIDTH: f32 = 200.0;
+const WORD_WIDTH: f32 = 175.0;
+const SAID_WIDTH: f32 = 230.0;
 
 impl Pronunciations {
     pub(super) fn at(path: Option<PathBuf>) -> Self {
@@ -58,15 +58,10 @@ impl App {
 
     pub(super) fn lexicon_rows(&mut self, ui: &mut egui::Ui) {
         widgets::group_label(ui, "Pronunciations");
-        widgets::group_help(
-            ui,
-            "Custom pronunciation respellings for words Kokoro mispronounces (for example, \
-             kubectl as cube control). Lowercase entries match any capitalization.",
-        );
+        widgets::group_help(ui, "Respell words so they're pronounced the way you want.");
         if let Some(error) = self.lexicon.error.clone() {
-            let help = format!(
-                "Cannot edit in Settings: {error} Fix the file manually, then reopen Settings."
-            );
+            let help =
+                format!("Couldn't read lexicon.toml: {error} Fix the file and reopen Settings.");
             widgets::group(ui, |ui| {
                 Row::new("lexicon.toml")
                     .help(&help)
@@ -79,7 +74,7 @@ impl App {
         let mut add = false;
         let count = self.lexicon.entries.len();
         let help = match count {
-            0 => "No custom words added yet.".to_owned(),
+            0 => "No words yet".to_owned(),
             1 => "1 word".to_owned(),
             n => format!("{n} words"),
         };
@@ -95,13 +90,18 @@ impl App {
                 .show(ui, |ui| {
                     for (n, (word, said)) in self.lexicon.entries.iter_mut().enumerate() {
                         ui.horizontal_wrapped(|ui| {
-                            let shown = ui.add(widgets::field(word, "Word", WORD_WIDTH));
+                            let shown =
+                                ui.add(widgets::field(word, "Word (e.g. kubectl)", WORD_WIDTH));
                             let name = format!("Word {}", n + 1);
                             ui.ctx()
                                 .accesskit_node_builder(shown.id, |node| node.set_label(name));
                             let arrow = ui.label("as");
                             a11y::decorative(ui, arrow.id);
-                            let shown = ui.add(widgets::field(said, "Spoken as", SAID_WIDTH));
+                            let shown = ui.add(widgets::field(
+                                said,
+                                "Spoken as (e.g. cube control)",
+                                SAID_WIDTH,
+                            ));
                             let name = format!("Say word {} as", n + 1);
                             ui.ctx()
                                 .accesskit_node_builder(shown.id, |node| node.set_label(name));
@@ -148,7 +148,7 @@ impl App {
             .collect();
         match lexicon::save(&path, &kept) {
             Ok(()) => {
-                self.lexicon.note = Some(format!("Saved to {}", path.display()));
+                self.lexicon.note = Some("Saved.".to_owned());
                 self.lexicon.saved.clone_from(&kept);
                 self.lexicon.entries = kept;
                 if let Some(worker) = &mut self.worker
@@ -157,7 +157,7 @@ impl App {
                     self.worker = None;
                 }
             }
-            Err(e) => self.lexicon.note = Some(format!("Could not save: {e}")),
+            Err(e) => self.lexicon.note = Some(format!("Couldn't save: {e}")),
         }
     }
 }

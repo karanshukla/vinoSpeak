@@ -23,25 +23,21 @@ impl Model {
     /// The line under the Model row's title, for `bytes` on disk.
     pub(super) fn help(&self, bytes: u64, reading: bool) -> String {
         if let Some(e) = &self.error {
-            format!("Could not delete model: {e}")
+            format!("Couldn't delete model: {e}")
         } else if self.confirm {
             format!(
-                "Removes {} from disk. The next reading will re-download about 160 MB \
-                 (shared with vinoPop's read-aloud feature).",
+                "Deletes {} (shared with vinoPop). Re-downloads ~160 MB on next read.",
                 model_cache::size(bytes)
             )
         } else if bytes == 0 {
-            "Not downloaded yet. The first reading downloads about 160 MB.".to_owned()
+            "Not downloaded. First read downloads ~160 MB.".to_owned()
         } else if reading {
             format!(
                 "{} on disk. Stop playback before deleting.",
                 model_cache::size(bytes)
             )
         } else {
-            format!(
-                "{} on disk (including OpenVINO compiled cache).",
-                model_cache::size(bytes)
-            )
+            format!("{} on disk.", model_cache::size(bytes))
         }
     }
 }
@@ -114,13 +110,10 @@ mod tests {
     #[test]
     fn the_row_says_what_is_on_disk() {
         let model = Model::default();
-        assert_eq!(
-            model.help(ON_DISK, false),
-            "163 MB on disk (including OpenVINO compiled cache)."
-        );
+        assert_eq!(model.help(ON_DISK, false), "163 MB on disk.");
         assert_eq!(
             model.help(0, false),
-            "Not downloaded yet. The first reading downloads about 160 MB."
+            "Not downloaded. First read downloads ~160 MB."
         );
     }
 
@@ -141,8 +134,7 @@ mod tests {
         };
         assert_eq!(
             model.help(ON_DISK, false),
-            "Removes 163 MB from disk. The next reading will re-download about 160 MB \
-             (shared with vinoPop's read-aloud feature)."
+            "Deletes 163 MB (shared with vinoPop). Re-downloads ~160 MB on next read."
         );
     }
 
@@ -155,7 +147,7 @@ mod tests {
         };
         assert_eq!(
             model.help(ON_DISK, false),
-            "Could not delete model: The model is downloading."
+            "Couldn't delete model: The model is downloading."
         );
     }
 }

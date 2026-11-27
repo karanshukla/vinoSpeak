@@ -76,30 +76,27 @@ impl App {
         widgets::group_label(ui, "Voice");
         widgets::group(ui, |ui| {
             Row::new("Blend with")
-                .help("Blend a second speaker into the one selected in the player.")
+                .help("Mix a second voice into the main voice.")
                 .show(ui, |ui, _| self.blend_picker(ui));
-            let help = self.mix_said();
-            Row::new("Mix")
-                .help(&help)
-                .show(ui, |ui, _| self.mix_slider(ui));
+            if let Some(help) = self.mix_said() {
+                Row::new("Mix")
+                    .help(&help)
+                    .show(ui, |ui, _| self.mix_slider(ui));
+            }
         });
     }
 
     /// The player's voice and the blended one, in tenths: `Heart 70% · George 30%`.
-    fn mix_said(&self) -> String {
-        match &self.blend {
-            Some(blend) => {
-                let first = 10 - u32::from(self.mix);
-                format!(
-                    "{} {}% · {} {}%",
-                    self.voice.name,
-                    first * 10,
-                    blend.name,
-                    u32::from(self.mix) * 10
-                )
-            }
-            None => "Select a second speaker above to adjust the ratio.".to_owned(),
-        }
+    fn mix_said(&self) -> Option<String> {
+        let blend = self.blend.as_ref()?;
+        let first = 10 - u32::from(self.mix);
+        Some(format!(
+            "{} {}% · {} {}%",
+            self.voice.name,
+            first * 10,
+            blend.name,
+            u32::from(self.mix) * 10
+        ))
     }
 
     /// A second voice, offered as the voice picker offers voices.
@@ -134,7 +131,7 @@ impl App {
         let slider = egui::Slider::new(&mut mix, 1..=crate::voices::MIX_TENTHS)
             .show_value(false)
             .step_by(1.0);
-        let shown = ui.add_enabled(self.blend.is_some(), slider);
+        let shown = ui.add(slider);
         ui.ctx()
             .accesskit_node_builder(shown.id, |node| node.set_label("Mix"));
         self.mix = mix;
@@ -144,9 +141,7 @@ impl App {
     fn playback_rows(&mut self, ui: &mut egui::Ui) {
         widgets::group_label(ui, "Playback");
         widgets::group(ui, |ui| {
-            Row::new("Output")
-                .help("Audio playback device. Changes apply starting at the current sentence.")
-                .show(ui, |ui, _| self.output_picker(ui));
+            Row::new("Output").show(ui, |ui, _| self.output_picker(ui));
         });
     }
 
@@ -174,20 +169,18 @@ impl App {
     fn saving_rows(&mut self, ui: &mut egui::Ui) {
         widgets::group_label(ui, "Save as audio");
         widgets::group(ui, |ui| {
-            Row::new("Format")
-                .help("Audio file type used when exporting from the player.")
-                .show(ui, |ui, _| {
-                    let label = save::kind(self.save_format).to_owned();
-                    let shown = widgets::combo(ui, "save-format", label, 160.0).show_ui(ui, |ui| {
-                        for (suffix, name) in save::FORMATS {
-                            ui.selectable_value(&mut self.save_format, suffix, name);
-                        }
-                    });
-                    ui.ctx()
-                        .accesskit_node_builder(shown.response.id, |node| node.set_label("Format"));
+            Row::new("Format").show(ui, |ui, _| {
+                let label = save::kind(self.save_format).to_owned();
+                let shown = widgets::combo(ui, "save-format", label, 160.0).show_ui(ui, |ui| {
+                    for (suffix, name) in save::FORMATS {
+                        ui.selectable_value(&mut self.save_format, suffix, name);
+                    }
                 });
+                ui.ctx()
+                    .accesskit_node_builder(shown.response.id, |node| node.set_label("Format"));
+            });
             Row::new("Subtitles")
-                .help("Write a timed .srt caption file alongside the exported audio.")
+                .help("Save a matching .srt file alongside audio.")
                 .show(ui, |ui, _| {
                     widgets::switch(ui, &mut self.save_subtitles, "Subtitles");
                 });
@@ -218,7 +211,7 @@ impl App {
                     a11y::live(&widgets::chip(ui, ChipKind::Neutral, "Deleting…"));
                 } else if self.model.confirm {
                     if ui
-                        .add(Button::destructive("Delete the model").small())
+                        .add(Button::destructive("Delete model").small())
                         .clicked()
                     {
                         delete = true;

@@ -21,12 +21,11 @@ pub(super) enum ApiState {
 impl ApiState {
     fn help(&self) -> String {
         match self {
-            ApiState::Off => format!(
-                "Off. Exposes an OpenAI-compatible /v1/audio/speech endpoint on localhost:{PORT} \
-                 for local apps. Loads a separate model instance in memory."
-            ),
+            ApiState::Off => {
+                format!("Serves /v1/audio/speech on localhost:{PORT} for local apps.")
+            }
             ApiState::Starting => "Loading model…".to_owned(),
-            ApiState::Serving(url) => format!("Listening at {url} (local connections only)."),
+            ApiState::Serving(url) => format!("Listening at {url}"),
             ApiState::Failed(why) => format!("Stopped: {why}"),
         }
     }
