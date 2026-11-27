@@ -813,7 +813,7 @@ fn settings_deletes_the_model_after_confirming_in_place() {
     let scratch = Scratch::new();
     let mut h = settings_with_a_model(&scratch);
     confirm_delete(&mut h);
-    wait_for(&mut h, "Not downloaded");
+    wait_for(&mut h, "First read downloads ~160 MB.");
     assert!(shows(&h, "Deleted the model and its compiled cache"));
     assert!(h.state().worker.is_none(), "the worker let go of the model");
     let delete = h.get_by_role_and_label(Role::Button, "Delete…");
@@ -827,7 +827,7 @@ fn after_a_delete_the_next_reading_starts_a_worker_again() {
     let scratch = Scratch::new();
     let mut h = settings_with_a_model(&scratch);
     confirm_delete(&mut h);
-    wait_for(&mut h, "Not downloaded");
+    wait_for(&mut h, "First read downloads ~160 MB.");
     h.get_by_label("notes.md").click();
     wait_for(&mut h, "Some notes.");
     h.get_by_role_and_label(Role::Button, "Read aloud").click();
